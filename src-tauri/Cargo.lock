@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "a2tools-dps-meter"
-version = "2.0.38"
+version = "2.0.41"
 dependencies = [
  "chrono",
  "flate2",
@@ -26,6 +26,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "urlencoding",
+ "webkit2gtk",
  "windows 0.59.0",
 ]
 
