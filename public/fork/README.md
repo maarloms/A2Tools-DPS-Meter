@@ -9,23 +9,33 @@ Das Theme folgt dem DPS-Meter.
 
 ## Zeitplan
 
-- Raum-Zeit-Riss: Global-Regel 00/03/06/09/12/15/18/21 UTC.
-  Der Nutzer hat 23:00 Europe/Berlin am 02.10.2026 ingame bestätigt.
-  Sommerzeit: 02/05/08/11/14/17/20/23 Uhr deutscher Zeit.
-  Winterzeit: 01/04/07/10/13/16/19/22 Uhr deutscher Zeit.
-- Portal-offen-Anzeige: 10 Minuten; kein 60-Minuten-Aufenthaltstimer.
-- Shugofesta: jede volle Stunde. Minispiele sind wechselnde Varianten und
-  werden nicht als unabhängig vorhersehbare stündliche Events dargestellt.
-- Dimensionale Invasion: jede halbe Stunde. Beritra, Verfluchtes Schwert und
-  Überfall der Naturgeister sind Varianten. Angezeigt wird ihr gemeinsamer Start.
-- Basis: Global-Client 1.0.21.0, Europa-Ereigniskalender, Stand 30.09.2026:
-  https://aion2.gaming.tools/de/event-calendar
-- Riss-Gegenprüfung: https://aion2hub.com/tools/event-timer
-- Belagerungen und weitere Bosse sind noch nicht eingebunden.
-- Daten: events.json; keine Remote-Datenaktualisierung in dieser Version.
-- Eine Zeitkorrektur verschiebt alle Ereignisse gemeinsam.
-- Bestehende Minigame-/Beritra-Filter werden auf die gemeinsame Aktivität migriert.
+Quelle: Global-Client 1.0.21.0, Rohdaten von aion2.gaming.tools
+(`schedules.d.json`). Events mit Serverzeit laufen auf der Regionsuhr,
+für Europa `Europe/Berlin`; Resets auf 16:00 koreanischer Zeit.
 
+| Event | Zeit (deutsch) | Stand |
+|---|---|---|
+| Raumzeit-Riss | täglich 02/05/08/11/14/17/20/23, Portal 10 min | ingame bestätigt (23:00, 02.10.) |
+| Shugofesta | jede volle Stunde (9 wechselnde Minispiele) | Clientdaten |
+| Dimensionale Invasion | jede halbe Stunde (3 Varianten) | Clientdaten |
+| Artefakt-Eroberung | Mo/Do/Sa 21:00 | Clientdaten, ingame offen |
+| Vollstrecker Tamasa · Agro · Kaira (Untere Ebene) | Mo/Do/Sa 21:30 | Clientdaten, ingame offen |
+| Dhramos · Ducal · Maraka (Mittlere Ebene) | Mo/Do/Sa 21:30 | Clientdaten, ingame offen |
+| Wächtergott Nahma / Wütender Wächtergott Nahma | Fr/So 21:00 | Clientdaten, ingame offen |
+| Aufseherin Kaira | täglich 01/04/…/22 | Clientdaten, ingame offen |
+| Arena der Strategie | täglich 11–14 und 19–21 | Clientdaten, ingame offen |
+| Täglicher / wöchentlicher Reset (Mi) | 09:00 Sommerzeit, 08:00 Winterzeit | mehrere Quellen |
+
+- aion2hub/gamers4.life rechnen Global mit GMT+9 (Belagerung wäre dann
+  14:00 deutscher Zeit). Der Riss passt zu beiden Annahmen, deshalb einmal
+  eine Belagerung oder Kaira ingame prüfen.
+- Nach der Zeitumstellung am 25.10. bleibt der Riss auf 02/05/… deutscher
+  Zeit (Regionsuhr). Ebenfalls ingame gegenprüfen.
+- Nur KR/TW, nicht im Global-Client: Abyss-Riss-Zone, Raumzeit-Riss-Herrschaft.
+- Feldbosse (Verteron/Altgard) respawnen nach Kill, kein fester Zeitplan.
+- Neue Events mit `enabled: true` werden bei bestehenden Auswahlen einmalig
+  dazugeschaltet (`preferences.known`).
+- Eine Zeitkorrektur verschiebt alle Ereignisse gemeinsam.
 ## Einstellungen
 
 Kompakte Schalter, einklappbare Eventgruppen und Auswahlzähler im Reiter

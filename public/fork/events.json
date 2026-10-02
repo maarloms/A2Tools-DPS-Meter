@@ -1,74 +1,43 @@
 {
-  "version": 2,
+  "version": 3,
   "displayTimeZone": "Europe/Berlin",
   "sources": [
     "https://aion2.gaming.tools/de/event-calendar",
+    "https://cdn-hosted.gaming.tools/aion2/data/de/schedules.d.json",
     "https://aion2hub.com/tools/event-timer"
   ],
   "events": [
     {
-      "id": "rift",
-      "category": "Risse",
-      "name": "Raum-Zeit-Riss",
-      "timeZone": "UTC",
-      "hours": [
-        0,
-        3,
-        6,
-        9,
-        12,
-        15,
-        18,
-        21
-      ],
+      "timeZone": "Europe/Berlin",
       "minute": 0,
       "durationMinutes": 10,
       "enabled": true,
       "confirmed": true,
-      "note": "23:00 Uhr deutscher Zeit am 02.10.2026 ingame bestätigt. Portal 10 Minuten offen."
-    },
-    {
-      "id": "shugofesta",
-      "category": "Aktivitäten",
-      "name": "Shugofesta",
-      "timeZone": "UTC",
+      "id": "rift",
+      "category": "Risse",
+      "name": "Raumzeit-Riss",
       "hours": [
-        0,
-        1,
         2,
-        3,
-        4,
         5,
-        6,
-        7,
         8,
-        9,
-        10,
         11,
-        12,
-        13,
         14,
-        15,
-        16,
         17,
-        18,
-        19,
         20,
-        21,
-        22,
         23
       ],
+      "activeText": "Portal offen bis",
+      "note": "23:00 Uhr deutscher Zeit am 02.10.2026 ingame bestätigt. Portal 10 Minuten offen. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin)."
+    },
+    {
+      "timeZone": "Europe/Berlin",
       "minute": 0,
       "durationMinutes": 0,
       "enabled": false,
       "confirmed": true,
-      "note": "Global-Zeitplan: jede volle Stunde. Minispiele wechseln; einzelne Varianten lassen sich nicht zeitlich vorhersagen."
-    },
-    {
-      "id": "invasion",
+      "id": "shugofesta",
       "category": "Aktivitäten",
-      "name": "Dimensionale Invasion",
-      "timeZone": "UTC",
+      "name": "Shugofesta",
       "hours": [
         0,
         1,
@@ -95,11 +64,219 @@
         22,
         23
       ],
+      "note": "Jede volle Stunde. Minispiele wechseln: Jump Jump, Geister meiden, Mystische Strecke, Finde den Lugi, Odtropfen sammeln, Goldrins Schatz, Beschütze die Shugo-Händler, Hoch hinaus!, War das die richtige Kachel? Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin)."
+    },
+    {
+      "timeZone": "Europe/Berlin",
       "minute": 30,
       "durationMinutes": 0,
       "enabled": false,
       "confirmed": true,
-      "note": "Global-Client-Zeitplan: jede halbe Stunde. Beritra-Luftangriff, Verfluchtes Schwert und Überfall der Naturgeister sind Varianten."
+      "id": "invasion",
+      "category": "Aktivitäten",
+      "name": "Dimensionale Invasion",
+      "hours": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ],
+      "note": "Jede halbe Stunde. Varianten: Beritra-Luftangriff, Verfluchtes Schwert, Überfall der Naturgeister. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin)."
+    },
+    {
+      "timeZone": "Europe/Berlin",
+      "minute": 0,
+      "durationMinutes": 30,
+      "enabled": true,
+      "confirmed": false,
+      "id": "artifact",
+      "category": "Abyss",
+      "name": "Artefakt-Eroberung",
+      "hours": [
+        21
+      ],
+      "weekdays": [
+        1,
+        4,
+        6
+      ],
+      "note": "Mo, Do, Sa 21:00. Untere und Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+    },
+    {
+      "timeZone": "Europe/Berlin",
+      "minute": 30,
+      "durationMinutes": 30,
+      "enabled": true,
+      "confirmed": false,
+      "id": "siege-bosses-lower",
+      "category": "Abyss",
+      "name": "Vollstrecker Tamasa · Agro · Kaira",
+      "hours": [
+        21
+      ],
+      "weekdays": [
+        1,
+        4,
+        6
+      ],
+      "note": "Mo, Do, Sa 21:30, Chaotische Untere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+    },
+    {
+      "timeZone": "Europe/Berlin",
+      "minute": 30,
+      "durationMinutes": 30,
+      "enabled": false,
+      "confirmed": false,
+      "id": "siege-bosses-middle",
+      "category": "Abyss",
+      "name": "Dhramos · Ducal · Maraka",
+      "hours": [
+        21
+      ],
+      "weekdays": [
+        1,
+        4,
+        6
+      ],
+      "note": "Scharfrichter Dhramos, Verräter Ducal, Verwüster Maraka. Mo, Do, Sa 21:30, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+    },
+    {
+      "timeZone": "Europe/Berlin",
+      "minute": 0,
+      "durationMinutes": 30,
+      "enabled": true,
+      "confirmed": false,
+      "id": "nahma",
+      "category": "Abyss",
+      "name": "Wächtergott Nahma",
+      "hours": [
+        21
+      ],
+      "weekdays": [
+        0,
+        5
+      ],
+      "note": "Fr, So 21:00, Chaotische Untere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+    },
+    {
+      "timeZone": "Europe/Berlin",
+      "minute": 0,
+      "durationMinutes": 30,
+      "enabled": false,
+      "confirmed": false,
+      "id": "nahma-enraged",
+      "category": "Abyss",
+      "name": "Wütender Wächtergott Nahma",
+      "hours": [
+        21
+      ],
+      "weekdays": [
+        0,
+        5
+      ],
+      "note": "Fr, So 21:00, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+    },
+    {
+      "timeZone": "Europe/Berlin",
+      "minute": 0,
+      "durationMinutes": 30,
+      "enabled": true,
+      "confirmed": false,
+      "id": "watcher-kaira",
+      "category": "Abyss",
+      "name": "Aufseherin Kaira",
+      "hours": [
+        1,
+        4,
+        7,
+        10,
+        13,
+        16,
+        19,
+        22
+      ],
+      "note": "Alle 3 Stunden ab 01:00, zufälliger Ort in der Chaotischen Unteren Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+    },
+    {
+      "timeZone": "Europe/Berlin",
+      "minute": 0,
+      "durationMinutes": 180,
+      "enabled": false,
+      "confirmed": false,
+      "id": "arena-midday",
+      "category": "PvP",
+      "name": "Arena der Strategie · Mittag",
+      "hours": [
+        11
+      ],
+      "activeText": "Geöffnet bis",
+      "note": "Täglich 11:00–14:00. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+    },
+    {
+      "timeZone": "Europe/Berlin",
+      "minute": 0,
+      "durationMinutes": 120,
+      "enabled": false,
+      "confirmed": false,
+      "id": "arena-evening",
+      "category": "PvP",
+      "name": "Arena der Strategie · Abend",
+      "hours": [
+        19
+      ],
+      "activeText": "Geöffnet bis",
+      "note": "Täglich 19:00–21:00. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+    },
+    {
+      "timeZone": "Asia/Seoul",
+      "minute": 0,
+      "durationMinutes": 0,
+      "enabled": false,
+      "confirmed": true,
+      "id": "reset-daily",
+      "category": "Resets",
+      "name": "Täglicher Reset",
+      "hours": [
+        16
+      ],
+      "note": "16:00 koreanischer Zeit = 09:00 Sommerzeit / 08:00 Winterzeit in Deutschland. Quests, Kina-Limits, Shugofesta- und Invasions-Schlüssel, Albtraum-Versuche."
+    },
+    {
+      "timeZone": "Asia/Seoul",
+      "minute": 0,
+      "durationMinutes": 0,
+      "enabled": false,
+      "confirmed": true,
+      "id": "reset-weekly",
+      "category": "Resets",
+      "name": "Wöchentlicher Reset",
+      "hours": [
+        16
+      ],
+      "weekdays": [
+        3
+      ],
+      "note": "Mittwoch 16:00 koreanischer Zeit. Wochenquests, Arena-Belohnungen, Abyss-Nutzungszeit, Aszensusritus, Dungeon-Rotation."
     }
   ]
 }

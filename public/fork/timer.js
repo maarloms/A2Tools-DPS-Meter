@@ -4,6 +4,13 @@ const native = window.__TAURI__;
 let data, preferences, locked = false, writeQueue = Promise.resolve(), signature = "";
 const time = new Intl.DateTimeFormat("de-DE", { timeZone:"Europe/Berlin", hour:"2-digit", minute:"2-digit" });
 const clock = new Intl.DateTimeFormat("de-DE", { timeZone:"Europe/Berlin", hour:"2-digit", minute:"2-digit", second:"2-digit" });
+const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone:"Europe/Berlin" });
+const weekday = new Intl.DateTimeFormat("de-DE", { timeZone:"Europe/Berlin", weekday:"short" });
+// "21:30" today, "Sa 21:30" on any other day.
+function when(ms, now) {
+  const t = time.format(ms);
+  return dayKey.format(ms) === dayKey.format(now) ? t : weekday.format(ms).replace(".", "") + " " + t;
+}
 const defaultPreferences = { enabled:[], offset:0, opacity:88 };
 function message(text) { $("error").textContent = text; $("error").hidden = false; }
 function parse(value, fallback) { try { return JSON.parse(value); } catch { return fallback; } }
@@ -65,7 +72,7 @@ function buildFilters() {
     });
     if (events.some(e => !e.confirmed)) {
       const note = document.createElement("p"); note.className = "categoryNote";
-      note.textContent = "Zeiten für EU noch unbestätigt.";
+      note.textContent = "Zeiten aus den Global-Clientdaten, ingame noch nicht geprüft.";
       list.append(note);
     }
     for (const event of events) {
@@ -139,8 +146,8 @@ function render() {
   for (const {event,state} of rows) {
     const row = $("events").querySelector('[data-id="' + event.id + '"]');
     row.querySelector(".countdown").textContent = countdown(state.remaining);
-    row.querySelector(".meta").textContent = (state.active ? "Portal offen bis " + time.format(state.end)
-      : "Start " + time.format(state.start)) + (event.confirmed ? "" : " · unbestätigt");
+    row.querySelector(".meta").textContent = (state.active ? (event.activeText || "Läuft bis") + " " + time.format(state.end)
+      : "Start " + when(state.start, now)) + (event.confirmed ? "" : " · unbestätigt");
   }
 }
 async function boot() {
@@ -159,6 +166,12 @@ async function boot() {
     const legacyMinigames = ["track","nyerk","lugi","up","shugo","goldrin"];
     if (preferences.enabled.some(id => legacyMinigames.includes(id))) preferences.enabled.push("shugofesta");
     if (preferences.enabled.includes("beritra")) preferences.enabled.push("invasion");
+    // Events added in an update start with their default, even for users who
+    // already saved a selection. Saves before `known` existed knew these three.
+    const known = Array.isArray(preferences.known) ? preferences.known
+      : saved ? ["rift", "shugofesta", "invasion"] : data.events.map(e => e.id);
+    preferences.enabled.push(...data.events.filter(e => e.enabled && !known.includes(e.id)).map(e => e.id));
+    preferences.known = data.events.map(e => e.id);
     preferences.enabled = [...new Set(preferences.enabled.filter(id => data.events.some(e => e.id === id)))];
     preferences.offset = Math.max(-180, Math.min(180, Number(preferences.offset) || 0));
     preferences.opacity = Math.max(35, Math.min(100, Number(preferences.opacity) || 88));

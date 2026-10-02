@@ -23,12 +23,39 @@ test("portal opens exactly at start and closes at ten minutes",()=>{
 test("midnight rolls over to the next calendar day",()=>{
   assert.equal(eventState(rift,at("2026-10-02T23:59:00+02:00")).next,at("2026-10-03T02:00:00+02:00"));
 });
-test("fixed server schedule survives German autumn clock change",()=>{
+// The Global client schedules EU events on the region clock (Europe/Berlin),
+// so after the autumn change the rift stays at 02/05/… German time.
+test("region-clock schedule follows the German autumn clock change",()=>{
+  // 02:00 happens twice that night (CEST, then CET); both are shown.
   const before=eventState(rift,at("2026-10-25T00:10:00Z"));
-  assert.equal(before.next,at("2026-10-25T03:00:00Z"));
-  const after=eventState(rift,at("2026-10-25T03:00:00Z"));
+  assert.equal(before.next,at("2026-10-25T01:00:00Z"));
+  assert.equal(eventState(rift,at("2026-10-25T01:10:00Z")).next,at("2026-10-25T04:00:00Z"));
+  const after=eventState(rift,at("2026-10-25T04:00:00Z"));
   assert.equal(after.active,true);
-  assert.equal(new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Berlin",hour:"2-digit",hourCycle:"h23"}).format(after.start),"04");
+  assert.equal(new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Berlin",hour:"2-digit",hourCycle:"h23"}).format(after.start),"05");
+});
+test("weekly sieges and bosses land on their German weekdays",()=>{
+  const ev=id=>data.events.find(e=>e.id===id);
+  // Sat 03.10.2026 18:00 CEST: siege tonight, Nahma on Sunday.
+  const now=at("2026-10-03T18:00:00+02:00");
+  assert.equal(eventState(ev("artifact"),now).next,at("2026-10-03T21:00:00+02:00"));
+  assert.equal(eventState(ev("siege-bosses-lower"),now).next,at("2026-10-03T21:30:00+02:00"));
+  assert.equal(eventState(ev("nahma"),now).next,at("2026-10-04T21:00:00+02:00"));
+  // After Saturday's siege the next one is Monday.
+  assert.equal(eventState(ev("artifact"),at("2026-10-03T22:00:00+02:00")).next,at("2026-10-05T21:00:00+02:00"));
+});
+test("resets run on Korean time: 09:00 German summer time, 08:00 winter time",()=>{
+  const daily=data.events.find(e=>e.id==="reset-daily");
+  const weekly=data.events.find(e=>e.id==="reset-weekly");
+  assert.equal(eventState(daily,at("2026-10-03T08:00:00+02:00")).next,at("2026-10-03T09:00:00+02:00"));
+  assert.equal(eventState(daily,at("2026-10-27T07:00:00+01:00")).next,at("2026-10-27T08:00:00+01:00"));
+  assert.equal(eventState(weekly,at("2026-10-03T12:00:00+02:00")).next,at("2026-10-07T09:00:00+02:00"));
+});
+test("arena windows report when they close",()=>{
+  const arena=data.events.find(e=>e.id==="arena-evening");
+  const state=eventState(arena,at("2026-10-03T20:00:00+02:00"));
+  assert.equal(state.active,true);
+  assert.equal(state.end,at("2026-10-03T21:00:00+02:00"));
 });
 test("manual correction shifts starts and open interval together",()=>{
   const shifted=eventState(rift,at("2026-10-02T23:00:00+02:00"),60);
@@ -54,6 +81,7 @@ test("countdown rounds partial seconds up and supports hours",()=>{
   assert.equal(countdown(1),"00:01");
   assert.equal(countdown(-1),"00:00");
   assert.equal(countdown(3600000),"1:00:00");
+  assert.equal(countdown((2*86400+3*3600+12*60)*1000),"2T 03:12");
 });
 test("Global activities share hourly slots rather than independent minigame timers",()=>{
   const festa=data.events.find(e=>e.id==="shugofesta");

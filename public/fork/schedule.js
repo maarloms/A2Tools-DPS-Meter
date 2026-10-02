@@ -46,6 +46,12 @@ export function eventState(event, now = Date.now(), offsetMinutes = 0) {
 export function countdown(ms) {
   if (!Number.isFinite(ms)) return "—";
   const seconds = Math.max(0, Math.ceil(ms / 1000));
+  // Weekly events are days away; seconds are noise there.
+  if (seconds >= 86400) {
+    const d = Math.floor(seconds / 86400);
+    return d + "T " + String(Math.floor(seconds % 86400 / 3600)).padStart(2, "0") + ":"
+      + String(Math.floor(seconds % 3600 / 60)).padStart(2, "0");
+  }
   const h = Math.floor(seconds / 3600);
   const m = Math.floor(seconds % 3600 / 60);
   const s = seconds % 60;
