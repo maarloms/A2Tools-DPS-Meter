@@ -17,13 +17,41 @@
     </nav>
   </header>
   <div class="clockline"><span>Deutschland</span><time id="clock">—</time></div>
-  <section id="settings" hidden aria-label="Eventfilter">
-    <div class="settingsTitle">Deine Events <button id="done">Fertig</button></div>
-    <p class="hint">Nur der Raum-Zeit-Riss ist für EU ingame bestätigt.</p>
-    <div id="options"></div>
-    <label class="control">Zeitkorrektur <input id="offset" type="number" min="-180" max="180" step="1" value="0"> min</label>
-    <label class="control">Transparenz <input id="opacity" type="range" min="35" max="100" value="88"></label>
-    <p class="hint">Die Zeitkorrektur verschiebt alle Events. Belagerungen folgen nach Bestätigung der EU-Zeiten.</p>
+  <section id="settings" hidden aria-label="Timer-Einstellungen">
+    <div class="settingsTop">
+      <div class="settingsTitle">Einstellungen</div>
+      <button id="done" class="doneButton" aria-label="Einstellungen schließen" title="Zurück zum Timer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
+      </button>
+    </div>
+    <div class="settingsTabs" role="tablist" aria-label="Einstellungsbereich">
+      <button id="events-tab" role="tab" aria-selected="true" aria-controls="events-panel" tabindex="0">Events</button>
+      <button id="appearance-tab" role="tab" aria-selected="false" aria-controls="appearance-panel" tabindex="-1">Darstellung</button>
+    </div>
+    <div class="settingsScroll">
+      <div id="events-panel" role="tabpanel" aria-labelledby="events-tab">
+        <div class="selectionInfo"><span>Im Overlay anzeigen</span><span id="selection-count"></span></div>
+        <div id="options"></div>
+        <p class="settingsNote">Minispiele und Invasionsgegner wechseln. Der Timer zeigt den Start ihrer gemeinsamen Aktivität.</p>
+      </div>
+      <div id="appearance-panel" role="tabpanel" aria-labelledby="appearance-tab" hidden>
+        <div class="appearanceSetting">
+          <div class="settingHeading"><label for="opacity">Deckkraft</label><output id="opacity-value" for="opacity">88 %</output></div>
+          <input id="opacity" type="range" min="35" max="100" value="88">
+          <div class="rangeLabels"><span>Transparent</span><span>Deutlich</span></div>
+        </div>
+        <div class="appearanceSetting">
+          <div class="settingHeading"><label for="offset">Zeitkorrektur</label><span class="settingUnit">Minuten</span></div>
+          <div class="stepper">
+            <button id="offset-minus" type="button" aria-label="Zeitkorrektur um eine Minute verringern">−</button>
+            <input id="offset" type="number" min="-180" max="180" step="1" value="0" aria-label="Zeitkorrektur in Minuten">
+            <button id="offset-plus" type="button" aria-label="Zeitkorrektur um eine Minute erhöhen">+</button>
+          </div>
+          <p class="settingsNote">Verschiebt alle Events gemeinsam. Normalerweise bleibt dieser Wert bei 0.</p>
+        </div>
+        <div class="themeNote"><span class="themeDot" aria-hidden="true"></span>Das Design folgt deinem DPS-Meter.</div>
+      </div>
+    </div>
   </section>
   <section id="events" aria-label="Nächste Events"></section>
   <p id="error" hidden role="alert"></p>

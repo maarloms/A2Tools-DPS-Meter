@@ -36,7 +36,7 @@ test("manual correction shifts starts and open interval together",()=>{
   assert.equal(shifted.next,at("2026-10-03T00:00:00+02:00"));
 });
 test("weekly schedule finds the next week",()=>{
-  const event={...rift,hours:[21],weekdays:[1]};
+  const event={...rift,timeZone:"Asia/Tokyo",hours:[21],weekdays:[1]};
   assert.equal(eventState(event,at("2026-10-05T13:00:00Z")).next,at("2026-10-12T12:00:00Z"));
 });
 test("zero duration events immediately show their next start",()=>{
@@ -54,4 +54,12 @@ test("countdown rounds partial seconds up and supports hours",()=>{
   assert.equal(countdown(1),"00:01");
   assert.equal(countdown(-1),"00:00");
   assert.equal(countdown(3600000),"1:00:00");
+});
+test("Global activities share hourly slots rather than independent minigame timers",()=>{
+  const festa=data.events.find(e=>e.id==="shugofesta");
+  const invasion=data.events.find(e=>e.id==="invasion");
+  const now=at("2026-10-02T22:29:00+02:00");
+  assert.equal(eventState(festa,now).next,at("2026-10-02T23:00:00+02:00"));
+  assert.equal(eventState(invasion,now).next,at("2026-10-02T22:30:00+02:00"));
+  assert.equal(data.events.filter(e=>["track","nyerk","beritra"].includes(e.id)).length,0);
 });

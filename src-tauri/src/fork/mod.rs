@@ -4,6 +4,27 @@ use tauri::{Manager, WindowEvent};
 
 const VISIBLE: &str = "fork.timer.visible";
 
+static TIMER_COMPACT_SIZE: std::sync::Mutex<Option<tauri::PhysicalSize<u32>>> =
+    std::sync::Mutex::new(None);
+
+#[tauri::command]
+pub fn resize_timer_settings(app: tauri::AppHandle, open: bool) -> Result<(), String> {
+    let window = app.get_webview_window("timer").ok_or("Timer window is not open")?;
+    let mut saved = TIMER_COMPACT_SIZE.lock().map_err(|e| e.to_string())?;
+    if open && saved.is_none() {
+        let size = window.inner_size().map_err(|e| e.to_string())?;
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        let expanded = tauri::PhysicalSize::new(size.width.max((320.0 * scale) as u32),
+            size.height.max((440.0 * scale) as u32));
+        window.set_size(expanded).map_err(|e| e.to_string())?;
+        *saved = Some(size);
+    } else if !open {
+        if let Some(size) = saved.take() {
+            window.set_size(size).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
 /// All timer window operations run on Tauri's main thread.
 #[tauri::command]
 pub async fn toggle_timer(app: tauri::AppHandle) -> Result<(), String> {
@@ -17,6 +38,8 @@ pub fn toggle(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     if let Some(window) = app.get_webview_window("timer") {
         if window.is_visible().map_err(|e| e.to_string())? {
+            resize_timer_settings(app.clone(), false)?;
+            let _ = window.eval("document.getElementById('settings').hidden=true; document.getElementById('events').hidden=false; document.getElementById('filters').setAttribute('aria-expanded','false')");
             window.hide().map_err(|e| e.to_string())?;
             state.settings.set(VISIBLE, "false");
         } else {
