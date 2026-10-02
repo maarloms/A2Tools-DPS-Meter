@@ -62,3 +62,6 @@ settings.properties
 /packaging/arch/src/
 /packaging/arch/pkg/
 /packaging/arch/*.pkg.tar.zst
+
+# fork: themes, skin and fonts of the maarloms fork
+!/public/fork/

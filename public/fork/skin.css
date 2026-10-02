@@ -1,0 +1,211 @@
+/* ============================================================
+   Fork skin – the "mockup" look for the fork themes
+   ------------------------------------------------------------
+   Active only while a fork theme is selected (fork/themes.js sets
+   html.forkSkin), so upstream themes keep upstream's look. Builds on
+   the theme tokens: --hud-bg, --panel-border, --title, --isUser-fill,
+   --rounded*, plus --fork-glow / --fork-title-font set per theme.
+   ============================================================ */
+
+:root.forkSkin {
+  --fork-accent: var(--isUser-fill);
+  --fork-band: color-mix(in srgb, var(--fork-accent) 16%, transparent);
+  --fork-card: rgba(255, 255, 255, 0.035);
+  --fork-field: rgba(0, 0, 0, 0.32);
+  --fork-field-border: color-mix(in srgb, var(--panel-border) 70%, transparent);
+  --hud-row-bg: rgba(255, 255, 255, 0.045);
+  --hud-row-h: 32px;
+  --hud-gap: 4px;
+}
+
+/* ---------------- meter shell ---------------- */
+
+/* The opacity slider still works, but never drops the panel below a
+   readable floor: 40 % on the slider now reads as ~75 %. */
+:root.forkSkin .meter {
+  --fork-alpha: calc(0.6 + var(--window-opacity) * 0.4);
+  background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 90px),
+          rgba(var(--hud-bg), var(--fork-alpha));
+  border: 1px solid var(--panel-border);
+  border-radius: var(--rounded-lg);
+  box-shadow: var(--fork-glow, 0 0 0 transparent), 0 10px 30px rgba(0, 0, 0, 0.45);
+  overflow: visible;
+}
+
+:root.forkSkin .header {
+  padding: 9px 12px 8px;
+  background: linear-gradient(90deg, var(--fork-band), transparent 75%);
+  border-bottom: 1px solid var(--panel-border);
+  border-radius: var(--rounded-lg) var(--rounded-lg) 0 0;
+}
+:root.forkSkin .header .bossNames .bossName {
+  color: var(--title);
+  letter-spacing: 0.12em;
+}
+:root.forkSkin .header .headerBtns,
+:root.forkSkin .header .bossIcon {
+  color: color-mix(in srgb, var(--title) 60%, transparent);
+}
+:root.forkSkin .header .headerBtns .headerBtn:hover,
+:root.forkSkin .header .bossIcon:hover {
+  color: var(--fork-accent);
+}
+
+:root.forkSkin .bossHpBar {
+  height: 16px;
+  margin: 8px 10px 0;
+  border: 1px solid var(--fork-field-border);
+  border-radius: var(--rounded-xs);
+}
+
+/* ---------------- player rows ---------------- */
+
+:root.forkSkin .list.hasRows { padding: 8px 10px; }
+
+:root.forkSkin .list .item {
+  border-radius: var(--rounded-sm);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Solid bar like the mockup instead of the faint tint. */
+:root.forkSkin .list .item .fill {
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--bar) 55%, transparent) 0%,
+    color-mix(in srgb, var(--bar) 88%, transparent) 100%
+  );
+}
+
+:root.forkSkin .list .item .classIcon {
+  width: 22px;
+  height: 22px;
+  padding: 2px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.38);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+:root.forkSkin .list .item .name { font-weight: 600; }
+
+/* The bar is opaque enough now that the dark scrim behind the figures
+   reads as a hole; text shadow carries legibility instead. */
+:root.forkSkin .list .item .dps {
+  background: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.6);
+}
+:root.forkSkin .list .item .dps .dpsContribution {
+  color: color-mix(in srgb, var(--title) 75%, transparent);
+}
+
+/* ---------------- footer ---------------- */
+
+:root.forkSkin .meterFooter {
+  height: 26px;
+  background: rgba(0, 0, 0, 0.28);
+  border-top: 1px solid var(--panel-border);
+  border-radius: 0 0 var(--rounded-lg) var(--rounded-lg);
+}
+
+/* ---------------- settings ---------------- */
+
+:root.forkSkin .settingsPanel {
+  --set-field-bg: var(--fork-field);
+  --set-field-border: var(--fork-field-border);
+  --set-field-bg-hover: rgba(255, 255, 255, 0.08);
+  --set-field-border-hover: color-mix(in srgb, var(--fork-accent) 55%, transparent);
+  --set-label: rgba(255, 255, 255, 0.85);
+  background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 120px),
+          rgba(var(--hud-bg), 0.97);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--rounded-lg);
+  box-shadow: var(--fork-glow, 0 0 0 transparent), 0 18px 46px rgba(0, 0, 0, 0.55);
+}
+
+:root.forkSkin .settingsPanel .settingsHeader {
+  padding: 12px 16px 11px;
+  background: linear-gradient(90deg, var(--fork-band), transparent 70%);
+  border-bottom: 1px solid var(--panel-border);
+  border-radius: var(--rounded-lg) var(--rounded-lg) 0 0;
+}
+:root.forkSkin .settingsPanel .settingsHeader .settingsTitle {
+  font-size: 13.5px;
+}
+
+:root.forkSkin .settingsPanel .settingsBody {
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+
+/* Every section becomes a card. */
+:root.forkSkin .settingsPanel .settingsGroup {
+  gap: 6px;
+  padding: 10px 12px 8px;
+  background: var(--fork-card);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--rounded);
+}
+:root.forkSkin .settingsPanel .settingsColumns { gap: 12px; }
+:root.forkSkin .settingsPanel .settingsColumn { display: flex; flex-direction: column; gap: 12px; }
+
+:root.forkSkin .settingsPanel .settingsMiniTitle {
+  color: var(--title);
+  font-size: 10.5px;
+}
+:root.forkSkin .settingsPanel .settingsMiniTitle::before {
+  content: "";
+  width: 3px;
+  height: 11px;
+  border-radius: 2px;
+  background: var(--fork-accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--fork-accent) 70%, transparent);
+}
+:root.forkSkin .settingsPanel .settingsMiniTitle::after {
+  background: linear-gradient(90deg, var(--panel-border), transparent);
+}
+
+:root.forkSkin .settingsPanel .settingsGroupBody > * + * {
+  border-top-color: rgba(255, 255, 255, 0.05);
+}
+
+:root.forkSkin .settingsPanel .settingsDropdownBtn,
+:root.forkSkin .settingsPanel .settingsAction,
+:root.forkSkin .settingsPanel .keybindBtn,
+:root.forkSkin .settingsPanel .characterNameInput,
+:root.forkSkin .settingsPanel .localActorIdInput {
+  border-radius: var(--rounded-xs);
+}
+:root.forkSkin .settingsPanel .settingsDropdownMenu {
+  border-radius: var(--rounded-sm);
+  background: rgba(var(--hud-bg), 0.99);
+}
+
+:root.forkSkin .settingsPanel .settingsRange::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fork-accent) 35%, transparent), 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+:root.forkSkin .settingsPanel .settingsToggleControl input[type="checkbox"]:checked + .settingsToggleTrack {
+  box-shadow: 0 0 8px color-mix(in srgb, var(--fork-accent) 45%, transparent);
+}
+
+/* ---------------- per-theme glow ---------------- */
+
+:root[data-theme="atreia"] {
+  --fork-glow: inset 0 0 0 1px rgba(14, 18, 34, 0.9), inset 0 0 0 2px rgba(212, 175, 105, 0.22);
+}
+:root[data-theme="neon"] { --fork-glow: 0 0 16px rgba(255, 60, 200, 0.35); }
+:root[data-theme="abyss"] { --fork-glow: 0 0 20px rgba(47, 199, 176, 0.2); }
+:root[data-theme="glass"] { --fork-glow: inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+
+/* Atreia: serif section titles and panel title too. */
+:root[data-theme="atreia"] .settingsPanel .settingsHeader .settingsTitle:not(:lang(ko)):not(:lang(zh-CN)):not(:lang(zh-Hans)):not(:lang(zh-TW)):not(:lang(zh-Hant)) {
+  font-family: var(--fork-title-font);
+  font-variation-settings: normal;
+  font-weight: 700;
+}

@@ -1,0 +1,155 @@
+/* ============================================================
+   Fork themes (maarloms/A2Tools-DPS-Meter)
+   ------------------------------------------------------------
+   Extra themes on top of upstream's :root[data-theme] set. Kept in
+   its own file so upstream merges never touch it. Unlike the
+   upstream themes these also change type, corners and glow, via the
+   --hud-* tokens the meter is built on.
+   Registered in fork/themes.js.
+   ============================================================ */
+
+@font-face {
+  font-family: "Fork Cinzel";
+  src: url("/fork/fonts/cinzel-700.woff2") format("woff2");
+  font-weight: 600 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fork Rajdhani";
+  src: url("/fork/fonts/rajdhani-600.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fork Rajdhani";
+  src: url("/fork/fonts/rajdhani-700.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+
+/* ---------- Atreia Gold: night blue, gold hairline, serif title ---------- */
+
+:root[data-theme="atreia"] {
+  --row-fill: #3b4a7a;
+  --isUser-fill: #c9a25a;
+  --dmg-fill-bg: rgba(201, 162, 90, 0.8);
+  --warning-fill: #ffcf6e;
+  --error-fill: #e0616b;
+  --dps: #fff3d6;
+  --dps-text: #fff3d6;
+  --panel-border: rgba(212, 175, 105, 0.55);
+  --title: #e8c987;
+  --text-shadow:
+          0 0 1px rgba(0, 0, 0, 0.95),
+          0 1px 2px rgba(0, 0, 0, 0.9),
+          0 4px 10px rgba(212, 175, 105, 0.18);
+
+  --hud-bg: 14, 18, 34;
+  --hud-num: #fff3d6;
+  --hud-hairline: rgba(212, 175, 105, 0.22);
+  --rounded: 6px;
+  --rounded-lg: 8px;
+  --fork-title-font: "Fork Cinzel", "Times New Roman", serif;
+}
+:root[data-theme="atreia"] .meter {
+  border-color: rgba(212, 175, 105, max(0.35, calc(var(--window-opacity) * 0.9)));
+  box-shadow:
+          inset 0 0 0 1px rgba(14, 18, 34, 0.9),
+          inset 0 0 0 2px rgba(212, 175, 105, 0.22),
+          0 8px 28px rgba(0, 0, 0, calc(var(--window-opacity) * 0.45));
+}
+
+/* ---------- Glas: milky, bright, soft corners ---------- */
+/* The WebView cannot blur the game behind its own window, so this is a
+   frosted tint, not real backdrop blur. */
+
+:root[data-theme="glass"] {
+  --row-fill: #c8d6e8;
+  --isUser-fill: #78c8ff;
+  --dmg-fill-bg: rgba(120, 200, 255, 0.8);
+  --warning-fill: #ffd27a;
+  --error-fill: #ff7a8a;
+  --dps: #ffffff;
+  --dps-text: #ffffff;
+  --panel-border: rgba(255, 255, 255, 0.4);
+  --title: #ffffff;
+
+  --hud-bg: 150, 165, 190;
+  --hud-row-bg: rgba(255, 255, 255, 0.08);
+  --hud-hairline: rgba(255, 255, 255, 0.2);
+  --hud-sub: rgba(255, 255, 255, 0.7);
+  --rounded: 16px;
+  --rounded-lg: 18px;
+}
+:root[data-theme="glass"] .meter {
+  background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04)),
+          rgba(var(--hud-bg), var(--window-opacity));
+  border-color: rgba(255, 255, 255, 0.4);
+}
+:root[data-theme="glass"] .list .item { border-radius: 10px; }
+
+/* ---------- Neon: near-black, magenta rim, cyan you ---------- */
+
+:root[data-theme="neon"] {
+  --row-fill: #8a2a9b;
+  --isUser-fill: #00d9ff;
+  --dmg-fill-bg: rgba(0, 217, 255, 0.8);
+  --warning-fill: #ffe14d;
+  --error-fill: #ff3d6e;
+  --dps: #e9fbff;
+  --dps-text: #e9fbff;
+  --panel-border: rgba(255, 60, 200, 0.6);
+  --title: #ff5fd2;
+
+  --hud-bg: 8, 6, 16;
+  --hud-hairline: rgba(255, 60, 200, 0.25);
+  --hud-tech: "Fork Rajdhani", "Bahnschrift", "Segoe UI", sans-serif;
+  --rounded: 4px;
+  --rounded-lg: 4px;
+}
+:root[data-theme="neon"] .meter {
+  border-color: rgba(255, 60, 200, 0.6);
+  box-shadow:
+          0 0 14px rgba(255, 60, 200, 0.35),
+          0 8px 28px rgba(0, 0, 0, calc(var(--window-opacity) * 0.45));
+}
+:root[data-theme="neon"] .list .item { border-radius: 2px; }
+/* Rajdhani has no width axis; the upstream "wdth" settings would be ignored
+   anyway, but its figures run narrower, so give the readout a touch more size. */
+:root[data-theme="neon"] .list .item .dps > p { font-size: 17px; font-weight: 700; }
+
+/* ---------- Abyss: violet-black, teal accents, soft glow ---------- */
+
+:root[data-theme="abyss"] {
+  --row-fill: #4a2f80;
+  --isUser-fill: #2fc7b0;
+  --dmg-fill-bg: rgba(47, 199, 176, 0.8);
+  --warning-fill: #ffb86b;
+  --error-fill: #ff5f7e;
+  --dps: #e8fffb;
+  --dps-text: #e8fffb;
+  --panel-border: rgba(80, 220, 200, 0.3);
+  --title: #7fe8d6;
+
+  --hud-bg: 16, 10, 28;
+  --hud-hairline: rgba(80, 220, 200, 0.14);
+  --rounded: 14px;
+  --rounded-lg: 16px;
+}
+:root[data-theme="abyss"] .meter {
+  border-color: rgba(80, 220, 200, 0.3);
+  box-shadow:
+          0 0 18px rgba(47, 199, 176, 0.18),
+          0 8px 28px rgba(0, 0, 0, calc(var(--window-opacity) * 0.45));
+}
+:root[data-theme="abyss"] .list .item { border-radius: 8px; }
+
+/* ---------- shared: themed title font ---------- */
+
+:root[data-theme="atreia"] .header .bossNames .bossName:not(:lang(ko)):not(:lang(zh-CN)):not(:lang(zh-Hans)):not(:lang(zh-TW)):not(:lang(zh-Hant)) {
+  font-family: var(--fork-title-font);
+  font-variation-settings: normal;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}

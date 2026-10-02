@@ -91,6 +91,7 @@ class DpsApp {
       "natura",
       "obsidian",
       "varian",
+      ...(window.FORK_THEMES || []).map((t) => t.id), // fork
     ];
     this.supportQrImages = {
       afdian: "./assets/afdian.png",
@@ -482,7 +483,9 @@ class DpsApp {
     });
     // Settings, Details and History run this same bundle; only the overlay
     // checks, or every Settings open would ask again.
-    if (window.A2_VIEW === "main") window.ReleaseChecker?.start?.();
+    // fork: upstream's checker points at a2tools.app and would install the
+    // upstream MSI over the fork; the fork ships its own updater.
+    // if (window.A2_VIEW === "main") window.ReleaseChecker?.start?.();
     this.setupConsoleDebugging();
     this.bindNativeHotkeyBridge();
 
@@ -2041,7 +2044,7 @@ class DpsApp {
     this.settingsSelections = {
       language: "en",
       theme: this.theme,
-      defaultMeterMode: "bossTargets",
+      defaultMeterMode: "lastHitByMe", // fork: upstream "bossTargets"
       allTargetsWindowMs: "120000",
       trainSelectionMode: "all",
       targetSelectionWindowMs: "5000",
@@ -2074,7 +2077,7 @@ class DpsApp {
     const storedMainPlayerNamesBold = mainPlayerNamesBoldSetting !== "false";
     const mainPlayerDpsBoldSetting = this.safeGetSetting(this.storageKeys.mainPlayerDpsBold);
     const storedMainPlayerDpsBold = mainPlayerDpsBoldSetting !== "false";
-    const storedDefaultMeterMode = this.safeGetSetting(this.storageKeys.defaultMeterMode) || "bossTargets";
+    const storedDefaultMeterMode = this.safeGetSetting(this.storageKeys.defaultMeterMode) || "lastHitByMe"; // fork
     const storedTargetSelection = this.safeGetStorage(this.storageKeys.targetSelection);
     const storedLanguage = this.safeGetStorage(this.storageKeys.language);
     const storedTheme = this.safeGetSetting(this.storageKeys.theme);
@@ -2096,7 +2099,7 @@ class DpsApp {
     }
     const validModes = ["bossTargets", "lastHitByMe", "allTargets", "trainTargets"];
     const normalizedDefaultMode = validModes.includes(storedDefaultMeterMode)
-      ? storedDefaultMeterMode : "bossTargets";
+      ? storedDefaultMeterMode : "lastHitByMe"; // fork
     this.settingsSelections.defaultMeterMode = normalizedDefaultMode;
     this.setTargetSelection(normalizedDefaultMode, {
       persist: false,
@@ -2851,6 +2854,7 @@ class DpsApp {
         },
       }
     );
+    window.ForkThemes?.renderSettings?.(this, setupDropdown, previewThemeVars); // fork
 
     setupDropdown(
       this.targetWindowDropdownBtn,
@@ -4120,6 +4124,11 @@ class DpsApp {
   // dropdowns (theme, layout, player limit) are not native inputs and need
   // their own handling, so they are deliberately absent.
   applyRemoteSettingChange(key, value) {
+    // fork: a theme picked in the Settings window only reached the meter on restart.
+    if (key === this.storageKeys.theme) {
+      if (value !== this.theme) this.applyTheme(value, { persist: false });
+      return;
+    }
     // A name typed in the Settings window. That window already told the
     // backend; this one only has to stop believing the old name, or it would
     // push the old one straight back.

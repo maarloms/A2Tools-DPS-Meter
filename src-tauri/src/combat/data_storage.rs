@@ -317,6 +317,9 @@ struct LootIdentity {
     /// The local identity currently in force came from them, not from the
     /// self record.
     applied: bool,
+    /// fork: the name in force before a loot record replaced it, restored
+    /// when the loot records turn out to name someone else.
+    name_before: Option<String>,
 }
 
 impl DataStorage {
@@ -435,6 +438,18 @@ impl DataStorage {
     /// world is kept. Returns whether the local identity changed.
     pub fn note_loot_owner(&self, owner_id: i32, name: &str) -> bool {
         let mut inner = self.inner.write();
+        // fork: on global servers (2026-10) loot records name the looter of
+        // every kill nearby — one minute of farming logged a dozen owners, and
+        // the first guess made "last hit by me" follow a stranger's targets.
+        // So they only confirm the name the player configured; they never
+        // pick one on their own.
+        if !inner.local_identity_from_game || inner.loot_identity.applied {
+            let configured = inner.local_character_name.as_deref().map(str::trim).filter(|n| !n.is_empty());
+            if configured != Some(name.trim()) {
+                tracing::debug!("loot record names '{}', configured {:?}; ignored", name, configured);
+                return false;
+            }
+        }
         let loot = &mut inner.loot_identity;
         if loot.conflicted {
             return false;
@@ -445,8 +460,12 @@ impl DataStorage {
             tracing::info!("loot records name a second player ('{}'); not using them to identify you", name);
             if was_applied {
                 // Back to not knowing: the UI's name and the self record decide.
+                // fork: also drop the loot name, or the next nickname packet for
+                // that player binds them as "you" again.
+                let before = loot.name_before.take();
                 inner.local_identity_from_game = false;
                 inner.local_player_id = None;
+                inner.local_character_name = before;
                 return true;
             }
             return false;
@@ -454,6 +473,9 @@ impl DataStorage {
         loot.owner = Some(name.to_string());
         if inner.local_identity_from_game && !inner.loot_identity.applied {
             return false; // the self record has spoken
+        }
+        if !inner.loot_identity.applied {
+            inner.loot_identity.name_before = inner.local_character_name.clone();
         }
         let configured_and_found = inner.local_player_id.is_some_and(|id| {
             let configured = inner.local_character_name.as_deref().map(str::trim);
@@ -1372,13 +1394,24 @@ mod tests {
         (s.local_player_id(), s.local_character_name(), s.local_identity_from_game())
     }
 
+    // fork: loot records name every nearby looter, so without a configured
+    // name they identify no one.
     #[test]
-    fn loot_owner_is_you_until_the_self_record_says_otherwise() {
+    fn loot_alone_never_picks_who_you_are() {
         let s = DataStorage::new();
-        s.set_local_character_name(Some("Aveline".into()));
+        assert!(!s.note_loot_owner(1454, "ApexZ"));
+        assert!(!s.note_loot_owner(3583, "Galaaadriel"));
+        assert_eq!(who(&s), (None, None, false));
+    }
+
+    #[test]
+    fn loot_confirms_the_configured_name_until_the_self_record_says_otherwise() {
+        let s = DataStorage::new();
+        s.set_local_character_name(Some("ApexZ".into()));
         assert!(s.note_loot_owner(1454, "ApexZ"));
         assert_eq!(who(&s), (Some(1454), Some("ApexZ".into()), true));
         assert!(!s.note_loot_owner(1454, "ApexZ"), "same owner again changes nothing");
+        assert!(!s.note_loot_owner(3583, "Galaaadriel"), "strangers' loot is ignored");
 
         // A zone load brings the self record, which wins.
         assert!(s.set_local_identity_from_game(2001, Some("ApexZ".into())));
@@ -1386,14 +1419,19 @@ mod tests {
         assert_eq!(who(&s), (Some(2001), Some("ApexZ".into()), true));
     }
 
+    // fork: seen on global servers 2026-10 — a loot record named a nearby
+    // player, and "last hit by me" followed their targets.
     #[test]
-    fn loot_naming_two_players_is_ignored_from_then_on() {
+    fn a_configured_name_outranks_loot_naming_someone_else() {
         let s = DataStorage::new();
-        s.note_loot_owner(1454, "ApexZ");
-        assert!(s.note_loot_owner(3583, "Galaaadriel"), "the guess is withdrawn");
-        assert_eq!(who(&s), (None, Some("ApexZ".into()), false));
-        assert!(!s.note_loot_owner(1454, "ApexZ"));
+        s.set_local_character_name(Some("marloms".into()));
+        assert!(!s.note_loot_owner(103, "Uhrmacherin"));
+        assert_eq!(who(&s), (None, Some("marloms".into()), false));
+        s.append_nickname_authoritative(13289, "Uhrmacherin");
         assert_eq!(s.local_player_id(), None);
+        // Loot naming the configured player is still used.
+        assert!(s.note_loot_owner(4926, "marloms"));
+        assert_eq!(who(&s), (Some(4926), Some("marloms".into()), true));
     }
 
     fn member(slot: u8) -> PartyMember {

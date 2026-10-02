@@ -579,16 +579,10 @@ impl DpsCalculator {
                         None => (HashSet::new(), String::new(), 0),
                     }
                 } else {
-                    // Not identified — fall back to most recently damaged target
-                    let best = combat_data.iter()
-                        .max_by_key(|(_, td)| td.last_damage_time);
-                    match best {
-                        Some((&id, _)) => {
-                            let name = self.resolve_target_name(id);
-                            (HashSet::from([id]), name, id)
-                        }
-                        None => (HashSet::new(), String::new(), 0),
-                    }
+                    // fork: not identified yet — show nothing. Upstream fell back
+                    // to the most recently damaged target, which in a busy field
+                    // is whatever a stranger is hitting.
+                    (HashSet::new(), String::new(), 0)
                 }
             }
         }
