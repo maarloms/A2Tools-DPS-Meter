@@ -8,7 +8,11 @@ static TIMER_COMPACT_SIZE: std::sync::Mutex<Option<tauri::PhysicalSize<u32>>> =
     std::sync::Mutex::new(None);
 
 #[tauri::command]
-pub fn resize_timer_settings(app: tauri::AppHandle, open: bool) -> Result<(), String> {
+pub async fn resize_timer_settings(app: tauri::AppHandle, open: bool) -> Result<(), String> {
+    resize_settings(&app, open)
+}
+
+fn resize_settings(app: &tauri::AppHandle, open: bool) -> Result<(), String> {
     let window = app.get_webview_window("timer").ok_or("Timer window is not open")?;
     let mut saved = TIMER_COMPACT_SIZE.lock().map_err(|e| e.to_string())?;
     if open && saved.is_none() {
@@ -25,20 +29,17 @@ pub fn resize_timer_settings(app: tauri::AppHandle, open: bool) -> Result<(), St
     }
     Ok(())
 }
-/// All timer window operations run on Tauri's main thread.
+/// Keep WebView2 creation off the main thread so its controller callback can run.
 #[tauri::command]
 pub async fn toggle_timer(app: tauri::AppHandle) -> Result<(), String> {
-    let handle = app.clone();
-    app.run_on_main_thread(move || {
-        if let Err(e) = toggle(&handle) { tracing::error!("Timer window: {e}"); }
-    }).map_err(|e| e.to_string())
+    toggle(&app)
 }
 
 pub fn toggle(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     if let Some(window) = app.get_webview_window("timer") {
         if window.is_visible().map_err(|e| e.to_string())? {
-            resize_timer_settings(app.clone(), false)?;
+            resize_settings(app, false)?;
             let _ = window.eval("document.getElementById('settings').hidden=true; document.getElementById('events').hidden=false; document.getElementById('filters').setAttribute('aria-expanded','false')");
             window.hide().map_err(|e| e.to_string())?;
             state.settings.set(VISIBLE, "false");
@@ -104,9 +105,17 @@ pub fn toggle(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn set_timer_locked(app: tauri::AppHandle, locked: bool) -> Result<(), String> {
+pub async fn set_timer_locked(app: tauri::AppHandle, locked: bool) -> Result<(), String> {
     app.get_webview_window("timer").ok_or("Timer window is not open")?
         .set_ignore_cursor_events(locked).map_err(|e| e.to_string())
+}
+
+fn spawn_toggle(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = toggle_timer(app).await {
+            tracing::error!("Timer window: {e}");
+        }
+    });
 }
 
 pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
@@ -116,14 +125,11 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 let manager = HotkeyManager::new();
                 let handle = app.clone();
                 manager.start(0, 0, 3, 0x54, 0, 0, || {}, move || {
-                    let h = handle.clone();
-                    let _ = handle.run_on_main_thread(move || {
-                        if let Err(e) = toggle(&h) { tracing::error!("Timer hotkey: {e}"); }
-                    });
+                    spawn_toggle(handle.clone());
                 }, || {});
                 app.manage(manager);
                 if app.state::<AppState>().settings.get(VISIBLE).as_deref() == Some("true") {
-                    if let Err(e) = toggle(app) { tracing::error!("Restore timer: {e}"); }
+                    spawn_toggle(app.clone());
                 }
             } else if matches!(event, tauri::RunEvent::Exit) {
                 if let Some(manager) = app.try_state::<HotkeyManager>() { manager.stop(); }

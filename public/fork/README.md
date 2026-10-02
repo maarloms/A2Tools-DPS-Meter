@@ -41,3 +41,14 @@ cargo test --lib
 Browser-Vorschau: npm run preview und /timer.html.
 Im Browser werden Filter in localStorage gespeichert; native Fensteraktionen
 stehen nur in der Desktop-App zur Verfügung.
+## Kampfdaten-Ansicht
+
+Die Fork-Themes gestalten auch die Detailfenster: ruhiger Statistikbereich,
+Spielerauswahl mit Auswahlrahmen, Skill-Zeilen mit Damage-Balken und passende
+Menüs. Unter 850 px stehen Spieler und Statistiken untereinander. Die
+Skill-Tabelle scrollt horizontal, wenn die eingeblendeten Spalten nicht passen.
+Diagrammabschnitte lassen sich mit Enter und Leertaste öffnen und schließen.
+
+Geprüft in einer getrennten Browser-Vorschau mit Beispieldaten bei 420, 640,
+850 und 1280 px; Sortierung, Spaltenauswahl und die vier Fork-Themes geprüft.
+Die Vorschau enthält keine echten Kampfdaten.

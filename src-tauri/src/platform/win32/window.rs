@@ -7,6 +7,16 @@ fn hwnd_of(window: &tauri::WebviewWindow) -> Option<HWND> {
     window.hwnd().ok().map(|h| HWND(h.0))
 }
 
+/// WebView2 can focus a child HWND while Tauri's cached focus flag lags behind.
+/// Compare top-level native windows so clicks anywhere inside an overlay count.
+pub fn is_foreground(window: &tauri::WebviewWindow) -> bool {
+    let Some(hwnd) = hwnd_of(window) else { return false };
+    unsafe {
+        let foreground = GetForegroundWindow();
+        !foreground.0.is_null()
+            && GetAncestor(foreground, GA_ROOT) == GetAncestor(hwnd, GA_ROOT)
+    }
+}
 /// Where the mouse pointer is, in physical screen pixels. The click-through
 /// lock uses it to keep its own button clickable.
 pub fn cursor_position() -> Option<(i32, i32)> {

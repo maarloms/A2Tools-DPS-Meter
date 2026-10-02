@@ -209,3 +209,425 @@
   font-variation-settings: normal;
   font-weight: 700;
 }
+
+/* ---------------- combat details ---------------- */
+:root.forkSkin .detailsPanel {
+  --fork-detail-surface: rgba(var(--hud-bg), max(0.88, var(--details-bg-opacity, 0.9)));
+  background: linear-gradient(145deg, var(--fork-band), transparent 380px), var(--fork-detail-surface);
+  border-color: var(--panel-border);
+  box-shadow: var(--fork-glow), 0 18px 48px rgba(0, 0, 0, 0.45);
+  padding: 0;
+  color: #eef1f6;
+  container-type: inline-size;
+  container-name: combat-detail;
+}
+:root.forkSkin.detailsWindow .detailsPanel {
+  border: 0;
+  box-shadow: none;
+  background: linear-gradient(145deg, var(--fork-band), transparent 440px), rgb(var(--hud-bg));
+}
+:root.forkSkin .detailsPanel .detailsHeader {
+  padding: 16px 20px;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: rgba(0, 0, 0, 0.14);
+  border-bottom: 1px solid var(--hud-hairline);
+}
+:root.forkSkin .detailsPanel .detailsFightTitle {
+  font-size: 13px;
+  line-height: 1.65;
+  letter-spacing: normal;
+  text-transform: none;
+  color: #b7bfcd;
+  flex: 1 1 260px;
+}
+:root.forkSkin .detailsPanel .fightTitleBossName {
+  font-family: var(--fork-title-font, var(--hud-ident));
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--title);
+}
+:root.forkSkin .detailsPanel .detailsHeaderControls { gap: 8px; }
+:root.forkSkin .detailsPanel .detailsHeader :is(.detailsScreenshotBtn, .detailsSettingsBtn, .detailsWindowClose, .detailsRefreshBtn, .detailsBackBtn) {
+  min-height: 32px;
+  min-width: 32px;
+  border-radius: var(--rounded-sm, 6px);
+  background: var(--fork-card);
+  border: 1px solid var(--fork-field-border);
+  color: #c8cfdb;
+}
+:root.forkSkin .detailsPanel .detailsHeader button:hover {
+  color: var(--title);
+  border-color: var(--panel-border);
+}
+:root.forkSkin .detailsPanel button:focus-visible,
+:root.forkSkin .detailsPanel [role="button"]:focus-visible {
+  outline: 2px solid var(--fork-accent);
+  outline-offset: 3px;
+}
+:root.forkSkin .detailsPanel .detailsModeToggle {
+  padding: 3px;
+  background: var(--fork-field);
+  border: 1px solid var(--fork-field-border);
+  border-radius: var(--rounded-sm, 6px);
+}
+:root.forkSkin .detailsPanel .detailsModeBtn {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: var(--rounded-xs, 4px);
+  letter-spacing: 0.03em;
+}
+:root.forkSkin .detailsPanel .detailsModeBtn[data-mode="dmg"].isActive {
+  background: var(--fork-band);
+  color: var(--title);
+  box-shadow: inset 0 0 0 1px var(--panel-border);
+}
+:root.forkSkin .detailsPanel .detailsBody { padding: 18px 20px 20px; gap: 16px; }
+:root.forkSkin .detailsPanel .detailsStatsRow { gap: 22px; border: 0; }
+:root.forkSkin .detailsPanel .detailsPartyList {
+  flex-basis: 36%;
+  padding: 0;
+  border: 0;
+  gap: 6px;
+}
+:root.forkSkin .detailsPanel .detailsPartyBar {
+  min-height: 36px;
+  height: auto;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--rounded-sm, 6px);
+  background: var(--fork-card);
+}
+:root.forkSkin .detailsPanel .detailsPartyBar.isSelected {
+  border-color: var(--panel-border);
+  background: var(--fork-band);
+}
+:root.forkSkin .detailsPanel .detailsPartyBar.isSelected::before { display: none; }
+:root.forkSkin .detailsPanel .detailsPartyBarFill { opacity: 0.4; }
+:root.forkSkin .detailsPanel .detailsPartyBarName { font-weight: 600; }
+:root.forkSkin .detailsPanel .detailsPartyBarDmg { width: auto; }
+:root.forkSkin .detailsPanel .detailsStats {
+  padding: 0;
+  gap: 0 20px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+:root.forkSkin .detailsPanel .detailsStats .stat {
+  padding: 7px 0;
+  gap: 8px;
+  align-items: baseline;
+  border-color: rgba(255, 255, 255, 0.07);
+}
+:root.forkSkin .detailsPanel .detailsStats .stat.statEmpty { display: none; }
+:root.forkSkin .detailsPanel .detailsStats .stat .label {
+  color: #b7bfcd;
+  font-size: 0.8em;
+  letter-spacing: normal;
+  text-transform: none;
+  font-weight: 400;
+}
+:root.forkSkin .detailsPanel .detailsStats .stat .value {
+  color: var(--hud-num);
+  font-size: 1em;
+  font-weight: 600;
+  text-shadow: none;
+}
+:root.forkSkin .detailsPanel .detailsStats .stat[data-stat="details.stats.totalDamage"] .value {
+  color: var(--title);
+  font-size: 1.3em;
+}
+:root.forkSkin .detailsPanel .detailsSection {
+  border: 1px solid var(--fork-field-border);
+  border-radius: var(--rounded, 6px);
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.1);
+}
+:root.forkSkin .detailsPanel .detailsSection .detailsSectionHeader {
+  padding: 12px 14px;
+  color: var(--title);
+  font-family: var(--fork-title-font, var(--hud-ident));
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  text-transform: none;
+}
+:root.forkSkin .detailsPanel .detailsSection .detailsSectionHeader::after { display: none; }
+:root.forkSkin .detailsPanel .detailsSection.isExpanded > .detailsSectionHeader {
+  background: var(--fork-card);
+  border-bottom: 1px solid var(--fork-field-border);
+}
+:root.forkSkin .detailsPanel .detailsSection .detailsSectionArrow { border-left-color: var(--title); }
+:root.forkSkin .detailsPanel .detailsSkills .skillHeader {
+  padding: 10px calc(14px + var(--scrollbar-w, 8px)) 10px 14px;
+  background: rgba(0, 0, 0, 0.18);
+  border-top: 0;
+}
+:root.forkSkin .detailsPanel .detailsSkills .skillHeader .cell {
+  font-size: 12px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: #b7bfcd;
+}
+:root.forkSkin .detailsPanel .detailsSkills .skillHeader .cell.isSorted { color: var(--title); }
+:root.forkSkin .detailsPanel .detailsSkills .skills { padding: 4px 14px; }
+:root.forkSkin .detailsPanel .detailsSkills .skills .skillRow {
+  min-height: calc(var(--details-skill-icon-size, 24px) + 14px);
+  padding: 6px 0;
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+:root.forkSkin .detailsPanel .detailsSkills .skills .skillRow:hover { background: var(--fork-card); }
+:root.forkSkin .detailsPanel .detailsSkills .skills .skillRow .rowFill {
+  top: 4px;
+  bottom: 4px;
+  border-radius: var(--rounded-xs, 4px);
+  opacity: 0.24;
+  background: linear-gradient(90deg, var(--row-fill), transparent);
+}
+:root.forkSkin .detailsPanel .detailsSkills .skillIcon {
+  border-radius: var(--rounded-xs, 4px);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+:root.forkSkin .detailsPanel .detailsSkills .skillRow .cell.name { color: #eef1f6; }
+:root.forkSkin .detailsPanel .detailsSkills .skillRow .cell.dmg { color: var(--title); font-weight: 600; }
+:root.forkSkin .detailsPanel .detailsFootnote { padding: 12px 14px; font-size: 12px; color: #aeb7c7; text-shadow: none; }
+:root.forkSkin .detailsPanel :is(.detailsSettingsMenu, .detailsDropdownMenu) {
+  background: rgb(var(--hud-bg));
+  border-color: var(--panel-border);
+  border-radius: var(--rounded, 6px);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  max-height: min(640px, calc(100vh - 100px));
+  overflow-y: auto;
+}
+:root.forkSkin .detailsPanel .detailsSettings .detailsSettingsLabel {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 13px;
+  color: var(--title);
+}
+:root.forkSkin .detailsPanel .detailsSettings input[type="range"]::-webkit-slider-thumb { border-radius: 50%; }
+:root.forkSkin .detailsPanel :is(.dpsChartWrap, .timelineChart) { padding: 14px; }
+:root.forkSkin[data-theme="glass"] .detailsPanel { --fork-detail-surface: rgb(43, 54, 72); }
+:root.forkSkin[data-theme="glass"].detailsWindow .detailsPanel { background-color: rgb(43, 54, 72); }
+@container combat-detail (max-width: 850px) {
+  :root.forkSkin .detailsPanel .detailsStatsRow { flex-direction: column; gap: 16px; }
+  :root.forkSkin .detailsPanel .detailsPartyList { flex: none; }
+  :root.forkSkin .detailsPanel .detailsStats { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+}
+@container combat-detail (max-width: 500px) {
+  :root.forkSkin .detailsPanel .detailsHeader { padding: 12px; }
+  :root.forkSkin .detailsPanel .detailsBody { padding: 12px; gap: 12px; }
+  :root.forkSkin .detailsPanel .detailsHeaderControls { margin-left: 0; }
+  :root.forkSkin .detailsPanel .detailsSettingsMenu { min-width: 0; width: min(300px, calc(100cqw - 28px)); right: 0; }
+}
+:root.forkSkin .detailsPanel {
+  --hud-tech: "Segoe UI", system-ui, sans-serif;
+  --hud-ident: "Segoe UI", system-ui, sans-serif;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+:root.forkSkin .detailsPanel .detailsSkills { overflow-x: auto; }
+:root.forkSkin .detailsPanel .detailsSkills :is(.skillHeader, .skills) {
+  box-sizing: border-box;
+  min-width: var(--fork-skill-min-width, 100%);
+}
+:root.forkSkin .detailsPanel .detailsSkills .detailsFootnote { max-width: 75ch; }
+
+/* ---------------- battle history ---------------- */
+:root.forkSkin .historyPanel {
+  background: linear-gradient(160deg, var(--fork-band), transparent 320px), rgba(var(--hud-bg), 0.97);
+  border-color: var(--panel-border);
+  box-shadow: var(--fork-glow), 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+:root.forkSkin.historyWindow .historyPanel {
+  padding: 0;
+  background: linear-gradient(160deg, var(--fork-band), transparent 420px), rgb(var(--hud-bg));
+  box-shadow: none;
+}
+:root.forkSkin.historyWindow body { background: rgb(var(--hud-bg)); }
+:root.forkSkin .historyPanel .historyHeader {
+  gap: 8px;
+  padding: 14px 18px;
+  background: rgba(0, 0, 0, 0.14);
+  border-bottom: 1px solid var(--hud-hairline);
+}
+:root.forkSkin .historyPanel .historyTitle {
+  font-family: var(--fork-title-font, var(--hud-ident));
+  font-variation-settings: normal;
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  text-transform: none;
+}
+:root.forkSkin .historyPanel :is(.historyViewBtn, .historyTrainToggle, .historyDeleteToggle, .historyHeader .closeX) {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: var(--rounded-sm, 6px);
+  background: var(--fork-card);
+  border: 1px solid var(--fork-field-border);
+  color: #c8cfdb;
+}
+:root.forkSkin .historyPanel :is(.historyViewBtn, .historyTrainToggle, .historyHeader .closeX):hover {
+  color: var(--title);
+  border-color: var(--panel-border);
+}
+:root.forkSkin .historyPanel :is(.historyViewBtn, .historyTrainToggle).active {
+  color: var(--title);
+  background: var(--fork-band);
+  border-color: var(--panel-border);
+}
+:root.forkSkin .historyPanel .historyViewToggle { gap: 6px; }
+:root.forkSkin .historyPanel button:focus-visible,
+:root.forkSkin .historyPanel [role="button"]:focus-visible {
+  outline: 2px solid var(--fork-accent);
+  outline-offset: 3px;
+}
+
+/* Filters */
+:root.forkSkin .historyPanel .historyFilters {
+  gap: 8px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--hud-hairline);
+}
+:root.forkSkin .historyPanel :is(.historyFilterSelect, .historyClassDropdown .historyClassDropdownTrigger) {
+  height: 32px;
+  border-radius: var(--rounded-sm, 6px);
+  background-color: var(--fork-field);
+  border-color: var(--fork-field-border);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-variation-settings: normal;
+  font-size: 12.5px;
+  color: #eef1f6;
+}
+:root.forkSkin .historyPanel :is(.historyFilterSelect, .historyClassDropdown .historyClassDropdownTrigger):hover {
+  border-color: color-mix(in srgb, var(--fork-accent) 55%, transparent);
+}
+:root.forkSkin .historyPanel .historyClassDropdownMenu {
+  border-radius: var(--rounded, 6px);
+  background: rgb(var(--hud-bg));
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+}
+:root.forkSkin .historyPanel .historyClassOption { border-radius: var(--rounded-xs, 4px); }
+:root.forkSkin .historyPanel .historyClassOption.selected {
+  background: var(--fork-band);
+  color: var(--title);
+}
+
+/* Rows as cards, like the party list in the combat details. */
+:root.forkSkin .historyPanel .historyBody { padding: 10px 14px 14px; }
+:root.forkSkin .historyPanel .historyList { gap: 6px; }
+:root.forkSkin .historyPanel .historyRow {
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--rounded-sm, 6px);
+  background: var(--fork-card);
+}
+:root.forkSkin .historyPanel .historyRow:hover {
+  background: var(--fork-band);
+  border-color: var(--panel-border);
+}
+:root.forkSkin .historyPanel .historyRowName {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #eef1f6;
+}
+:root.forkSkin .historyPanel .historyRowMeta {
+  margin-top: 4px;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-variation-settings: normal;
+  font-size: 12px;
+  letter-spacing: normal;
+  color: #b7bfcd;
+}
+:root.forkSkin .historyPanel .historyRowDamage {
+  font-variation-settings: normal;
+  color: var(--title);
+}
+:root.forkSkin .historyPanel .historyRowClassIcon {
+  width: 22px;
+  height: 22px;
+  padding: 2px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.38);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  filter: none;
+}
+:root.forkSkin .historyPanel :is(.historyPreviewBtn, .historyDeleteBtn) {
+  min-width: 30px;
+  min-height: 30px;
+  border-radius: var(--rounded-sm, 6px);
+}
+:root.forkSkin .historyPanel .historyPreviewBtn:hover {
+  color: var(--title);
+  background: var(--fork-card);
+}
+:root.forkSkin .historyPanel .historyIconWrap[data-tip]::after {
+  background: rgb(var(--hud-bg));
+  border-radius: var(--rounded-xs, 4px);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-variation-settings: normal;
+  letter-spacing: normal;
+}
+:root.forkSkin .historyPanel .historyPreviewNote { border-radius: var(--rounded-sm, 6px); }
+:root.forkSkin .historyPanel .historyEmpty {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  color: #b7bfcd;
+}
+
+/* Grouped view */
+:root.forkSkin .historyPanel .historyGroup {
+  margin-bottom: 8px;
+  border: 1px solid var(--fork-field-border);
+  border-radius: var(--rounded, 6px);
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.1);
+}
+:root.forkSkin .historyPanel .historyGroupHeader { padding: 11px 14px; }
+:root.forkSkin .historyPanel .historyGroupHeader:hover { background: var(--fork-card); }
+:root.forkSkin .historyPanel .historyGroupHeader.expanded {
+  background: var(--fork-card);
+  border-bottom: 1px solid var(--fork-field-border);
+}
+:root.forkSkin .historyPanel .historyGroupHeader::after { display: none; }
+:root.forkSkin .historyPanel .historyGroupName {
+  flex: 1 1 auto;
+  font-family: var(--fork-title-font, var(--hud-ident));
+  font-variation-settings: normal;
+  font-size: 13.5px;
+  letter-spacing: 0.03em;
+  text-transform: none;
+}
+:root.forkSkin .historyPanel .historyGroupCount {
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--fork-band);
+  border-color: var(--panel-border);
+  color: var(--title);
+}
+:root.forkSkin .historyPanel .historyGroupChevron { color: var(--title); }
+:root.forkSkin .historyPanel .historyGroupChildren {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: none;
+  box-shadow: none;
+}
+:root.forkSkin .historyPanel .historyGroupChildren .historyRowChild {
+  padding-left: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+:root.forkSkin .historyPanel .historyRowChild .historyRowName {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-variation-settings: normal;
+  font-size: 13px;
+  letter-spacing: normal;
+}
+:root.forkSkin .historyPanel :is(.historyTrainBadge, .historyLiveBadge) {
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-variation-settings: normal;
+  letter-spacing: 0.06em;
+}
+:root.forkSkin[data-theme="glass"].historyWindow .historyPanel { background-color: rgb(43, 54, 72); }

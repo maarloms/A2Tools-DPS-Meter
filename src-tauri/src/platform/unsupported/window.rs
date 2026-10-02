@@ -19,3 +19,8 @@ pub fn minimize_off_top(window: &tauri::WebviewWindow) {
     let _ = window.set_always_on_top(false);
     let _ = window.minimize();
 }
+
+/// Fall back to the framework's focus information on other platforms.
+pub fn is_foreground(window: &tauri::WebviewWindow) -> bool {
+    window.is_focused().unwrap_or(false)
+}

@@ -379,6 +379,7 @@ const createDetailsUI = ({
       const def = statusList[i];
       if (!def) { slot.statEl.style.display = "none"; continue; }
       const statKey = def.key;
+      slot.statEl.dataset.stat = statKey;
       const shouldShow = detailsMode === "heal" || !compact || COMPACT_STAT_KEYS.has(statKey);
       slot.statEl.style.display = shouldShow ? "" : "none";
       if (!shouldShow) continue;
@@ -856,6 +857,9 @@ const createDetailsUI = ({
     }
 
     const visibleCols = GRID_COL_ORDER.filter((col) => !detailsPanel.classList.contains(`hide-col-${col}`));
+    // Fork skin scrolls the entire table when all metrics cannot fit.
+    skillsContainer.style.setProperty('--fork-skill-min-width',
+      `${Math.max(120, lastMeasuredNameWidth) + (visibleCols.length - 1) * 58 + 28}px`);
     if (lastMeasuredNameWidth > 0) {
       const dataCols = visibleCols.filter((c) => c !== "name");
       const template = `${lastMeasuredNameWidth}px ${dataCols.map((col) => GRID_COL_DEFS[col]).join(" ")}`;
@@ -1225,10 +1229,17 @@ const createDetailsUI = ({
   // ── Collapsible section toggle ──
   const sectionHeaders = detailsPanel?.querySelectorAll?.(".detailsSectionHeader");
   sectionHeaders?.forEach?.((header) => {
+    header.setAttribute('role', 'button');
+    header.tabIndex = 0;
+    header.setAttribute('aria-expanded', String(header.closest('.detailsSection')?.classList.contains('isExpanded')));
+    header.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); header.click(); }
+    });
     header.addEventListener("click", () => {
       const section = header.closest(".detailsSection");
       if (section) {
-        section.classList.toggle("isExpanded");
+        section.classList.toggle('isExpanded');
+        header.setAttribute('aria-expanded', String(section.classList.contains('isExpanded')));
         // Re-render charts when sections are expanded (canvas needs non-zero size)
         if (section.classList.contains("isExpanded") && lastDetails) {
           if (section.classList.contains("dpsChartSection")) {
