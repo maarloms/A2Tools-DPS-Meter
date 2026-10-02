@@ -1779,6 +1779,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(crate::fork::init())
         .setup(|app| {
             // Resolve data directory
             let app_data_dir = app.path().app_data_dir()
@@ -2249,6 +2250,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            crate::fork::toggle_timer,
+            crate::fork::set_timer_locked,
             get_app_version,
             get_dps_snapshot,
             get_skill_details,

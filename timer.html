@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de" data-theme="aion2">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AION 2 Event-Timer</title>
+<link rel="stylesheet" href="/src/styles.css">
+<link rel="stylesheet" href="/fork/themes.css">
+<link rel="stylesheet" href="/fork/timer.css">
+</head>
+<body>
+<main class="timer">
+  <header id="drag"><div class="heading"><span class="crest" aria-hidden="true">◇</span><h1>Event-Timer</h1></div>
+    <nav aria-label="Timer-Fenster">
+      <button id="filters" title="Events und Darstellung" aria-label="Filter öffnen" aria-expanded="false">⚙</button>
+      <button id="lock" title="Durchklicken sperren; Strg+Alt+T blendet aus und wieder entsperrt ein" aria-label="Timer sperren" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4"/></svg></button>
+      <button id="close" title="Ausblenden (Strg+Alt+T)" aria-label="Timer ausblenden">×</button>
+    </nav>
+  </header>
+  <div class="clockline"><span>Deutschland</span><time id="clock">—</time></div>
+  <section id="settings" hidden aria-label="Eventfilter">
+    <div class="settingsTitle">Deine Events <button id="done">Fertig</button></div>
+    <p class="hint">Nur der Raum-Zeit-Riss ist für EU ingame bestätigt.</p>
+    <div id="options"></div>
+    <label class="control">Zeitkorrektur <input id="offset" type="number" min="-180" max="180" step="1" value="0"> min</label>
+    <label class="control">Transparenz <input id="opacity" type="range" min="35" max="100" value="88"></label>
+    <p class="hint">Die Zeitkorrektur verschiebt alle Events. Belagerungen folgen nach Bestätigung der EU-Zeiten.</p>
+  </section>
+  <section id="events" aria-label="Nächste Events"></section>
+  <p id="error" hidden role="alert"></p>
+  <footer id="footer">Strg+Alt+T · Ein / Aus</footer>
+</main>
+<script type="module">import(/* @vite-ignore */ "/fork/timer.js");</script>
+</body></html>

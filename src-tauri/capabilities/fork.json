@@ -1,0 +1,1 @@
+{"identifier":"fork-timer","description":"Event timer window controls and event listeners","windows":["timer"],"permissions":["core:default","core:window:allow-start-dragging"]}

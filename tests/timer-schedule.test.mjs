@@ -1,0 +1,57 @@
+import {test} from "node:test";
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import {eventState,countdown} from "../public/fork/schedule.js";
+const data=JSON.parse(readFileSync(new URL("../public/fork/events.json", import.meta.url)));
+const rift=data.events.find(e=>e.id==="rift");
+const at=s=>Date.parse(s);
+test("confirmed 22:29 CEST observation counts down to 23:00",()=>{
+  const state=eventState(rift,at("2026-10-02T22:29:00+02:00"));
+  assert.equal(state.start,at("2026-10-02T23:00:00+02:00"));
+  assert.equal(countdown(state.remaining),"31:00");
+  assert.equal(state.active,false);
+});
+test("portal opens exactly at start and closes at ten minutes",()=>{
+  const start=at("2026-10-02T23:00:00+02:00");
+  assert.equal(eventState(rift,start).active,true);
+  assert.equal(countdown(eventState(rift,start).remaining),"10:00");
+  assert.equal(eventState(rift,start+599999).active,true);
+  const closed=eventState(rift,start+600000);
+  assert.equal(closed.active,false);
+  assert.equal(closed.next,at("2026-10-03T02:00:00+02:00"));
+});
+test("midnight rolls over to the next calendar day",()=>{
+  assert.equal(eventState(rift,at("2026-10-02T23:59:00+02:00")).next,at("2026-10-03T02:00:00+02:00"));
+});
+test("fixed server schedule survives German autumn clock change",()=>{
+  const before=eventState(rift,at("2026-10-25T00:10:00Z"));
+  assert.equal(before.next,at("2026-10-25T03:00:00Z"));
+  const after=eventState(rift,at("2026-10-25T03:00:00Z"));
+  assert.equal(after.active,true);
+  assert.equal(new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Berlin",hour:"2-digit",hourCycle:"h23"}).format(after.start),"04");
+});
+test("manual correction shifts starts and open interval together",()=>{
+  const shifted=eventState(rift,at("2026-10-02T23:00:00+02:00"),60);
+  assert.equal(shifted.active,false);
+  assert.equal(shifted.next,at("2026-10-03T00:00:00+02:00"));
+});
+test("weekly schedule finds the next week",()=>{
+  const event={...rift,hours:[21],weekdays:[1]};
+  assert.equal(eventState(event,at("2026-10-05T13:00:00Z")).next,at("2026-10-12T12:00:00Z"));
+});
+test("zero duration events immediately show their next start",()=>{
+  const event={...rift,durationMinutes:0};
+  assert.equal(eventState(event,at("2026-10-02T21:00:00Z")).active,false);
+  assert.equal(eventState(event,at("2026-10-02T21:00:00Z")).next,at("2026-10-03T00:00:00Z"));
+});
+test("German spring missing hour is skipped; autumn hour has two occurrences",()=>{
+  const event={...rift,timeZone:"Europe/Berlin",hours:[2],durationMinutes:0};
+  assert.equal(eventState(event,at("2026-03-28T23:00:00Z")).next,at("2026-03-30T00:00:00Z"));
+  assert.equal(eventState(event,at("2026-10-24T23:00:00Z")).next,at("2026-10-25T00:00:00Z"));
+  assert.equal(eventState(event,at("2026-10-25T00:30:00Z")).next,at("2026-10-25T01:00:00Z"));
+});
+test("countdown rounds partial seconds up and supports hours",()=>{
+  assert.equal(countdown(1),"00:01");
+  assert.equal(countdown(-1),"00:00");
+  assert.equal(countdown(3600000),"1:00:00");
+});

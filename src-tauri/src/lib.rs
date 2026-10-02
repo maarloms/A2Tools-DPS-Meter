@@ -40,3 +40,6 @@ mod app;
 
 #[cfg(feature = "desktop")]
 pub use app::run;
+
+#[cfg(feature = "desktop")]
+pub mod fork;
