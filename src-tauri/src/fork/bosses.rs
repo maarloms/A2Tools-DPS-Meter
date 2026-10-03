@@ -305,7 +305,7 @@ fn on_mob(code: i32, died: bool) {
 }
 
 /// `FORK_PACKET_HOOK`: every decoded packet, so bail out fast.
-fn on_packet(packet: &[u8]) {
+pub(super) fn on_packet(packet: &[u8]) {
     // Opcode right after a 1-3 byte length varint.
     if packet.len() < 20 || !packet[1..5].windows(2).any(|w| w == [0x01, 0x91]) {
         return;
@@ -358,7 +358,6 @@ fn log_map(map: u32, bosses: &[MapBoss], now: i64) {
 pub fn start(app: &tauri::AppHandle) {
     let _ = APP.set(app.clone());
     let _ = crate::combat::data_storage::MOB_LIFE_HOOK.set(on_mob);
-    let _ = crate::capture::stream_processor::FORK_PACKET_HOOK.set(on_packet);
 }
 
 #[tauri::command]

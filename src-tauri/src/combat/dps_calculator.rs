@@ -408,6 +408,8 @@ impl DpsCalculator {
             });
         }
         let bt = battle_time.max(1000);
+        let local_gear = self.data_storage.local_gear(); // fork
+        let local_name = self.data_storage.local_character_name().map(|n| n.trim().to_string());
         let mut to_remove = Vec::new();
         for (&uid, data) in &mut dps_data.map {
             // Combat power joins on the character name: the roster carries an
@@ -416,6 +418,10 @@ impl DpsCalculator {
                 .get(&data.nickname)
                 .map(|m| m.combat_power)
                 .unwrap_or(0);
+            // fork: yours from the game's own update, fresher than the roster
+            if let (Some(cp), true) = (local_gear.1, local_name.as_deref() == Some(data.nickname.trim())) {
+                data.combat_power = cp;
+            }
             if data.job.is_empty() {
                 if local_ids.as_ref().is_some_and(|ids| ids.contains(&uid)) {
                     data.job = "Unknown".to_string();
@@ -786,6 +792,8 @@ impl DpsCalculator {
             }
 
             let local_id = self.data_storage.local_player_id().unwrap_or(-1) as i32;
+            let local_gear = self.data_storage.local_gear(); // fork
+            let local_name = self.data_storage.local_character_name().map(|n| n.trim().to_string());
             let actors: Vec<DetailsActorSummary> = record_actors.iter()
                 .map(|(&id, (nick, job))| {
                     let display_nick = if id == local_id {
@@ -813,6 +821,7 @@ impl DpsCalculator {
                     // name, and `display_nick` above has already been masked for
                     // everyone but the local player.
                     let roster = party_members.get(nick.as_str());
+                    let is_you = id == local_id || local_name.as_deref() == Some(nick.trim());
                     DetailsActorSummary {
                         actor_id: id,
                         nickname: display_nick,
@@ -827,8 +836,9 @@ impl DpsCalculator {
                         is_supporter: supporters
                             .contains(nick, roster.map(|m| m.dbid).unwrap_or(0)),
                         level: roster.map(|m| m.level).unwrap_or(0),
-                        gear_score: roster.map(|m| m.gear_score).unwrap_or(0),
-                        combat_power: roster.map(|m| m.combat_power).unwrap_or(0),
+                        // fork: yours from the game's own update, fresher than the roster
+                        gear_score: local_gear.0.filter(|_| is_you).or(roster.map(|m| m.gear_score)).unwrap_or(0),
+                        combat_power: local_gear.1.filter(|_| is_you).or(roster.map(|m| m.combat_power)).unwrap_or(0),
                     }
                 })
                 .collect();

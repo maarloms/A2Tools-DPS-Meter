@@ -1,4 +1,5 @@
 pub mod bosses;
+pub mod gear;
 pub mod cloud;
 pub mod npcap;
 
@@ -164,6 +165,8 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .on_event(|app, event| {
             if matches!(event, tauri::RunEvent::Ready) {
                 bosses::start(app);
+                let _ = APP.set(app.clone());
+                let _ = crate::capture::stream_processor::FORK_PACKET_HOOK.set(on_packet);
                 let manager = HotkeyManager::new();
                 let handle = app.clone();
                 manager.start(0, 0, 3, 0x54, 0, 0, || {}, move || {
@@ -246,4 +249,25 @@ pub fn ensure_single_instance() -> bool {
 #[cfg(not(windows))]
 pub fn ensure_single_instance() -> bool {
     true
+}
+
+static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+/// `FORK_PACKET_HOOK`: every decoded packet goes past the field boss map
+/// reader and the gear reader.
+fn on_packet(packet: &[u8]) {
+    bosses::on_packet(packet);
+    // Gear packets are rare; look only at the three opcodes.
+    let op = packet.get(1..5).unwrap_or_default();
+    if !op.windows(2).any(|w| w == [0x1d, 0x56] || w == [0x56, 0x36] || w == [0x33, 0x36]) {
+        return;
+    }
+    let Some(app) = APP.get() else { return };
+    let storage = &app.state::<AppState>().data_storage;
+    let name = storage.local_character_name();
+    if let Some(g) = gear::parse(packet, name.as_deref()) {
+        if storage.set_local_gear(g.gear_score, g.combat_power) {
+            tracing::info!("Your gear: GS {:?} (highest {:?}), combat power {:?}", g.gear_score, g.gear_score_max, g.combat_power);
+        }
+    }
 }

@@ -234,6 +234,9 @@ struct Inner {
     name_seen_ms: HashMap<i32, i64>,
     /// fork: your entity id in the last self record; a different one means a new zone.
     last_self_id: Option<i64>,
+    /// fork: your gear score and combat power as the game last told you
+    /// (src/fork/gear.rs). Fresher than the party roster's.
+    local_gear: (Option<i32>, Option<i64>),
     permanent_nicknames: HashMap<i32, String>,
     summon_storage: HashMap<i32, i32>,
     mob_storage: HashMap<i32, i32>,
@@ -342,6 +345,7 @@ impl DataStorage {
                 pending_nicknames: HashMap::new(),
             name_seen_ms: HashMap::new(),
             last_self_id: None,
+            local_gear: (None, None),
                 permanent_nicknames: HashMap::new(),
                 summon_storage: HashMap::new(),
                 mob_storage: HashMap::new(),
@@ -991,6 +995,24 @@ impl DataStorage {
 
     pub fn is_known_player(&self, id: i32) -> bool {
         self.inner.read().known_player_ids.contains(&id)
+    }
+
+    /// fork: your gear score / combat power; `None` keeps the known value.
+    /// Returns whether anything changed.
+    pub fn set_local_gear(&self, gear_score: Option<i32>, combat_power: Option<i64>) -> bool {
+        let mut inner = self.inner.write();
+        let before = inner.local_gear;
+        if gear_score.is_some() {
+            inner.local_gear.0 = gear_score;
+        }
+        if combat_power.is_some() {
+            inner.local_gear.1 = combat_power;
+        }
+        inner.local_gear != before
+    }
+
+    pub fn local_gear(&self) -> (Option<i32>, Option<i64>) {
+        self.inner.read().local_gear
     }
 
     /// fork: every entity that deals player damage under the local player's
