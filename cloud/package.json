@@ -1,0 +1,21 @@
+{
+  "name": "a2dps-cloud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Relay (Durable Object) + Web-Dashboard fuer das private AION2-DPS-Meter",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply a2dps --local",
+    "db:migrate:remote": "wrangler d1 migrations apply a2dps --remote",
+    "typecheck": "tsc --noEmit",
+    "test": "node test/simulate.mjs",
+    "sync-shared": "node scripts/sync-shared.mjs",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261002.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.147.0"
+  }
+}

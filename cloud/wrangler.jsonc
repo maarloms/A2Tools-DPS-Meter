@@ -1,0 +1,51 @@
+{
+  // AION2 DPS Meter – Relay + Dashboard (Workers Free Plan)
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "a2dps-cloud",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+
+  // Dashboard = statische Assets (kostenlos, zaehlen nicht als Worker-Request).
+  // Nur /api/* laeuft durch den Worker.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // Ein Durable Object pro Raum: Live-Relay (WebSocket Hibernation) + Kampf-Ablage (SQLite).
+  // Free Plan erlaubt nur SQLite-backed Durable Objects.
+  "durable_objects": {
+    "bindings": [{ "name": "ROOM", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+
+  // Kampf-Historie, Bestenliste, Trends. Vor dem ersten Deploy:
+  //   npx wrangler d1 create a2dps   → database_id hier eintragen
+  //   npx wrangler d1 migrations apply a2dps --remote
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "a2dps",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Kopiert Event-Plan (events.json, schedule.js) aus app/public/fork ins Dashboard.
+  "build": { "command": "node scripts/sync-shared.mjs", "watch_dir": "../public/fork" },
+
+  "vars": {
+    // Zusaetzliche Origins, die per Browser (CORS / WebSocket-Origin) zugreifen duerfen.
+    // Das eigene Dashboard (gleiche Origin) ist immer erlaubt. Komma-getrennt.
+    // Beispiel fuer JS-Uploads aus der Tauri-App: "http://tauri.localhost,tauri://localhost"
+    "ALLOWED_ORIGINS": "http://tauri.localhost"
+  },
+  // Geheimnis (NICHT hier eintragen):  npx wrangler secret put ROOMS
+  //   Format: "raumcode:secret" – mehrere Raeume mit Komma trennen.
+  // Lokal: Datei .dev.vars (siehe .dev.vars.example).
+
+  // Fehler/eigene Logs ja, aber KEINE Invocation-Logs: die enthalten Request-Header
+  // (also auch "Authorization: Bearer <Raum-Secret>").
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } }
+}

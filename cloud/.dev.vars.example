@@ -1,0 +1,3 @@
+# Lokale Secrets fuer `npx wrangler dev`. Kopieren nach .dev.vars (wird nicht committet).
+# Format: raumcode:secret  (mehrere mit Komma). Secret mind. 16 Zeichen.
+ROOMS="testraum:dev-secret-bitte-aendern-123"
