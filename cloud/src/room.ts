@@ -26,7 +26,8 @@ import {
   unmaskDetail,
   unmasker,
 } from "./fights";
-import { deleteEncounter, loadEncounter, memberNames, registerMember, saveUpload } from "./store";
+import { deleteEncounter, loadEncounter, registerMember, saveUpload } from "./store";
+import { activeMembers, isAllowed } from "./members";
 
 interface Attachment {
   role: Role | "pending";
@@ -35,6 +36,8 @@ interface Attachment {
   name: string;
   at: number;
   group: boolean;
+  /** Dashboard per Session-Cookie bereits angemeldet (vom Worker gesetzt) */
+  pre?: boolean;
 }
 
 interface RateState {
@@ -67,6 +70,9 @@ export class Room extends DurableObject<Env> {
   private uploadTimes: number[] = [];
   private uploadChain: Promise<unknown> = Promise.resolve();
   private memberSeen = new Map<string, number>();
+  /** Aktive Mitglieder (klein geschrieben) für die Live-Ansicht; null = noch nicht geladen */
+  private memberSet: Set<string> | null = null;
+  private memberSetAt = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -90,10 +96,20 @@ export class Room extends DurableObject<Env> {
     if (!m) return json({ error: "not_found" }, 404);
     const room = m[1].toLowerCase();
     const rest = m[2];
+    this.roomName = room;
 
     try {
       if (rest === "/ws") return this.acceptSocket(req, room);
-      if (rest === "/live" && req.method === "GET") return json(this.groupView());
+      if (rest === "/live" && req.method === "GET") {
+        await this.refreshMembers();
+        return json(this.groupView());
+      }
+      if (rest === "/members-changed" && req.method === "POST") {
+        // Dashboard hat die Mitgliederliste geändert → Live-Ansicht neu filtern
+        await this.refreshMembers(true);
+        this.scheduleBroadcast();
+        return json({ ok: true });
+      }
       if (rest === "/fights" && req.method === "POST") {
         // Uploads pro Raum nacheinander: verhindert doppelte Kaempfe bei gleichzeitigen Uploads
         const run = this.uploadChain.then(() => this.upload(req, url, room));
@@ -124,7 +140,7 @@ export class Room extends DurableObject<Env> {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
-    const att: Attachment = { role: "pending", room, clientId: "", name: "", at: Date.now(), group: true };
+    const att: Attachment = { role: "pending", room, clientId: "", name: "", at: Date.now(), group: true, pre: req.headers.get("x-a2-session") === "1" };
     server.serializeAttachment(att);
     // Unangemeldete Sockets nach Timeout schliessen
     this.ctx.storage.getAlarm().then((a) => {
@@ -174,10 +190,11 @@ export class Room extends DurableObject<Env> {
 
   private async hello(ws: WebSocket, att: Attachment, msg: any): Promise<void> {
     if (msg.v !== PROTOCOL_VERSION) return this.closeWith(ws, 4002, "unsupported_version");
-    const ok = await checkRoomSecret(this.env, att.room, msg.secret);
+    const role: Role = msg.role === "app" ? "app" : "viewer";
+    // Dashboard mit gültiger Session braucht kein Secret; Apps immer
+    const ok = (att.pre && role === "viewer") || (await checkRoomSecret(this.env, att.room, msg.secret));
     if (!ok) return this.closeWith(ws, 4001, "unauthorized");
 
-    const role: Role = msg.role === "app" ? "app" : "viewer";
     const sockets = this.authedSockets();
     if (role === "app") {
       const clientId = typeof msg.clientId === "string" && CLIENT_ID_RE.test(msg.clientId) ? msg.clientId : "";
@@ -195,7 +212,12 @@ export class Room extends DurableObject<Env> {
       // Mitglied in D1 eintragen (hoechstens einmal pro Stunde je Name)
       if (Date.now() - (this.memberSeen.get(name) ?? 0) > 3_600_000) {
         this.memberSeen.set(name, Date.now());
-        this.ctx.waitUntil(registerMember(this.env.DB, att.room, name).catch((e) => console.error("member", (e as Error).message)));
+        this.ctx.waitUntil(
+          registerMember(this.env.DB, att.room, name, Date.now(), isAllowed(this.env, att.room, name))
+            .then(() => this.refreshMembers(true))
+            .then(() => this.scheduleBroadcast())
+            .catch((e) => console.error("member", (e as Error).message)),
+        );
       }
     } else {
       const viewers = sockets.filter(([, a]) => a.role === "viewer").length;
@@ -327,12 +349,28 @@ export class Room extends DurableObject<Env> {
     }
   }
 
+  /** Mitgliederliste aus D1 (gecacht, max. 60 s alt) */
+  private async refreshMembers(force = false): Promise<void> {
+    if (!force && this.memberSet && Date.now() - this.memberSetAt < 60_000) return;
+    const room = this.authedSockets()[0]?.[1].room ?? this.roomName;
+    if (!room) return;
+    const names = await activeMembers(this.env.DB, this.env, room);
+    this.memberSet = new Set(names.map((n) => n.toLowerCase()));
+    this.memberSetAt = Date.now();
+  }
+  private roomName = "";
+
   private groupView() {
+    if (!this.memberSet || Date.now() - this.memberSetAt > 60_000) {
+      this.ctx.waitUntil(this.refreshMembers().then(() => this.scheduleBroadcast()).catch(() => undefined));
+    }
     this.ensureLoaded();
     const online = this.authedSockets()
       .filter(([, a]) => a.role === "app")
       .map(([, a]) => ({ clientId: a.clientId, name: a.name }));
-    return buildGroupView(this.snaps.values(), online, Date.now());
+    const set = this.memberSet;
+    // Solange die Liste nicht geladen ist: nur die verbundenen App-Namen (die Melder) zeigen
+    return buildGroupView(this.snaps.values(), online, Date.now(), set ? (n) => set.has(n) : undefined);
   }
 
   private scheduleBroadcast(): void {
@@ -434,9 +472,9 @@ export class Room extends DurableObject<Env> {
     this.uploadTimes.push(now);
 
     const db = this.env.DB;
-    await registerMember(db, room, uploader, now);
+    await registerMember(db, room, uploader, now, isAllowed(this.env, room, uploader));
     this.memberSeen.set(uploader, now);
-    const known = await memberNames(db, room);
+    const known = await activeMembers(db, this.env, room);
     const detail = buildUpload(record, uploader, known);
     const res = await saveUpload(db, room, detail, gz.length, known, now);
 
@@ -482,12 +520,33 @@ export class Room extends DurableObject<Env> {
   private async fightDetail(room: string, id: string): Promise<Response> {
     const d = await loadEncounter(this.env.DB, room, id);
     if (!d) return json({ error: "not_found" }, 404);
-    // Inzwischen bekannte Mitgliedsnamen nachtraeglich aufloesen
-    unmaskDetail(d, unmasker(await memberNames(this.env.DB, room)));
+    // Inzwischen bekannte Mitgliedsnamen nachträglich auflösen, dann nur Mitglieder zeigen.
+    const members = await activeMembers(this.env.DB, this.env, room);
+    unmaskDetail(d, unmasker(members));
+    const isMember = new Set(members.map((n) => n.toLowerCase()));
+    const mine = d.players.filter((p) => isMember.has(p.name.toLowerCase()));
+    const mineDmg = mine.reduce((sum, p) => sum + p.dmg, 0);
+    const othersDmg = Math.max(0, d.summary.totalDamage - mineDmg);
+    const keep = (n: string) => isMember.has(n.toLowerCase());
     const haveRaw = new Set(
       this.sql.exec<{ upload_id: string }>("SELECT upload_id FROM raw_index").toArray().map((r) => r.upload_id),
     );
-    return json({ ...d, uploads: d.uploads.map((u) => ({ ...u, raw: haveRaw.has(u.id) })) });
+    return json({
+      ...d,
+      summary: { ...d.summary, top: d.summary.top.filter((t) => keep(t.name)) },
+      players: mine,
+      others: {
+        count: Math.max(0, d.summary.actorCount - mine.length),
+        dmg: othersDmg,
+        share: d.summary.totalDamage > 0 ? Math.round((othersDmg / d.summary.totalDamage) * 1000) / 10 : 0,
+      },
+      timeline: {
+        ...d.timeline,
+        series: d.timeline.series.filter((x) => keep(x.name)),
+        lanes: d.timeline.lanes.filter((x) => keep(x.name)),
+      },
+      uploads: d.uploads.map((u) => ({ ...u, raw: haveRaw.has(u.id) })),
+    });
   }
 
   private rawUpload(uploadId: string): Response {

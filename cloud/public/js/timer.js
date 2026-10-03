@@ -3,7 +3,7 @@
 // kopiert (scripts/sync-shared.mjs); hier wird nur importiert, nichts nachgebaut.
 
 import { countdown, eventState } from "../shared/schedule.js";
-import { $, $$, currentRoute, empty, esc, view } from "./core.js";
+import { $, $$, currentRoute, empty, esc, pageHead, view } from "./core.js";
 
 const KEY = "a2dps.timer";
 const time = new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit" });
@@ -52,7 +52,7 @@ export async function loadTimer() {
     clearInterval(tick);
     tick = setInterval(() => (currentRoute().name === "timer" ? renderRows() : clearInterval(tick)), 1000);
   } catch {
-    view.innerHTML = empty("Timer nicht verfügbar", "Der Event-Plan (shared/events.json) fehlt – beim Build wird er aus app/public/fork kopiert.");
+    view.innerHTML = `<div class="page">${empty("Timer nicht verfügbar", "Der Event-Plan (shared/events.json) fehlt – beim Build wird er aus app/public/fork kopiert.")}</div>`;
   }
 }
 
@@ -69,18 +69,17 @@ function renderShell() {
         .join("")}</fieldset>`,
     )
     .join("");
-  view.innerHTML = `
+  view.innerHTML = `<div class="page">
+    ${pageHead("Event-Timer", `Deutsche Zeit, derselbe Plan wie im Overlay der App.${prefs.offset ? ` Zeitkorrektur: ${prefs.offset > 0 ? "+" : ""}${prefs.offset} min.` : ""}`, `<span class="clock" id="tClock"></span>`)}
     <article class="card timer">
-      <div class="card-head"><h2>Event-Timer</h2><span class="clock num" id="tClock"></span></div>
-      <p class="meta">Zeiten in deutscher Zeit (Europe/Berlin), gleicher Plan wie im Overlay der App.${prefs.offset ? ` Zeitkorrektur: ${prefs.offset > 0 ? "+" : ""}${prefs.offset} min.` : ""}</p>
       <div id="tEvents" class="tevents"></div>
       <p><button class="btn" id="tFilter" type="button" aria-expanded="${showFilter}">${showFilter ? "Filter schließen" : "Events auswählen"}</button></p>
       <div id="tSettings" ${showFilter ? "" : "hidden"}>
         <div class="tfilters">${filters}</div>
         <label class="field" style="max-width:220px"><span>Zeitkorrektur (Minuten)</span>
-          <input type="number" id="tOffset" class="search" value="${prefs.offset}" min="-120" max="120" step="1"></label>
+          <input type="number" id="tOffset" class="input" value="${prefs.offset}" min="-120" max="120" step="1"></label>
       </div>
-    </article>`;
+    </article></div>`;
   $("#tFilter").addEventListener("click", () => {
     showFilter = !showFilter;
     renderShell();

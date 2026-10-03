@@ -1,3 +1,5 @@
 # Lokale Secrets fuer `npx wrangler dev`. Kopieren nach .dev.vars (wird nicht committet).
 # Format: raumcode:secret  (mehrere mit Komma). Secret mind. 16 Zeichen.
 ROOMS="testraum:dev-secret-bitte-aendern-123"
+# Signiert die Login-Cookies des Dashboards (lokal optional – sonst aus ROOMS abgeleitet)
+SESSION_KEY="lokaler-session-schluessel-nur-fuer-tests-0123456789"

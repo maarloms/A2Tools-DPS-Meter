@@ -11,6 +11,8 @@ export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
   ROOMS?: string;
+  ROOM_MEMBERS?: string;
+  SESSION_KEY?: string;
   ALLOWED_ORIGINS?: string;
 }
 
@@ -58,6 +60,11 @@ export async function checkRoomSecret(env: Env, code: string, secret: unknown): 
   return ok && want !== undefined;
 }
 
+/** SHA-256 des Raum-Secrets (für Session-Signaturen), null = Raum unbekannt */
+export async function roomDigest(env: Env, code: string): Promise<Uint8Array | null> {
+  return (await rooms(env)).get(code) ?? null;
+}
+
 /** Secret aus `Authorization: Bearer <secret>`. */
 export function bearer(req: Request): string | null {
   const h = req.headers.get("authorization");
@@ -84,7 +91,7 @@ export function corsHeaders(origin: string | null): Record<string, string> {
   if (!origin) return {};
   return {
     "access-control-allow-origin": origin,
-    "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
     "access-control-allow-headers": "authorization, content-type, content-encoding",
     "access-control-max-age": "86400",
     vary: "Origin",

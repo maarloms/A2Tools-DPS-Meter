@@ -5,12 +5,12 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
 
-  // Dashboard = statische Assets (kostenlos, zaehlen nicht als Worker-Request).
-  // Nur /api/* laeuft durch den Worker.
+  // Dashboard = statische Assets. ALLES läuft zuerst durch den Worker, der die
+  // Session prüft: ohne Login gibt es nur die Login-Seite (zählt als Worker-Request).
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": true
   },
 
   // Ein Durable Object pro Raum: Live-Relay (WebSocket Hibernation) + Kampf-Ablage (SQLite).
@@ -41,7 +41,13 @@
     // Beispiel fuer JS-Uploads aus der Tauri-App: "http://tauri.localhost,tauri://localhost"
     "ALLOWED_ORIGINS": "http://tauri.localhost"
   },
-  // Geheimnis (NICHT hier eintragen):  npx wrangler secret put ROOMS
+  // Optional: feste Mitgliederliste je Raum (sonst zählt jeder App-/Upload-Name,
+  // Ausblenden dann im Dashboard). Format: "raum:Name1|Name2|Name3,raum2:…"
+  // "ROOM_MEMBERS": "atreia-trio:marloms|Name2|Name3",
+  //
+  // Secrets (NICHT hier eintragen):
+  //   npx wrangler secret put SESSION_KEY   (zufällig, ≥ 32 Zeichen; signiert die Login-Cookies)
+  //   npx wrangler secret put ROOMS
   //   Format: "raumcode:secret" – mehrere Raeume mit Komma trennen.
   // Lokal: Datei .dev.vars (siehe .dev.vars.example).
 

@@ -38,7 +38,10 @@ export interface EncounterView {
   dealt: number;
   updatedAt: number;
   reporters: string[];
+  /** Nur Gruppenmitglieder */
   players: MergedPlayer[];
+  /** Alle anderen zusammengefasst (zählen im Gesamtschaden/Anteil mit) */
+  others: { count: number; dmg: number; share: number };
 }
 
 export interface GroupView {
@@ -62,11 +65,24 @@ function selfEntry(s: Snap) {
   return s.players.find((p) => p.self) ?? s.players.find((p) => p.name.toLowerCase() === s.name.toLowerCase());
 }
 
-export function buildGroupView(snaps: Iterable<Snap>, online: OnlineApp[], now: number): GroupView {
-  const all = [...snaps].filter((s) => now - s.ts <= LIMITS.liveTtlMs);
+/**
+ * @param isMember  Gehört ein Name (klein geschrieben) zur Gruppe? Ohne Angabe: jeder
+ *                  Melder (App-Name) gilt als Mitglied. Nur Mitglieder werden gezeigt,
+ *                  Fremde zählen aber im Gesamtschaden und in den Anteilen.
+ */
+export function buildGroupView(
+  snaps: Iterable<Snap>,
+  online0: OnlineApp[],
+  now: number,
+  isMember?: (lcName: string) => boolean,
+): GroupView {
+  const all0 = [...snaps].filter((s) => now - s.ts <= LIMITS.liveTtlMs);
   const memberNames = new Set<string>();
-  for (const s of all) memberNames.add(s.name.toLowerCase());
-  for (const o of online) memberNames.add(o.name.toLowerCase());
+  for (const s of all0) memberNames.add(s.name.toLowerCase());
+  for (const o of online0) memberNames.add(o.name.toLowerCase());
+  const member = isMember ?? ((n: string) => memberNames.has(n));
+  const all = all0.filter((s) => member(s.name.toLowerCase()));
+  const online = online0.filter((o) => member(o.name.toLowerCase()));
 
   // ---- Kaempfe gruppieren ----
   const groups = new Map<string, Snap[]>();
@@ -98,7 +114,7 @@ export function buildGroupView(snaps: Iterable<Snap>, online: OnlineApp[], now: 
             dmg: p.dmg,
             share: 0,
             cp: p.cp || prev?.cp || 0,
-            member: memberNames.has(k) || p.self,
+            member: member(k),
             src: s.name,
           });
         } else if (!prev.cp && p.cp) {
@@ -108,7 +124,11 @@ export function buildGroupView(snaps: Iterable<Snap>, online: OnlineApp[], now: 
     }
     const merged = [...players.values()].sort((a, b) => b.dmg - a.dmg);
     const total = Math.max(dealt, merged.reduce((sum, p) => sum + p.dmg, 0));
-    for (const p of merged) p.share = total > 0 ? Math.round((p.dmg / total) * 1000) / 10 : 0;
+    const pct = (d: number) => (total > 0 ? Math.round((d / total) * 1000) / 10 : 0);
+    for (const p of merged) p.share = pct(p.dmg);
+    const mine = merged.filter((p) => p.member);
+    if (!mine.length) continue;
+    const othersDmg = Math.max(0, total - mine.reduce((sum, p) => sum + p.dmg, 0));
 
     encounters.push({
       key,
@@ -125,7 +145,8 @@ export function buildGroupView(snaps: Iterable<Snap>, online: OnlineApp[], now: 
       dealt: total,
       updatedAt: newest.ts,
       reporters: [...new Set(list.map((s) => s.name))],
-      players: merged.slice(0, LIMITS.maxPlayersPerSnap),
+      players: mine.slice(0, LIMITS.maxPlayersPerSnap),
+      others: { count: merged.length - mine.length, dmg: othersDmg, share: pct(othersDmg) },
     });
   }
   encounters.sort(

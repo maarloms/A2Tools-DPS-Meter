@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Anmeldung</title>
+  <link rel="stylesheet" href="/login.css">
+</head>
+<body>
+  <main class="box">
+    <h1>Anmeldung</h1>
+    <form id="f" autocomplete="on">
+      <label>Raum<input name="room" type="text" required autocapitalize="none" spellcheck="false" autocomplete="username"></label>
+      <label>Passwort<input name="secret" type="password" required autocomplete="current-password"></label>
+      <label class="check"><input name="remember" type="checkbox" checked> Angemeldet bleiben</label>
+      <p id="err" role="alert"></p>
+      <button type="submit">Anmelden</button>
+    </form>
+  </main>
+  <script src="/login.js"></script>
+</body>
+</html>

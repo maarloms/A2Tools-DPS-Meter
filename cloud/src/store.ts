@@ -22,7 +22,7 @@ export async function memberNames(db: D1Database, room: string): Promise<string[
  * Traegt ein Mitglied ein. Ist es neu, werden seine bisher maskierten Eintraege
  * ("Fr****1") in player_stats auf den echten Namen umgeschrieben.
  */
-export async function registerMember(db: D1Database, room: string, name: string, now = Date.now()): Promise<boolean> {
+export async function registerMember(db: D1Database, room: string, name: string, now = Date.now(), rewrite = true): Promise<boolean> {
   const lc = name.toLowerCase();
   const existing = await db.prepare("SELECT name FROM members WHERE room = ?1 AND name_lc = ?2").bind(room, lc).first<{ name: string }>();
   await db
@@ -33,7 +33,7 @@ export async function registerMember(db: D1Database, room: string, name: string,
     .run();
   if (existing) return false;
   const mask = obscureNickname(name);
-  if (mask !== name) {
+  if (rewrite && mask !== name) {
     // Nur wenn kein anderes Mitglied dieselbe Maske hat
     const others = await memberNames(db, room);
     const clash = others.some((o) => o.toLowerCase() !== lc && obscureNickname(o) === mask);

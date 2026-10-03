@@ -17,6 +17,10 @@ Basis-URL: `https://<worker>.workers.dev` (lokal `http://127.0.0.1:8787`). Alle 
   von der Dashboard-Origin oder aus `ALLOWED_ORIGINS`. **Läuft der Client im Tauri-Webview per JS**, muss dessen Origin
   (Windows: `http://tauri.localhost`) in `ALLOWED_ORIGINS` (wrangler.jsonc) stehen – sonst `403`. Empfehlung: Upload in Rust.
 
+- **Dashboard (Browser):** meldet sich über `POST /api/session` an und bekommt ein HttpOnly-Session-Cookie (siehe Abschnitt 4).
+  Die API akzeptiert **entweder** `Authorization: Bearer <secret>` (App) **oder** dieses Cookie (nur für den eigenen Raum, nur
+  von der Dashboard-Origin). Ohne Session liefert der Server außer der Login-Seite keine Dashboard-Datei aus.
+
 Die App braucht also 3 Einstellungen: **Server-URL, Raum-Code, Raum-Secret** (+ Schalter „Live teilen“).
 
 ## 2. Live-Sharing (WebSocket)
@@ -104,8 +108,12 @@ aufzuwecken (kostenlos).
       "battleTime": 51234, "dungeonId": 600072, "dealt": 1734819, "updatedAt": 1790987001000,
       "reporters": ["marloms", "Kaedros"],
       "players": [ { "name": "marloms", "job": "검성", "dps": 13512.4, "dmg": 411800, "share": 23.7, "cp": 3100,
-                     "member": true, "src": "marloms" } ] } ] }
+                     "member": true, "src": "marloms" } ],
+      "others": { "count": 2, "dmg": 563000, "share": 32.5 } } ] }
 ```
+- **Nur Gruppenmitglieder** stehen in `members` und `players` (Mitglieder = Namen aus `hello`/`uploader`, ausgeblendete
+  zählen nicht; optional feste Liste `ROOM_MEMBERS`). Alle anderen Spieler fasst `others` zusammen – ihr Schaden zählt im
+  Gesamtschaden und damit in jedem `share` mit (Anteil = Anteil am Bossschaden). Die App darf weiter alle Spieler schicken.
 - `state`: `fighting` (Snapshot < 15 s), `idle` (verbunden), `offline` (getrennt; Stand bleibt bis 2 h sichtbar).
 - Kämpfe werden über `target.id + target.name` gruppiert. Pro Spieler zählt der höchste gemeldete Schaden (= aktuellster),
   bei Gleichstand die Eigenmeldung. `share` wird neu berechnet (Anteil am Gesamtschaden auf das Ziel).
@@ -166,25 +174,32 @@ let res = client.post(format!("{base}/api/rooms/{room}/fights"))
     .body(body).send().await?;
 ```
 
-## 4. Lesende Endpunkte (Dashboard, optional für die App)
+## 4. Dashboard-Endpunkte (optional für die App)
 
-Alle `GET`, alle mit `Authorization: Bearer <secret>`:
+**Session (nur Dashboard):** `POST /api/session` `{"room","secret","remember":true}` → `200` + Cookie `a2s`
+(HttpOnly, SameSite=Strict, Secure bei https, 30 Tage; HMAC über Raum + Ablauf + Secret-Hash mit `SESSION_KEY`).
+`GET /api/session` → `{"room"}` oder `401`. `DELETE /api/session` → Logout.
+Einladungslink `https://<host>/#/join/<raum>/<secret>`: die Login-Seite liest das Fragment (geht nie an den Server) und meldet an.
+
+Raum-Endpunkte unter `/api/rooms/<raum>`, alle mit Bearer **oder** Session-Cookie; ohne Angabe `GET`:
 
 | Pfad | Inhalt |
 |---|---|
 | `/live` | aktuelle Gruppenansicht (wie `group`) |
 | `/fights?limit=50&before=<startMs>&boss=<mob>:<dungeon>&train=1` | Kampfliste (zusammengeführt), Paging über `next` |
-| `/fights/<fightId>` | Detail: Spieler, Skills, Zeitreihen, Skill-Zeitleiste, Ping, Perspektiven |
+| `/fights/<fightId>` | Detail: nur Mitglieder (`players`), Rest als `others` {count, dmg, share}; Skills, Zeitreihen, Skill-Zeitleiste, Ping, Perspektiven |
 | `DELETE /fights/<fightId>` | Kampf für alle löschen |
 | `/uploads/<uploadId>/raw` | Original-FightRecord (die letzten 400 Uploads je Raum) |
-| `/members` | Gruppenmitglieder (App-Namen + Uploader) |
+| `/members` | alle bekannten Namen: `{fixed, members:[{name, lastSeen, fights, active}]}` |
+| `PATCH /members` | `{"name","active":false}` blendet einen Namen aus (Testname/Tippfehler), `true` wieder ein. Bei `ROOM_MEMBERS` gesperrt |
+| `/stats/overview` | Übersicht: Karte je Mitglied (Ø-DPS 7 Tage + Vorwoche, Bestwert, Kämpfe, Klasse), Gruppenzahlen, Bestwert je Boss/Mitglied, letzte Kämpfe |
 | `/stats/bosses` | Bosse mit Anzahl Kämpfe + Bestwert |
-| `/stats/leaderboard?boss=<mob>:<dungeon>&days=30` | Bestwerte je Mitglied + Top-15-Leistungen |
-| `/stats/player?name=<name>&days=` | persönliche Rekorde je Boss + letzte Kämpfe |
-| `/stats/compare?days=` | Mitgliedervergleich, Bestwerte je Boss, „Platz 1“ in gemeinsamen Kämpfen |
+| `/stats/leaderboard?boss=<mob>:<dungeon>&days=30` | Top-15-Leistungen der Mitglieder an einem Boss |
+| `/stats/player?name=<name>&days=30&boss=&bucket=&tz=` | Mein Bereich: KPIs (Ø/Best-DPS, Ø-Anteil, Kämpfe, Lieblingsboss, Vorperiode), Rekorde je Boss, letzte Kämpfe, Verlauf. Nur Mitglieder (sonst `not_member`) |
+| `/stats/compare?days=30&boss=&bucket=&tz=` | Vergleich: Kennzahlen je Mitglied inkl. „Platz 1“ in gemeinsamen Kämpfen, Bestwerte je Boss, Verlauf |
 | `/stats/trends?days=90&bucket=day\|week&tz=<min>&boss=` | Ø/Best-DPS und Anteil je Mitglied und Tag/Woche |
 
-Bestenliste/Trends zeigen nur **Mitglieder** (Namen aus `hello` und `uploader`). Fremde sind in FightRecords ohnehin maskiert.
+Alle Statistiken zeigen nur **Mitglieder**. Kämpfe ohne Mitglied fehlen in der Liste; Fremde zählen nur im Gesamtschaden mit.
 
 ## 5. Was der FightRecord nicht hergibt (für spätere App-Erweiterungen)
 

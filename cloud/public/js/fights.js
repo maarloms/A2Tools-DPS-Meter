@@ -1,9 +1,9 @@
-// Kampfliste und Kampf-Detail mit Skill-Analyse
+// Kämpfe: Liste und Detail (nur Mitglieder; alle anderen als Sammelzeile „Andere“)
 
 import { lineChart } from "./chart.js";
 import {
-  $, $$, SERIES_COLORS, apiJson, api, bossLabel, currentRoute, empty, esc, failed, fmtDate, fmtNum, fmtPct, fmtShort,
-  fmtTime, jobTag, job, loadBosses, loading, state, trunc, view,
+  $, $$, SERIES_COLORS, api, apiJson, avatar, bossSelect, currentRoute, empty, esc, failed, fmtDate, fmtNum, fmtPct, fmtShort,
+  fmtTime, job, kpi, loadBosses, loadMembers, loading, memberColor, pageHead, state, trunc, view,
 } from "./core.js";
 
 // ================= Liste =================
@@ -12,11 +12,11 @@ export async function loadFights(more = false) {
   if (!more && state.fights) renderFights();
   else if (!more) view.innerHTML = loading("Kämpfe");
   try {
-    const qs = new URLSearchParams({ limit: "50" });
+    const qs = new URLSearchParams({ limit: "40" });
     if (state.train) qs.set("train", "1");
     if (state.bossFilter) qs.set("boss", state.bossFilter);
     if (more && state.next) qs.set("before", String(state.next));
-    const [data] = await Promise.all([apiJson(`/fights?${qs}`), loadBosses().catch(() => null)]);
+    const [data] = await Promise.all([apiJson(`/fights?${qs}`), loadBosses().catch(() => null), loadMembers().catch(() => null)]);
     state.fights = more ? [...(state.fights || []), ...data.fights] : data.fights;
     state.next = data.next;
     if (currentRoute().name === "fights") renderFights();
@@ -28,44 +28,42 @@ export async function loadFights(more = false) {
 export function renderFights() {
   const q = state.query.trim().toLowerCase();
   const list = (state.fights || []).filter(
-    (f) =>
-      !q ||
-      f.boss.toLowerCase().includes(q) ||
-      f.uploaders.some((u) => u.toLowerCase().includes(q)) ||
-      f.top.some((p) => p.name.toLowerCase().includes(q)),
+    (f) => !q || f.boss.toLowerCase().includes(q) || f.top.some((p) => p.name.toLowerCase().includes(q)),
   );
   const items = list
     .map((f) => {
-      const tops = f.top
-        .slice(0, 3)
-        .map((p) => `<b>${esc(p.name)}</b> ${fmtShort(p.dps)}`)
-        .join('<span class="sep">·</span>');
+      const ours = f.top.reduce((s, p) => s + p.share, 0);
       return `<a class="fight" href="#/fight/${f.id}">
-        <div><div class="boss">${esc(f.boss)}${f.isTrain ? ' <span class="badge">Training</span>' : ""}</div>
-          <div class="meta">${fmtDate(f.startMs)}<span class="sep">·</span>${fmtTime(f.durationMs)}<span class="sep">·</span>${esc(f.uploaders.join(", "))}</div></div>
-        <div class="tops">${tops || "–"}</div>
-        <div class="right"><div class="v">${fmtShort(f.totalDamage)}</div><div class="meta">${fmtShort(f.totalDamage / (f.durationMs / 1000))} DPS</div></div>
+        <div class="fight-main"><div class="fight-boss">${esc(f.boss)}${f.isTrain ? ' <span class="badge">Training</span>' : ""}</div>
+          <div class="muted small">${fmtDate(f.startMs)} · ${fmtTime(f.durationMs)}${f.dungeonId ? ` · Instanz ${f.dungeonId}` : ""}</div></div>
+        <div class="fight-people">${f.top
+          .map((p) => `<span class="mini">${avatar(p.name, p.job, p.jobId)}<span>${esc(p.name)}</span><b>${fmtShort(p.dps)}</b></span>`)
+          .join("")}</div>
+        <div class="fight-right"><b>${fmtPct(ours)}</b><span class="muted small">unser Anteil</span></div>
       </a>`;
     })
     .join("");
-  const bossOpts = (state.bosses || [])
-    .map((b) => `<option value="${esc(b.key)}" ${b.key === state.bossFilter ? "selected" : ""}>${esc(bossLabel(b))} (${b.fights})</option>`)
-    .join("");
-  view.innerHTML = `
+  view.innerHTML = `<div class="page">
+    ${pageHead("Kämpfe", "Alle hochgeladenen Bosskämpfe – neueste zuerst")}
     <div class="toolbar">
-      <input class="search" type="search" placeholder="Boss, Spieler oder Uploader suchen" value="${esc(state.query)}" aria-label="Suchen">
-      <select class="select" id="bossSel" aria-label="Boss"><option value="">Alle Bosse</option>${bossOpts}</select>
-      <label class="check" style="margin:0"><input type="checkbox" id="train" ${state.train ? "checked" : ""}> Training</label>
-      <button class="btn" id="reload" type="button">Aktualisieren</button>
+      <input class="input" type="search" id="q" placeholder="Boss oder Name suchen" value="${esc(state.query)}" aria-label="Suchen">
+      ${bossSelect("bossSel", state.bossFilter)}
+      <label class="check"><input type="checkbox" id="train" ${state.train ? "checked" : ""}> Training</label>
     </div>
-    <div class="fights">${items || empty("Keine Kämpfe", state.fights?.length ? "Nichts passt zur Suche." : "Noch nichts hochgeladen. Die App lädt abgeschlossene Bosskämpfe automatisch hoch, solange sie in einem Raum ist.")}</div>
-    ${state.next && !q ? `<p style="text-align:center"><button class="btn" id="more" type="button">Ältere laden</button></p>` : ""}`;
-  const search = $(".search", view);
+    <div class="fights">${
+      items ||
+      empty(
+        state.fights?.length ? "Nichts gefunden" : "Noch keine Kämpfe",
+        state.fights?.length ? "Kein Kampf passt zur Suche." : "Sobald ihr einen Boss legt, lädt die App den Kampf automatisch hoch und er erscheint hier.",
+      )
+    }</div>
+    ${state.next && !q ? `<p class="center"><button class="btn" id="more" type="button">Ältere laden</button></p>` : ""}</div>`;
+  const search = $("#q", view);
   search.addEventListener("input", () => {
     state.query = search.value;
     const pos = search.selectionStart;
     renderFights();
-    const s2 = $(".search", view);
+    const s2 = $("#q", view);
     s2.focus();
     s2.setSelectionRange(pos, pos);
   });
@@ -79,11 +77,6 @@ export function renderFights() {
     state.fights = null;
     loadFights();
   });
-  $("#reload", view).addEventListener("click", () => {
-    state.fights = null;
-    loadBosses(true).catch(() => null);
-    loadFights();
-  });
   $("#more", view)?.addEventListener("click", () => loadFights(true));
 }
 
@@ -95,11 +88,12 @@ export async function loadFight(id) {
   if (state.detail?.summary.id !== id) {
     view.innerHTML = loading("Kampf");
     try {
+      await loadMembers().catch(() => null);
       state.detail = await apiJson(`/fights/${id}`);
       state.hiddenSeries.clear();
       ui.player = null;
     } catch (e) {
-      if (e.message === "HTTP 404") view.innerHTML = empty("Nicht gefunden", 'Der Kampf wurde gelöscht. <a href="#/fights">Zur Liste</a>');
+      if (e.message === "HTTP 404") view.innerHTML = `<div class="page">${empty("Kampf nicht gefunden", 'Er wurde gelöscht. <a href="#/fights">Zur Liste</a>')}</div>`;
       else failed(e, "Der Kampf");
       return;
     }
@@ -107,82 +101,65 @@ export async function loadFight(id) {
   if (currentRoute().name === "fight") renderFight();
 }
 
-/** Farbe je Spieler – fest für diesen Kampf (Reihenfolge der Zeitreihen) */
-function colorMap(d) {
-  const m = new Map();
-  d.timeline.series.forEach((s, i) => m.set(s.name.toLowerCase(), SERIES_COLORS[i % SERIES_COLORS.length]));
-  return m;
-}
-
 export function renderFight() {
   const d = state.detail;
   const s = d.summary;
-  const maxDmg = d.players[0]?.dmg || 1;
-  const memberSet = new Set((state.members || []).map((m) => m.name.toLowerCase()));
-  for (const u of s.uploaders) memberSet.add(u.toLowerCase());
-  if (!ui.player || !d.players.some((p) => p.name === ui.player)) {
-    ui.player = (d.players.find((p) => p.selfReport) || d.players[0])?.name ?? null;
-  }
+  const o = d.others;
+  const maxDmg = Math.max(d.players[0]?.dmg || 0, o?.dmg || 0, 1);
+  if (!ui.player || !d.players.some((p) => p.name === ui.player)) ui.player = d.players[0]?.name ?? null;
+  const ourShare = d.players.reduce((a, p) => a + p.share, 0);
+  const ourDps = d.players.reduce((a, p) => a + p.dps, 0);
   const rows = d.players
-    .map((p, i) => {
-      const cls = [memberSet.has(p.name.toLowerCase()) ? "member" : "", p.name === ui.player ? "sel" : ""].join(" ");
-      return `<tr class="p ${cls}" data-name="${esc(p.name)}" tabindex="0">
-        <td>${i + 1}</td><td>${jobTag(p.job, p.jobId)}</td><td>${esc(p.name)}</td>
+    .map(
+      (p, i) => `<tr class="p ${p.name === ui.player ? "sel" : ""}" data-name="${esc(p.name)}" tabindex="0">
+        <td class="muted">${i + 1}</td><td>${avatar(p.name, p.job, p.jobId)} <b>${esc(p.name)}</b></td>
         <td class="bar"><span class="fill" style="width:${((p.dmg / maxDmg) * 100).toFixed(1)}%"></span><span>${fmtShort(p.dps)}</span></td>
-        <td>${fmtShort(p.dmg)}</td><td>${fmtPct(p.share)}</td><td>${fmtPct(p.critRate)}</td><td>${fmtPct(p.backRate)}</td>
-        <td>${fmtNum(p.hits)}</td><td>${p.heal ? fmtShort(p.heal) : "–"}</td><td>${p.cp ? fmtNum(p.cp) : "–"}</td>
-        <td class="src">${p.selfReport ? "selbst" : esc(p.source)}</td></tr>`;
-    })
+        <td class="num">${fmtShort(p.dmg)}</td><td class="num strong">${fmtPct(p.share)}</td><td class="num">${fmtPct(p.critRate)}</td>
+        <td class="num">${fmtPct(p.backRate)}</td><td class="num hide-s">${p.heal ? fmtShort(p.heal) : "–"}</td><td class="num hide-s muted">${p.selfReport ? "eigene" : esc(p.source)}</td></tr>`,
+    )
     .join("");
+  const othersRow =
+    o && o.count > 0
+      ? `<tr class="others"><td></td><td class="muted">Andere (${fmtNum(o.count)})</td>
+        <td class="bar"><span class="fill grey" style="width:${((o.dmg / maxDmg) * 100).toFixed(1)}%"></span><span class="muted">–</span></td>
+        <td class="num muted">${fmtShort(o.dmg)}</td><td class="num muted">${fmtPct(o.share)}</td><td colspan="4" class="hide-s"></td></tr>`
+      : "";
   const uploads = d.uploads
     .map(
-      (u) => `<li><b>${esc(u.uploader)}</b> <span class="meta">${u.startMs !== s.startMs ? `+${fmtTime(u.startMs - s.startMs)} · ` : ""}${fmtTime(u.durationMs)}</span>
+      (u) => `<li><b>${esc(u.uploader)}</b> <span class="muted small">${u.startMs !== s.startMs ? `+${fmtTime(u.startMs - s.startMs)} · ` : ""}${fmtTime(u.durationMs)}</span>
         ${u.raw ? `<button class="btn small" type="button" data-raw="${u.id}">Original (JSON)</button>` : ""}</li>`,
     )
     .join("");
-  view.innerHTML = `
-    <p><a href="#/fights">← Alle Kämpfe</a></p>
-    <article class="card">
-      <div class="enc-head">
-        <div><h2>${esc(s.boss)}</h2>
-          <div class="meta">${fmtDate(s.startMs)}${s.dungeonId ? `<span class="sep">·</span>Instanz ${s.dungeonId}` : ""}${s.isTrain ? '<span class="sep">·</span>Training' : ""}</div></div>
-        <div class="detail-actions"><button class="btn danger" id="del" type="button">Löschen</button></div>
-      </div>
-      <div class="stats">
-        <div class="stat"><div class="k">Kampfzeit</div><div class="v">${fmtTime(s.durationMs)}</div></div>
-        <div class="stat"><div class="k">Gesamtschaden</div><div class="v">${fmtShort(s.totalDamage)}</div></div>
-        <div class="stat"><div class="k">Schaden / s gesamt</div><div class="v">${fmtShort(s.totalDamage / (s.durationMs / 1000))}</div></div>
-        ${s.maxHp ? `<div class="stat"><div class="k">Max-HP Ziel</div><div class="v">${fmtShort(s.maxHp)}</div></div>` : ""}
-        <div class="stat"><div class="k">Beteiligte</div><div class="v">${fmtNum(s.actorCount)}</div></div>
-      </div>
-      <div class="meta">Perspektiven (je ein Meter):</div>
-      <ul class="uploads">${uploads}</ul>
-    </article>
 
-    ${d.timeline.series.length ? `<article class="card">
-      <div class="card-head"><h3>DPS-Verlauf</h3>
+  view.innerHTML = `<div class="page">
+    <p><a class="link" href="#/fights">← Alle Kämpfe</a></p>
+    ${pageHead(s.boss, `${fmtDate(s.startMs)}${s.dungeonId ? ` · Instanz ${s.dungeonId}` : ""}${s.isTrain ? " · Training" : ""}`,
+      `<button class="btn danger" id="del" type="button">Löschen</button>`)}
+    <div class="kpis">
+      ${kpi("Kampfzeit", fmtTime(s.durationMs))}
+      ${kpi("Unser Anteil", fmtPct(ourShare), "am Bossschaden")}
+      ${kpi("Unser DPS", fmtShort(ourDps), "zusammen")}
+      ${kpi("Bossschaden", fmtShort(s.totalDamage), s.maxHp ? `Max-HP ${fmtShort(s.maxHp)}` : "")}
+    </div>
+    <section class="card"><h2>Wir</h2>
+      <p class="muted small">Zeile antippen für die Skill-Analyse. Anteil = Anteil am gesamten Bossschaden.</p>
+      <div class="table-wrap"><table class="tbl players">
+        <thead><tr><th>#</th><th>Name</th><th>DPS</th><th class="num">Schaden</th><th class="num">Anteil</th><th class="num">Krit</th><th class="num">Rücken</th><th class="num hide-s">Heilung</th><th class="num hide-s">Messung</th></tr></thead>
+        <tbody>${rows}${othersRow}</tbody></table></div></section>
+    ${d.timeline.series.length ? `<section class="card">
+      <div class="card-head"><h2>DPS-Verlauf</h2>
         <div class="seg" role="group" aria-label="Darstellung">
           <button type="button" data-mode="rolling" class="${ui.mode === "rolling" ? "on" : ""}">Gleitend</button>
-          <button type="button" data-mode="avg" class="${ui.mode === "avg" ? "on" : ""}">Durchschnitt</button>
-        </div></div>
-      <p class="meta" id="dpsNote"></p>
-      <div class="chart" id="dpsChart"></div><div class="legend" id="dpsLegend"></div>
-    </article>` : ""}
-
-    ${s.maxHp && d.timeline.total ? `<article class="card"><h3>Boss-HP</h3>
-      <p class="meta">Aus dem Meter von ${esc(d.timeline.total.source)} (Schaden aller Spieler, die es gesehen hat).</p>
-      <div class="chart" id="hpChart"></div></article>` : ""}
-
-    <article class="card">
-      <h3>Spieler</h3>
-      <p class="meta">Zeile antippen für die Skill-Analyse.${s.actorCount > d.players.length ? ` Gezeigt: ${d.players.length} von ${s.actorCount}.` : ""} „Quelle“: wessen Meter den Wert geliefert hat.</p>
-      <div class="table-wrap"><table class="players">
-        <thead><tr><th>#</th><th>Klasse</th><th>Name</th><th>DPS</th><th>Schaden</th><th>Anteil</th><th>Krit</th><th>Rücken</th><th>Treffer</th><th>Heilung</th><th>KP</th><th>Quelle</th></tr></thead>
-        <tbody>${rows}</tbody></table></div>
-    </article>
-
-    <article class="card" id="skillCard"></article>
-    ${d.ping.length ? `<article class="card"><h3>Ping</h3><div class="chart" id="pingChart"></div><div class="legend" id="pingLegend"></div></article>` : ""}`;
+          <button type="button" data-mode="avg" class="${ui.mode === "avg" ? "on" : ""}">Durchschnitt</button></div></div>
+      <p class="muted small" id="dpsNote"></p>
+      <div class="chart" id="dpsChart"></div><div class="legend" id="dpsLegend"></div></section>` : ""}
+    <section class="card" id="skillCard"></section>
+    <details class="card more"><summary>Mehr: Boss-HP, Ping, Messungen</summary><div class="more-body">
+      ${s.maxHp && d.timeline.total ? `<h3>Boss-HP</h3><div class="chart" id="hpChart"></div>` : ""}
+      ${d.ping.length ? `<h3>Ping</h3><div class="chart" id="pingChart"></div><div class="legend" id="pingLegend"></div>` : ""}
+      <h3>Messungen</h3><p class="muted small">Jedes Mitglied mit App liefert eine eigene Messung; pro Person zählt die eigene.</p>
+      <ul class="uploads">${uploads}</ul></div></details>
+  </div>`;
 
   $$("tr.p", view).forEach((tr) => {
     const pick = () => {
@@ -203,6 +180,7 @@ export function renderFight() {
       drawCharts();
     }),
   );
+  $("details.more", view).addEventListener("toggle", () => drawCharts());
   renderSkills();
   drawCharts();
 }
@@ -220,8 +198,7 @@ function dpsPoints(series, mode, durationMs) {
     if (mode === "avg") v = cum[i] / (tEnd / 1000);
     else {
       const from = Math.max(0, i - w + 1);
-      const sum = cum[i] - (from > 0 ? cum[from - 1] : 0);
-      v = sum / (((i - from + 1) * bucketMs) / 1000);
+      v = (cum[i] - (from > 0 ? cum[from - 1] : 0)) / (((i - from + 1) * bucketMs) / 1000);
     }
     return { x: offsetMs + tEnd, y: v };
   });
@@ -231,20 +208,13 @@ export function drawCharts() {
   const d = state.detail;
   if (!d || currentRoute().name !== "fight") return;
   const s = d.summary;
-  const colors = colorMap(d);
   const xFmt = (v) => fmtTime(v);
   if ($("#dpsChart")) {
     const windowS = Math.round(Math.max(5000, Math.min(15000, s.durationMs * 0.1)) / 1000);
-    $("#dpsNote").textContent =
-      ui.mode === "rolling" ? `DPS im gleitenden ${windowS}-s-Fenster (wie in der App).` : "Durchschnitts-DPS seit Kampfbeginn.";
+    $("#dpsNote").textContent = ui.mode === "rolling" ? `DPS im gleitenden ${windowS}-s-Fenster (wie in der App).` : "Durchschnitts-DPS seit Kampfbeginn.";
     lineChart($("#dpsChart"), {
       label: "DPS-Verlauf",
-      series: d.timeline.series.map((t) => ({
-        id: t.name,
-        name: t.name,
-        color: colors.get(t.name.toLowerCase()),
-        pts: dpsPoints(t, ui.mode, s.durationMs),
-      })),
+      series: d.timeline.series.map((t) => ({ id: t.name, name: t.name, color: memberColor(t.name), pts: dpsPoints(t, ui.mode, s.durationMs) })),
       xMin: 0,
       xMax: s.durationMs,
       xFmt,
@@ -254,6 +224,7 @@ export function drawCharts() {
       skipFrac: ui.mode === "avg" ? 0.08 : 0,
     });
   }
+  if (!$("details.more")?.open) return;
   if ($("#hpChart")) {
     const t = d.timeline.total;
     let cum = 0;
@@ -271,22 +242,17 @@ export function drawCharts() {
       xFmt,
       yFmt: (v) => `${Math.round(v)} %`,
       yMax: 100,
-      height: 170,
+      height: 160,
     });
   }
   if ($("#pingChart")) {
     lineChart($("#pingChart"), {
       label: "Ping",
-      series: d.ping.map((p, i) => ({
-        id: p.uploader,
-        name: p.uploader,
-        color: SERIES_COLORS[i % SERIES_COLORS.length],
-        pts: p.points.map(([t, ms]) => ({ x: p.offsetMs + t, y: ms })),
-      })),
+      series: d.ping.map((p) => ({ id: p.uploader, name: p.uploader, color: memberColor(p.uploader), pts: p.points.map(([t, ms]) => ({ x: p.offsetMs + t, y: ms })) })),
       xFmt,
       yFmt: (v) => `${Math.round(v)} ms`,
       legend: $("#pingLegend"),
-      height: 160,
+      height: 150,
     });
   }
 }
@@ -295,43 +261,46 @@ function renderSkills() {
   const d = state.detail;
   const card = $("#skillCard");
   const p = d.players.find((x) => x.name === ui.player);
-  if (!card || !p) return;
+  if (!card) return;
+  if (!p) {
+    card.innerHTML = `<h2>Skill-Analyse</h2>${empty("Keine Daten", "Für diesen Kampf liegen keine Skills von Mitgliedern vor.")}`;
+    return;
+  }
   const chips = d.players
-    .slice(0, 16)
     .map((x) => `<button type="button" class="chip ${x.name === p.name ? "on" : ""}" data-name="${esc(x.name)}">${esc(trunc(x.name, 16))}</button>`)
     .join("");
   const pct = (n, h) => (h ? fmtPct((n / h) * 100) : "–");
+  const topDmg = p.skills[0]?.dmg || 1;
   const skillRows = p.skills
     .map(
       (k) => `<tr><td>${esc(k.name || k.code)}${k.dot ? ' <span class="badge">DoT</span>' : ""}</td>
-        <td class="bar"><span class="fill" style="width:${((k.dmg / (p.skills[0]?.dmg || 1)) * 100).toFixed(1)}%"></span><span>${fmtShort(k.dmg)}</span></td>
-        <td>${p.dmg ? fmtPct((k.dmg / p.dmg) * 100) : "–"}</td><td>${fmtNum(k.hits)}</td>
-        <td>${pct(k.crit, k.hits)}</td><td>${pct(k.back, k.hits)}</td><td>${pct(k.perfect, k.hits)}</td><td>${pct(k.double, k.hits)}</td>
-        <td>${pct(k.frontal, k.hits)}</td><td>${pct(k.parry, k.hits)}</td><td>${k.multiHits ? fmtNum(k.multiHits) : "–"}</td>
-        <td>${fmtShort(k.min)}</td><td>${k.hits ? fmtShort(k.dmg / k.hits) : "–"}</td><td>${fmtShort(k.max)}</td></tr>`,
+        <td class="bar"><span class="fill" style="width:${((k.dmg / topDmg) * 100).toFixed(1)}%"></span><span>${fmtShort(k.dmg)}</span></td>
+        <td class="num">${p.dmg ? fmtPct((k.dmg / p.dmg) * 100) : "–"}</td><td class="num">${fmtNum(k.hits)}</td>
+        <td class="num">${pct(k.crit, k.hits)}</td><td class="num">${pct(k.back, k.hits)}</td>
+        <td class="num hide-s">${pct(k.perfect, k.hits)}</td><td class="num hide-s">${pct(k.double, k.hits)}</td>
+        <td class="num hide-s">${k.hits ? fmtShort(k.dmg / k.hits) : "–"}</td><td class="num hide-s">${fmtShort(k.max)}</td></tr>`,
     )
     .join("");
   const heals = p.heals?.length
-    ? `<h4>Heilung</h4><div class="table-wrap"><table class="skilltab"><thead><tr><th>Skill</th><th>Menge</th><th>Ticks</th></tr></thead><tbody>${p.heals
-        .map((h) => `<tr><td>${esc(h.name)}${h.hot ? ' <span class="badge">HoT</span>' : ""}</td><td>${fmtShort(h.amount)}</td><td>${fmtNum(h.ticks)}</td></tr>`)
+    ? `<h3>Heilung</h3><div class="table-wrap"><table class="tbl"><thead><tr><th>Skill</th><th class="num">Menge</th><th class="num">Ticks</th></tr></thead><tbody>${p.heals
+        .map((h) => `<tr><td>${esc(h.name)}${h.hot ? ' <span class="badge">HoT</span>' : ""}</td><td class="num">${fmtShort(h.amount)}</td><td class="num">${fmtNum(h.ticks)}</td></tr>`)
         .join("")}</tbody></table></div>`
     : "";
   const lane = d.timeline.lanes.find((l) => l.name === p.name);
   card.innerHTML = `
-    <div class="card-head"><h3>Skill-Analyse</h3><span class="meta">${p.selfReport ? "eigene Messung" : `gemessen von ${esc(p.source)}`}</span></div>
-    <div class="chips" role="group" aria-label="Spieler wählen">${chips}</div>
-    <div class="stats">
-      <div class="stat"><div class="k">${esc(job(p.job, p.jobId).name)}</div><div class="v">${esc(trunc(p.name, 16))}</div></div>
-      <div class="stat"><div class="k">DPS</div><div class="v">${fmtShort(p.dps)}</div></div>
-      <div class="stat"><div class="k">Schaden · Anteil</div><div class="v">${fmtShort(p.dmg)} · ${fmtPct(p.share)}</div></div>
-      <div class="stat"><div class="k">Krit · Rücken</div><div class="v">${fmtPct(p.critRate)} · ${fmtPct(p.backRate)}</div></div>
-      <div class="stat"><div class="k">Perfekt · Doppel</div><div class="v">${fmtPct(p.perfectRate)} · ${fmtPct(p.doubleRate)}</div></div>
+    <div class="card-head"><h2>Skill-Analyse</h2><div class="chips">${chips}</div></div>
+    <div class="kpis compact">
+      ${kpi(job(p.job, p.jobId).name, esc(trunc(p.name, 16)), p.selfReport ? "eigene Messung" : `gemessen von ${esc(p.source)}`)}
+      ${kpi("DPS", fmtShort(p.dps))}
+      ${kpi("Krit · Rücken", `${fmtPct(p.critRate)} · ${fmtPct(p.backRate)}`)}
+      ${kpi("Perfekt · Doppel", `${fmtPct(p.perfectRate)} · ${fmtPct(p.doubleRate)}`)}
     </div>
-    <div class="table-wrap"><table class="skilltab big">
-      <thead><tr><th>Skill</th><th>Schaden</th><th>Anteil</th><th>Treffer</th><th>Krit</th><th>Rücken</th><th>Perfekt</th><th>Doppel</th><th>Front</th><th>Parade</th><th>Multi</th><th>Min</th><th>Ø</th><th>Max</th></tr></thead>
-      <tbody>${skillRows || '<tr><td colspan="14">Keine Skill-Daten</td></tr>'}</tbody></table></div>
+    <div class="table-wrap"><table class="tbl">
+      <thead><tr><th>Skill</th><th>Schaden</th><th class="num">Anteil</th><th class="num">Treffer</th><th class="num">Krit</th><th class="num">Rücken</th>
+        <th class="num hide-s">Perfekt</th><th class="num hide-s">Doppel</th><th class="num hide-s">Ø</th><th class="num hide-s">Max</th></tr></thead>
+      <tbody>${skillRows || '<tr><td colspan="10" class="muted">Keine Skill-Daten</td></tr>'}</tbody></table></div>
     ${heals}
-    ${lane ? `<h4>Skill-Zeitleiste</h4><p class="meta">Treffer je ${Math.round(lane.bucketMs / 1000)} s – je dunkler, desto mehr.</p><div class="lanes" id="lanes"></div>` : ""}`;
+    ${lane ? `<h3>Skill-Zeitleiste</h3><p class="muted small">Treffer je ${Math.round(lane.bucketMs / 1000)} s – je kräftiger, desto mehr.</p><div class="lanes" id="lanes"></div>` : ""}`;
   $$(".chip", card).forEach((b) =>
     b.addEventListener("click", () => {
       ui.player = b.dataset.name;
@@ -339,7 +308,7 @@ function renderSkills() {
       renderSkills();
     }),
   );
-  if (lane) drawLanes($("#lanes"), lane, colorMap(d).get(p.name.toLowerCase()) || SERIES_COLORS[0]);
+  if (lane) drawLanes($("#lanes"), lane, memberColor(p.name) || SERIES_COLORS[0]);
 }
 
 function drawLanes(host, lane, color) {
@@ -386,7 +355,7 @@ async function downloadRaw(uploadId) {
 
 async function deleteFight() {
   const s = state.detail.summary;
-  if (!confirm(`Kampf „${s.boss}“ vom ${fmtDate(s.startMs)} für alle im Raum löschen? Bestenliste und Trends verlieren ihn ebenfalls.`)) return;
+  if (!confirm(`Kampf „${s.boss}“ vom ${fmtDate(s.startMs)} für alle löschen? Er fehlt dann auch in Bestwerten und Trends.`)) return;
   try {
     await api(`/fights/${s.id}`, { method: "DELETE" });
     state.detail = null;

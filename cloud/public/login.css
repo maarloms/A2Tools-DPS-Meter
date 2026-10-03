@@ -1,0 +1,12 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: #0b0f1d; color: #e7e3d8; font: 15px/1.45 "Segoe UI", system-ui, sans-serif; }
+body { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
+.box { width: 100%; max-width: 340px; padding: 24px; border: 1px solid rgba(212, 175, 105, 0.35); border-radius: 10px; background: rgba(16, 20, 36, 0.9); }
+h1 { margin: 0 0 18px; font-size: 20px; font-weight: 600; color: #e8c987; }
+label { display: block; margin-bottom: 12px; font-size: 13px; color: #9ea3bb; }
+input[type="text"], input[type="password"] { display: block; width: 100%; margin-top: 4px; padding: 9px 11px; border-radius: 6px; border: 1px solid rgba(212, 175, 105, 0.25); background: rgba(0, 0, 0, 0.35); color: #e7e3d8; font: inherit; }
+.check { display: flex; gap: 8px; align-items: center; }
+#err { min-height: 1.3em; margin: 0 0 10px; color: #e0616b; font-size: 14px; }
+button { width: 100%; padding: 10px; border: 0; border-radius: 6px; background: #c9a25a; color: #141826; font: inherit; font-weight: 600; cursor: pointer; }
+input:focus-visible, button:focus-visible { outline: 2px solid #d4af69; outline-offset: 2px; }

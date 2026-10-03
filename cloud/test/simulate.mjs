@@ -125,7 +125,7 @@ async function main() {
   // ---------- HTTP-Grundlagen ----------
   const h = await fetch(`${BASE}/api/health`).then((r) => r.json());
   check("health", h.ok === true);
-  check("Dashboard wird ausgeliefert", (await fetch(`${BASE}/`)).status === 200);
+  check("Startadresse liefert Login-Seite", (await fetch(`${BASE}/`, { headers: { accept: "text/html" } })).status === 200);
   check("ohne Secret → 401", (await fetch(`${BASE}/api/rooms/${ROOM}/fights`)).status === 401);
   check("falsches Secret → 401", (await fetch(`${BASE}/api/rooms/${ROOM}/fights`, { headers: { authorization: "Bearer falsch-falsch-falsch" } })).status === 401);
   check("unbekannter Raum → 401", (await fetch(`${BASE}/api/rooms/gibtsnicht/fights`, { headers: auth })).status === 401);
@@ -254,37 +254,100 @@ async function main() {
   const raw = await fetch(`${BASE}/api/rooms/${ROOM}/uploads/${up1j.uploadId}/raw`, { headers: auth }).then((r) => r.json());
   check("Raw-Download = Original-FightRecord", raw.id === recM.id && raw.details.skills.length === recM.details.skills.length);
 
-  // ---------- Bestenliste / Rekorde / Vergleich / Trends ----------
+  // ---------- Statistik (nur Mitglieder) ----------
   const getj = (p) => fetch(`${BASE}/api/rooms/${ROOM}${p}`, { headers: auth }).then((r) => r.json());
   const bosses = await getj("/stats/bosses");
   const tb = bosses.bosses?.find((b) => b.mobCode === 4242 && b.dungeonId === 600072);
-  check("Bosse: Testboss mit Bestwert", tb && tb.fights >= 2 && tb.best?.player === "Marlon", JSON.stringify(tb));
+  check("Bosse: Testboss mit Bestwert", tb && tb.fights >= 2 && tb.best?.player === "Marlon", JSON.stringify(tb?.best));
   const lb = await getj("/stats/leaderboard?boss=4242:600072");
-  const names = lb.players?.map((p) => p.player) ?? [];
-  check("Bestenliste: Mitglieder nach Best-DPS", names[0] === "Marlon" && names.includes("Freund1") && names.includes("Freund2") && !names.some((n) => n.includes("*")), names.join(","));
-  check("Bestenliste: Top-Leistungen", lb.top?.length >= 3 && lb.top[0].dps >= lb.top[1].dps);
-  const pr = await getj("/stats/player?name=Marlon");
-  check("Persönliche Rekorde", pr.records?.some((r) => r.mobCode === 4242 && r.fights >= 2 && r.bestDps > 0), JSON.stringify(pr.records?.[0]));
+  const lbNames = [...new Set(lb.top?.map((p) => p.player))];
+  check("Top-Leistungen je Boss: nur Mitglieder, sortiert", lb.top?.length >= 3 && lb.top[0].dps >= lb.top[1].dps && !lbNames.some((n) => n.includes("*")), lbNames.join(","));
+  const pr = await getj("/stats/player?name=Marlon&days=0");
+  check("Mein Bereich: KPIs, Rekorde, Verlauf", pr.kpi?.fights >= 2 && pr.kpi.bestDps > 0 && pr.kpi.favorite && pr.records?.some((r) => r.mobCode === 4242) && pr.series?.points?.length > 0,
+    JSON.stringify(pr.kpi));
+  check("Mein Bereich: Nicht-Mitglied abgelehnt", (await getj("/stats/player?name=Ravenfeld")).error === "not_member");
+  const ov = await getj("/stats/overview");
+  check("Übersicht: Karten, Gruppe, Wer-führt, letzte Kämpfe", ov.members?.length >= 3 && ov.group?.fights >= 2 && ov.group.together >= 1 && ov.matrix?.length >= 1 && ov.recent?.length >= 1,
+    JSON.stringify(ov.group));
   const cmp = await getj("/stats/compare?days=30");
-  check("Gruppenvergleich", cmp.members?.length >= 3 && cmp.matrix?.length >= 3 && cmp.wins?.some((w) => w.together >= 1));
+  check("Vergleich: Mitglieder, pro Boss, Verlauf", cmp.members?.length >= 3 && cmp.matrix?.length >= 1 && cmp.members.some((m) => m.firsts >= 1) && cmp.series?.points?.length > 0);
   const tr = await getj(`/stats/trends?days=30&tz=${-new Date().getTimezoneOffset()}&boss=4242:600072`);
   check("Trends: Punkte pro Spieler und Tag", tr.points?.some((p) => p.player === "Marlon" && p.fights >= 2), JSON.stringify(tr.points?.[0]));
   const trw = await getj("/stats/trends?days=30&bucket=week");
   check("Trends: Wochen-Buckets", trw.points?.[0]?.period?.includes("-W"));
+
+  // Fremder Spieler mit vollem Namen im Kampf → erscheint nirgends, zählt aber im Anteil
+  const partyX = [...PARTY, { id: 199, name: "Fremdling", job: "궁성", rate: 15000, cp: 0 }];
+  const recX = fakeRecord({ id: `auto_4245_${t0f + 1800000}`, uploader: "Marlon", start: t0f + 1800000, targetId: 4245, party: partyX });
+  recX.actors.find((a) => a.actorId === 199).nickname = "Fremdling"; // unmaskiert
+  const upXj = await (await post("Marlon", recX)).json();
+  const detX = await getj(`/fights/${upXj.fightId}`);
+  check("Kampfdetail: Fremde ausgeblendet, als „Andere“ gezählt", !detX.players?.some((p) => p.name === "Fremdling") && detX.others?.count >= 1 && detX.others.share > 10,
+    JSON.stringify(detX.others));
+  const listX = await getj("/fights?limit=5");
+  check("Kampfliste: nur Mitglieder in der Top-Liste", listX.fights?.every((f) => f.top.every((p) => p.name !== "Fremdling")));
 
   // Neues Mitglied: bisher maskiert ("Ne****g"), nach dem ersten hello mit echtem Namen
   const NEU = `Neu${String(Date.now()).slice(-5)}`; // pro Lauf neu, sonst schon bekannt
   const partyN = [...PARTY, { id: 104, name: NEU, job: "권성", rate: 9000, cp: 2800 }];
   const recN = fakeRecord({ id: `auto_4244_${t0f + 1200000}`, uploader: "Marlon", start: t0f + 1200000, targetId: 4244, party: partyN });
   const upNj = await (await post("Marlon", recN)).json();
-  const before = await getj("/stats/leaderboard?boss=4242:600072");
-  check("unbekannter Spieler nicht in Bestenliste", !before.players?.some((p) => p.player === NEU));
+  const inTop = (r) => r.top?.some((p) => p.player === NEU);
+  check("unbekannter Spieler nicht in Statistik", !inTop(await getj("/stats/leaderboard?boss=4242:600072")));
   const neu = connect({ role: "app", name: NEU, clientId: "client-neuling-01" });
   await neu.opened;
   await sleep(1500);
-  const after = await getj("/stats/leaderboard?boss=4242:600072");
-  check("nach hello: maskierte Einträge dem Mitglied zugeordnet", after.players?.some((p) => p.player === NEU), after.players?.map((p) => p.player).join(","));
+  check("nach hello: maskierte Einträge dem Mitglied zugeordnet", inTop(await getj("/stats/leaderboard?boss=4242:600072")));
   neu.ws.close();
+
+  // ---------- Mitglieder verwalten ----------
+  const patch = (name, active) =>
+    fetch(`${BASE}/api/rooms/${ROOM}/members`, { method: "PATCH", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ name, active }) });
+  check("Mitglied ausblenden", (await patch(NEU, false)).status === 200);
+  const mem = await getj("/members");
+  check("Mitgliederliste zeigt ausgeblendet", mem.members?.some((m) => m.name === NEU && m.active === false) && mem.fixed === false);
+  check("ausgeblendetes Mitglied verschwindet aus Statistik", !inTop(await getj("/stats/leaderboard?boss=4242:600072")));
+  await patch(NEU, true);
+  check("wieder eingeblendet", inTop(await getj("/stats/leaderboard?boss=4242:600072")));
+  await patch(NEU, false); // Testname bleibt ausgeblendet
+
+  // ---------- Dashboard-Session (Cookie) ----------
+  const login = (secret) =>
+    fetch(`${BASE}/api/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ room: ROOM, secret }) });
+  check("Login mit falschem Passwort → 401", (await login("falsch-falsch-falsch")).status === 401);
+  const lr = await login(SECRET);
+  const setCookie = lr.headers.get("set-cookie") || "";
+  const cookie = setCookie.split(";")[0];
+  check("Login → HttpOnly/SameSite=Strict-Cookie", lr.status === 200 && /HttpOnly/i.test(setCookie) && /SameSite=Strict/i.test(setCookie) && cookie.startsWith("a2s="), setCookie.replace(/=[^;]+/, "=…"));
+  const ck = { cookie };
+  check("ohne Cookie: Dashboard-Dateien gesperrt", (await fetch(`${BASE}/app.js`)).status === 401 && (await fetch(`${BASE}/js/core.js`)).status === 401 && (await fetch(`${BASE}/shared/events.json`)).status === 401);
+  const loginHtml = await (await fetch(`${BASE}/`, { headers: { accept: "text/html" } })).text();
+  check("ohne Cookie: nur schlichte Login-Seite", loginHtml.includes("<title>Anmeldung</title>") && !loginHtml.includes("DPS") && loginHtml.includes("noindex"));
+  check("mit Cookie: Dashboard + Dateien", (await (await fetch(`${BASE}/`, { headers: { ...ck, accept: "text/html" } })).text()).includes("app.js") && (await fetch(`${BASE}/app.js`, { headers: ck })).status === 200);
+  check("mit Cookie: API ohne Secret", (await fetch(`${BASE}/api/rooms/${ROOM}/stats/overview`, { headers: ck })).status === 200);
+  check("Cookie gilt nicht für fremden Raum", (await fetch(`${BASE}/api/rooms/anderer-raum/fights`, { headers: ck })).status === 401);
+  const forged = cookie.replace(/.$/, (c) => (c === "A" ? "B" : "A"));
+  check("manipuliertes Cookie → 401", (await fetch(`${BASE}/api/rooms/${ROOM}/fights`, { headers: { cookie: forged } })).status === 401);
+  check("GET /api/session", (await (await fetch(`${BASE}/api/session`, { headers: ck })).json()).room === ROOM);
+  const lo = await fetch(`${BASE}/api/session`, { method: "DELETE", headers: ck });
+  check("Logout löscht Cookie", /Max-Age=0/i.test(lo.headers.get("set-cookie") || ""));
+  // WebSocket mit Cookie: Dashboard braucht kein Secret; ohne Cookie schon
+  const wsC = await new Promise((res) => {
+    const ws = new WebSocket(WS_URL, { headers: ck });
+    ws.addEventListener("open", () => ws.send(JSON.stringify({ t: "hello", v: 1, role: "viewer" })));
+    ws.addEventListener("message", (e) => { if (String(e.data).includes('"welcome"')) { ws.close(); res("welcome"); } });
+    ws.addEventListener("close", (e) => res(`close ${e.code}`));
+    setTimeout(() => res("timeout"), 4000);
+  });
+  check("WS mit Cookie ohne Secret → welcome", wsC === "welcome", wsC);
+  const wsN = await new Promise((res) => {
+    const ws = new WebSocket(WS_URL);
+    ws.addEventListener("open", () => ws.send(JSON.stringify({ t: "hello", v: 1, role: "viewer" })));
+    ws.addEventListener("close", (e) => res(`close ${e.code}`));
+    ws.addEventListener("message", (e) => { if (String(e.data).includes('"welcome"')) res("welcome"); });
+    setTimeout(() => res("timeout"), 4000);
+  });
+  check("WS ohne Cookie und ohne Secret → 4001", wsN === "close 4001", wsN);
 
   const badUp = await fetch(`${BASE}/api/rooms/${ROOM}/fights?uploader=Marlon`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: '{"foo":1}' });
   check("ungültiger Record → 400", badUp.status === 400);
@@ -310,7 +373,7 @@ async function main() {
     check("echter Kampf: Detail lesbar", d.ok && dj.players.length > 0, `${dj.summary.boss}, ${dj.summary.actorCount} Akteure, Detail ${(dt.length / 1e3).toFixed(0)} KB, Top: ${dj.players[0].name} ${Math.round(dj.players[0].dps)} DPS`);
   }
 
-  for (const id of [up1j.fightId, up4j.fightId, upNj.fightId]) {
+  for (const id of [up1j.fightId, up4j.fightId, upNj.fightId, upXj.fightId]) {
     const del = await fetch(`${BASE}/api/rooms/${ROOM}/fights/${id}`, { method: "DELETE", headers: auth });
     check("Löschen", del.status === 200);
   }
