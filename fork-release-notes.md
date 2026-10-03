@@ -1,8 +1,8 @@
 Erste Version für unsere Gruppe.
 
 **Installation**
-1. Npcap: Fehlt es, bietet das Meter beim ersten Start an, es herunterzuladen und zu installieren (Standardoptionen übernehmen, danach Meter neu starten).
-2. `AION2-DPS-Meter_3.0.0_x64.msi` herunterladen und ausführen. Windows SmartScreen warnt, weil der Installer nicht signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
+1. `AION2-DPS-Meter_3.0.0_x64.msi` herunterladen und ausführen. Windows SmartScreen warnt, weil der Installer nicht signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
+2. Npcap: Fehlt es, bietet das Meter beim ersten Start an, es herunterzuladen und zu installieren (Standardoptionen übernehmen, danach Meter neu starten).
 3. Meter starten, im Spiel einloggen. Updates kommen danach automatisch (Meldung beim Start).
 
 **Neu gegenüber A2Tools**
