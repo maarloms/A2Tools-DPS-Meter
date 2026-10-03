@@ -143,9 +143,24 @@ pub fn parse_map_bosses(packet: &[u8]) -> Option<(u32, Vec<MapBoss>)> {
     Some((map, out))
 }
 
-/// What the map says about one boss. Returns whether anything changed.
-fn apply_map(t: &mut BossTimer, m: &MapBoss, now: i64) -> bool {
+/// The map showed a boss alive this recently, then dead: it died in
+/// between, close enough to learn its respawn interval.
+const DEATH_WINDOW_MS: i64 = 15 * 60_000;
+
+/// What the map says about one boss. `alive_checked`: when the map last
+/// showed it alive (this session). Returns whether anything changed.
+fn apply_map(t: &mut BossTimer, m: &MapBoss, now: i64, alive_checked: Option<i64>) -> bool {
     let before = t.clone();
+    // Alive on the map a little while ago, dead now with a new spawn time:
+    // it died in between. Take the middle as the kill and learn the interval
+    // from it, unless a real kill was seen.
+    let died_unseen = !m.alive
+        && t.respawn_at != Some(m.at_ms)
+        && t.killed_at.is_none_or(|k| now - k > DEATH_WINDOW_MS)
+        && alive_checked.is_some_and(|a| now - a <= DEATH_WINDOW_MS);
+    if let (true, Some(alive)) = (died_unseen, alive_checked) {
+        t.killed_at = Some((alive + now) / 2);
+    }
     // Only a kill nobody has seen it respawn from yet belongs to this spawn.
     let fresh_kill = t.killed_at.filter(|k| {
         now - k < LEARN_WITHIN_MS && m.at_ms > *k && t.seen_at.is_none_or(|s| s < *k)
@@ -242,6 +257,9 @@ fn merge(timers: &mut HashMap<i32, BossTimer>, incoming: Vec<BossTimer>, now: i6
 }
 
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
+/// Mob code -> when the map last showed it alive. Not persisted: only a
+/// death between two looks at the map in one session teaches anything.
+static ALIVE_CHECKED: std::sync::LazyLock<Mutex<HashMap<i32, i64>>> = std::sync::LazyLock::new(Default::default);
 static TIMERS: Mutex<Option<HashMap<i32, BossTimer>>> = Mutex::new(None);
 
 fn with_timers<R>(app: &tauri::AppHandle, f: impl FnOnce(&mut HashMap<i32, BossTimer>) -> R) -> R {
@@ -300,7 +318,12 @@ fn on_packet(packet: &[u8]) {
         bosses.iter().filter_map(|m| {
             let code = *spawn_ids().get(&m.spawn_id)?;
             let t = timers.entry(code).or_insert_with(|| BossTimer { code, ..Default::default() });
-            apply_map(t, m, now).then(|| t.clone())
+            let mut checked = ALIVE_CHECKED.lock().unwrap_or_else(|e| e.into_inner());
+            let alive_checked = checked.get(&code).copied();
+            if m.alive {
+                checked.insert(code, now);
+            }
+            apply_map(t, m, now, alive_checked).then(|| t.clone())
         }).collect()
     });
     if !changed.is_empty() {
@@ -465,20 +488,37 @@ mod tests {
     fn the_map_sets_and_teaches_respawns() {
         let mut t = BossTimer { code: GARTUA, ..Default::default() };
         let dead = MapBoss { spawn_id: 111021, alive: false, at_ms: 500 * MIN };
-        assert!(apply_map(&mut t, &dead, 100 * MIN));
+        assert!(apply_map(&mut t, &dead, 100 * MIN, None));
         assert_eq!((t.respawn_at, t.interval_min), (Some(500 * MIN), None));
-        assert!(!apply_map(&mut t, &dead, 101 * MIN), "the map repeats every second");
+        assert!(!apply_map(&mut t, &dead, 101 * MIN, None), "the map repeats every second");
         // Seen alive, then a kill we saw: the next map read teaches the interval.
-        assert!(apply_map(&mut t, &MapBoss { alive: true, ..dead }, 501 * MIN));
+        assert!(apply_map(&mut t, &MapBoss { alive: true, ..dead }, 501 * MIN, None));
         assert_eq!((t.seen_at, t.respawn_at), (Some(500 * MIN), None));
         apply_kill(&mut t, 600 * MIN);
-        assert!(apply_map(&mut t, &MapBoss { at_ms: 1_200 * MIN, ..dead }, 601 * MIN));
+        assert!(apply_map(&mut t, &MapBoss { at_ms: 1_200 * MIN, ..dead }, 601 * MIN, None));
         assert_eq!(t.interval_min, Some(600));
         assert!(t.seen_at < t.killed_at, "still dead");
         // Dead on the map though we last saw it alive: that sighting is stale.
         let mut u = BossTimer { code: GARTUA, seen_at: Some(50 * MIN), ..Default::default() };
-        apply_map(&mut u, &dead, 100 * MIN);
+        apply_map(&mut u, &dead, 100 * MIN, None);
         assert_eq!((u.seen_at, u.interval_min), (None, None));
+    }
+
+    /// Map open at 20:00 shows it alive, at 20:10 dead until 02:05: it died
+    /// around 20:05, so the interval is about 6 h.
+    #[test]
+    fn a_death_between_two_looks_at_the_map_teaches_the_interval() {
+        let mut t = BossTimer { code: GARTUA, ..Default::default() };
+        let alive = MapBoss { spawn_id: 111021, alive: true, at_ms: 1_000 * MIN };
+        apply_map(&mut t, &alive, 1_200 * MIN, None);
+        let dead = MapBoss { alive: false, at_ms: 1_565 * MIN, ..alive };
+        assert!(apply_map(&mut t, &dead, 1_210 * MIN, Some(1_200 * MIN)));
+        assert_eq!(t.killed_at, Some(1_205 * MIN));
+        assert_eq!(t.interval_min, Some(360));
+        // Too long since the last look: nothing learnt.
+        let mut u = BossTimer { code: GARTUA, ..Default::default() };
+        apply_map(&mut u, &dead, 1_300 * MIN, Some(1_200 * MIN));
+        assert_eq!((u.killed_at, u.interval_min), (None, None));
     }
 
     #[test]

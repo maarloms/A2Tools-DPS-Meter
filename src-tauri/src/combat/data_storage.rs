@@ -766,6 +766,9 @@ impl DataStorage {
         if members.is_empty() {
             return;
         }
+        // fork: gear score / combat power as the roster has them
+        tracing::info!("party roster{}: {}", if complete { "" } else { " (partial)" },
+            members.iter().map(|(n, m)| format!("{n} lvl {} gs {} cp {}", m.level, m.gear_score, m.combat_power)).collect::<Vec<_>>().join("; "));
         let mut inner = self.inner.write();
         inner.party_roster_at_ms = now_ms();
         inner.party_placeholders_hidden = false;

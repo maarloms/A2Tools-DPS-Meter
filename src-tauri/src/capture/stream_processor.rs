@@ -851,6 +851,12 @@ impl StreamProcessor {
                 {
                     tracing::info!("self record: local player '{}' -> entity {}", sanitized, id.value);
                 }
+                // fork: the numbers after the name (level, gear scores) for
+                // matching against the character sheet; see PHASE1.md.
+                let tail_at = (mask2_idx + 2 + name_len).min(data.len());
+                let tail = &data[tail_at..(tail_at + 40).min(data.len())];
+                let hex: String = tail.iter().map(|b| format!("{b:02x}")).collect();
+                tracing::info!("self record after name: {hex}");
             } else {
                 tracing::debug!("player record: '{}' -> entity {}", sanitized, id.value);
             }

@@ -79,3 +79,10 @@ export function respawnState(event, timer, now = Date.now()) {
     return { ...base, status: "killed", active: false, start: killed, remaining: Infinity };
   return { ...base, status: "unknown", active: false, start: null, remaining: Infinity };
 }
+
+// Respawn interval in minutes as "6 h" or "5:30 h".
+export function intervalText(minutes) {
+  if (!minutes) return "";
+  const h = Math.floor(minutes / 60), m = minutes % 60;
+  return h ? (m ? h + ":" + String(m).padStart(2, "0") + " h" : h + " h") : m + " min";
+}

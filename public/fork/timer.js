@@ -1,4 +1,4 @@
-import { eventState, respawnState, countdown } from "./schedule.js";
+import { eventState, respawnState, countdown, intervalText } from "./schedule.js";
 const $ = id => document.getElementById(id);
 const native = window.__TAURI__;
 let data, preferences, locked = false, writeQueue = Promise.resolve(), signature = "";
@@ -169,7 +169,8 @@ function bossText(event, state, now) {
   switch (state.status) {
     case "alive": return ["da", "Gesichtet " + when(state.seen, now) + by];
     case "due": return ["fällig", "Respawn seit " + when(state.respawn, now) + by];
-    case "waiting": return [countdown(state.remaining), "Respawn " + (state.estimated ? "~" : "") + when(state.respawn, now) + by];
+    case "waiting": return [countdown(state.remaining), "Respawn " + (state.estimated ? "~" : "") + when(state.respawn, now)
+      + (state.interval ? " · alle " + intervalText(state.interval) : "") + by];
     case "killed": return ["+" + countdown(now - state.killed), "Getötet " + when(state.killed, now) + " · Takt noch offen" + by];
     default: return ["—", event.zone + " · noch kein Kill"];
   }
@@ -190,7 +191,7 @@ function showBossPanel(id) {
   $("boss-name").textContent = event.name + " · " + event.zone;
   $("boss-spawn").value = "";
   const state = stateOf(event, Date.now());
-  $("boss-interval").textContent = state.interval ? "Takt " + Math.floor(state.interval / 60) + ":" + String(state.interval % 60).padStart(2, "0") + " h" : "Takt unbekannt";
+  $("boss-interval").textContent = state.interval ? "Respawn alle " + intervalText(state.interval) : "Takt unbekannt";
 }
 async function bossAction(action, ms) {
   const event = data.events.find(e => e.id === openBoss);
