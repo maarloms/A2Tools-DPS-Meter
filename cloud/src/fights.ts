@@ -146,7 +146,7 @@ export interface TimedSeries {
 }
 
 export interface EncounterDetail {
-  v: 2;
+  v: number;
   summary: EncounterSummary;
   uploads: { id: string; uploader: string; startMs: number; durationMs: number; rawBytes: number }[];
   players: MergedPlayer[];
@@ -355,6 +355,9 @@ export function buildUpload(r: any, uploader: string, known: string[]): UploadDe
 
 // ---------- 2. Zusammenfuehren ----------
 
+/** Steigt, wenn sich die Zusammenfuehrung aendert; aeltere Kaempfe werden neu zusammengefuehrt. */
+export const MERGE_VERSION = 3;
+
 export interface StoredUpload {
   id: string;
   uploader: string;
@@ -363,8 +366,16 @@ export interface StoredUpload {
 }
 
 /**
- * Fuehrt alle Perspektiven eines Kampfs zusammen. Pro Spieler zaehlt seine
- * eigene Meldung (er hat selbst hochgeladen), sonst der hoechste gemeldete Schaden.
+ * Fuehrt alle Perspektiven eines Kampfs zusammen.
+ *
+ * Basis ist die Perspektive mit dem meisten Bossschaden: ihre Spielerliste
+ * zaehlt jeden genau einmal. Dieselbe Person heisst in den Uploads oft
+ * verschieden (bei einem eine maskierte Entity-ID "53*9", beim anderen
+ * "Su****1"), ein Abgleich ueber Namen allein zaehlte sie also doppelt. Aus
+ * den anderen Perspektiven kommen deshalb nur benannte Mitglieder: ihre
+ * eigene Messung ersetzt ihren Eintrag in der Basis, gefunden ueber den Namen
+ * oder, wenn die Basis sie nicht benennt, ueber gleiche Klasse und aehnlichen
+ * Schaden. Alle anderen Zeilen der weiteren Perspektiven fallen weg.
  */
 export function mergeEncounter(id: string, uploads: StoredUpload[], known: string[]): EncounterDetail {
   const unmask = unmasker([...known, ...uploads.map((u) => u.uploader)]);
@@ -374,21 +385,49 @@ export function mergeEncounter(id: string, uploads: StoredUpload[], known: strin
   const best = uploads.reduce((a, b) => (b.detail.totalDamage > a.detail.totalDamage ? b : a));
   const totalDamage = best.detail.totalDamage;
 
+  const isKnownName = (lc: string) => knownLc.has(lc);
   const chosen = new Map<string, MergedPlayer>();
+  const baseLc = best.uploader.toLowerCase();
+  for (const p0 of best.detail.players) {
+    const name = unmask(p0.name);
+    const key = name.toLowerCase();
+    if (!chosen.has(key)) chosen.set(key, { ...p0, name, source: best.uploader, selfReport: key === baseLc });
+  }
   for (const u of uploads) {
+    if (u === best) continue;
     const upLc = u.uploader.toLowerCase();
     for (const p0 of u.detail.players) {
       const name = unmask(p0.name);
       const key = name.toLowerCase();
+      if (!isKnownName(key)) continue;
       const self = key === upLc;
+      const entry: MergedPlayer = { ...p0, name, source: u.uploader, selfReport: self };
       const prev = chosen.get(key);
-      if (!prev || (self && !prev.selfReport) || (!prev.selfReport && p0.dmg > prev.dmg)) {
-        chosen.set(key, { ...p0, name, source: u.uploader, selfReport: self });
+      if (prev) {
+        if ((self && !prev.selfReport) || (!prev.selfReport && p0.dmg > prev.dmg)) chosen.set(key, entry);
+        continue;
       }
+      // Die Basis kennt den Namen nicht: das Mitglied steht dort unter einem
+      // Alias. Gleiche Klasse, Schaden hoechstens 25 % daneben, naechster Treffer.
+      let alias: string | null = null;
+      let bestDiff = Infinity;
+      for (const [k, q] of chosen) {
+        if (isKnownName(k) || q.job !== p0.job || !q.dmg || !p0.dmg) continue;
+        const diff = Math.abs(q.dmg - p0.dmg) / Math.max(q.dmg, p0.dmg);
+        if (diff <= 0.25 && diff < bestDiff) { bestDiff = diff; alias = k; }
+      }
+      if (alias) chosen.delete(alias);
+      chosen.set(key, entry);
     }
   }
-  const players = [...chosen.values()].sort((a, b) => b.dmg - a.dmg);
-  for (const p of players) p.share = totalDamage > 0 ? r1((p.dmg / totalDamage) * 100) : 0;
+  for (const p of chosen.values()) p.share = totalDamage > 0 ? r1((p.dmg / totalDamage) * 100) : 0;
+  // Entities, die das Meter nie benennen konnte (maskierte IDs wie "49**1"),
+  // sind mit Kleinstanteil fast immer Beschwoerungen (Geister, Totems); ohne
+  // Schaden und Klasse sind es Heil-Ticks ohne Spieler. Beides ist Rauschen.
+  const anonymous = (n: string) => /^[0-9*]+$/.test(n);
+  const players = [...chosen.values()]
+    .filter((p) => knownLc.has(p.name.toLowerCase()) || ((p.dmg > 0 || !!p.job) && !(anonymous(p.name) && p.share < 1)))
+    .sort((a, b) => b.dmg - a.dmg);
   const actorCount = Math.max(...uploads.map((u) => u.detail.actorCount));
   const kept = players.filter((p, i) => i < MAX_DETAIL_PLAYERS || knownLc.has(p.name.toLowerCase()));
 
@@ -436,7 +475,7 @@ export function mergeEncounter(id: string, uploads: StoredUpload[], known: strin
   };
 
   return {
-    v: 2,
+    v: MERGE_VERSION,
     summary,
     uploads: uploads.map((u) => ({ id: u.id, uploader: u.uploader, startMs: u.detail.startMs, durationMs: u.detail.durationMs, rawBytes: u.rawBytes })),
     players: kept,

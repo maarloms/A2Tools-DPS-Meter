@@ -518,11 +518,11 @@ export class Room extends DurableObject<Env> {
   }
 
   private async fightDetail(room: string, id: string): Promise<Response> {
-    const d = await loadEncounter(this.env.DB, room, id);
-    if (!d) return json({ error: "not_found" }, 404);
     // Inzwischen bekannte Mitgliedsnamen nachträglich auflösen. Der Kämpfe-Tab
     // ist der einzige Ort mit allen Spielern; `member` markiert die Gruppe.
     const members = await activeMembers(this.env.DB, this.env, room);
+    const d = await loadEncounter(this.env.DB, room, id, members);
+    if (!d) return json({ error: "not_found" }, 404);
     unmaskDetail(d, unmasker(members));
     const isMember = new Set(members.map((n) => n.toLowerCase()));
     const member = (n: string) => isMember.has(n.toLowerCase());

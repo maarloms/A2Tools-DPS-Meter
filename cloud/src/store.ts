@@ -4,6 +4,7 @@
 import { LIMITS } from "./protocol";
 import {
   EncounterDetail,
+  MERGE_VERSION,
   StoredUpload,
   UploadDetail,
   mergeEncounter,
@@ -197,7 +198,14 @@ export async function deleteEncounter(db: D1Database, encounterId: string): Prom
   return ups.map((u) => u.id);
 }
 
-export async function loadEncounter(db: D1Database, room: string, id: string): Promise<EncounterDetail | null> {
+/**
+ * Laedt einen Kampf. Stammt seine Zusammenfuehrung aus einer aelteren
+ * Version, wird er aus den gespeicherten Uploads neu zusammengefuehrt.
+ */
+export async function loadEncounter(db: D1Database, room: string, id: string, known: string[] = []): Promise<EncounterDetail | null> {
   const row = await db.prepare("SELECT detail FROM encounters WHERE id = ?1 AND room = ?2").bind(id, room).first<{ detail: string }>();
-  return row ? unpackJson<EncounterDetail>(row.detail) : null;
+  if (!row) return null;
+  const d = await unpackJson<EncounterDetail>(row.detail);
+  return (d.v ?? 2) < MERGE_VERSION ? remerge(db, room, id, known, Date.now()) : d;
 }
+
