@@ -32,13 +32,18 @@ export function renderFights() {
   );
   const items = list
     .map((f) => {
-      const ours = f.top.reduce((s, p) => s + p.share, 0);
+      // Alle Spieler; die Gruppe zuerst und hervorgehoben, Andere gekürzt.
+      const mine = f.top.filter((p) => p.member);
+      const rest = f.top.filter((p) => !p.member);
+      const ours = mine.reduce((s, p) => s + p.share, 0);
+      const shown = [...mine, ...rest.slice(0, 3)];
+      const more = rest.length - Math.min(rest.length, 3);
       return `<a class="fight" href="#/fight/${f.id}">
         <div class="fight-main"><div class="fight-boss">${esc(f.boss)}${f.isTrain ? ' <span class="badge">Training</span>' : ""}</div>
           <div class="muted small">${fmtDate(f.startMs)} · ${fmtTime(f.durationMs)}${f.dungeonId ? ` · Instanz ${f.dungeonId}` : ""}</div></div>
-        <div class="fight-people">${f.top
-          .map((p) => `<span class="mini">${avatar(p.name, p.job, p.jobId)}<span>${esc(p.name)}</span><b>${fmtShort(p.dps)}</b></span>`)
-          .join("")}</div>
+        <div class="fight-people">${shown
+          .map((p) => `<span class="mini${p.member ? "" : " other"}">${avatar(p.name, p.job, p.jobId)}<span>${esc(p.name)}</span><b>${fmtShort(p.dps)}</b></span>`)
+          .join("")}${more > 0 ? `<span class="mini other">+${more}</span>` : ""}</div>
         <div class="fight-right"><b>${fmtPct(ours)}</b><span class="muted small">unser Anteil</span></div>
       </a>`;
     })
@@ -106,12 +111,13 @@ export function renderFight() {
   const s = d.summary;
   const o = d.others;
   const maxDmg = Math.max(d.players[0]?.dmg || 0, o?.dmg || 0, 1);
-  if (!ui.player || !d.players.some((p) => p.name === ui.player)) ui.player = d.players[0]?.name ?? null;
-  const ourShare = d.players.reduce((a, p) => a + p.share, 0);
-  const ourDps = d.players.reduce((a, p) => a + p.dps, 0);
+  const mine = d.players.filter((p) => p.member !== false);
+  if (!ui.player || !d.players.some((p) => p.name === ui.player)) ui.player = (mine[0] ?? d.players[0])?.name ?? null;
+  const ourShare = mine.reduce((a, p) => a + p.share, 0);
+  const ourDps = mine.reduce((a, p) => a + p.dps, 0);
   const rows = d.players
     .map(
-      (p, i) => `<tr class="p ${p.name === ui.player ? "sel" : ""}" data-name="${esc(p.name)}" tabindex="0">
+      (p, i) => `<tr class="p ${p.name === ui.player ? "sel" : ""}${p.member === false ? " other" : ""}" data-name="${esc(p.name)}" tabindex="0">
         <td class="muted">${i + 1}</td><td>${avatar(p.name, p.job, p.jobId)} <b>${esc(p.name)}</b></td>
         <td class="bar"><span class="fill" style="width:${((p.dmg / maxDmg) * 100).toFixed(1)}%"></span><span>${fmtShort(p.dps)}</span></td>
         <td class="num">${fmtShort(p.dmg)}</td><td class="num strong">${fmtPct(p.share)}</td><td class="num">${fmtPct(p.critRate)}</td>
@@ -141,8 +147,8 @@ export function renderFight() {
       ${kpi("Unser DPS", fmtShort(ourDps), "zusammen")}
       ${kpi("Bossschaden", fmtShort(s.totalDamage), s.maxHp ? `Max-HP ${fmtShort(s.maxHp)}` : "")}
     </div>
-    <section class="card"><h2>Wir</h2>
-      <p class="muted small">Zeile antippen für die Skill-Analyse. Anteil = Anteil am gesamten Bossschaden.</p>
+    <section class="card"><h2>Spieler</h2>
+      <p class="muted small">Alle Spieler im Kampf, unsere Gruppe hervorgehoben. Zeile antippen für die Skill-Analyse. Anteil = Anteil am gesamten Bossschaden.</p>
       <div class="table-wrap"><table class="tbl players">
         <thead><tr><th>#</th><th>Name</th><th>DPS</th><th class="num">Schaden</th><th class="num">Anteil</th><th class="num">Krit</th><th class="num">Rücken</th><th class="num hide-s">Heilung</th><th class="num hide-s">Messung</th></tr></thead>
         <tbody>${rows}${othersRow}</tbody></table></div></section>
@@ -214,7 +220,8 @@ export function drawCharts() {
     $("#dpsNote").textContent = ui.mode === "rolling" ? `DPS im gleitenden ${windowS}-s-Fenster (wie in der App).` : "Durchschnitts-DPS seit Kampfbeginn.";
     lineChart($("#dpsChart"), {
       label: "DPS-Verlauf",
-      series: d.timeline.series.map((t) => ({ id: t.name, name: t.name, color: memberColor(t.name), pts: dpsPoints(t, ui.mode, s.durationMs) })),
+      // Nur die Gruppe, sonst wird das Diagramm bei Weltbossen unlesbar.
+      series: (d.timeline.series.some((t) => t.member !== false) ? d.timeline.series.filter((t) => t.member !== false) : d.timeline.series).map((t) => ({ id: t.name, name: t.name, color: memberColor(t.name), pts: dpsPoints(t, ui.mode, s.durationMs) })),
       xMin: 0,
       xMax: s.durationMs,
       xFmt,

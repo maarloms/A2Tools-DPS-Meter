@@ -421,3 +421,10 @@ details.more[open] > summary::before { content: "▾ "; }
   .head-right .select { flex: 1; }
   .tevent .countdown { font-size: 16px; }
 }
+
+/* Kämpfe-Tab: andere Spieler sichtbar, aber zurückgenommen */
+.mini.other { opacity: 0.6; }
+.mini.other b { color: inherit; }
+.tbl tr.p.other td { color: var(--muted); }
+.tbl tr.p.other td b { font-weight: 500; color: var(--muted); }
+.tbl tr.p.other .fill { opacity: 0.45; }

@@ -282,10 +282,14 @@ async function main() {
   recX.actors.find((a) => a.actorId === 199).nickname = "Fremdling"; // unmaskiert
   const upXj = await (await post("Marlon", recX)).json();
   const detX = await getj(`/fights/${upXj.fightId}`);
-  check("Kampfdetail: Fremde ausgeblendet, als „Andere“ gezählt", !detX.players?.some((p) => p.name === "Fremdling") && detX.others?.count >= 1 && detX.others.share > 10,
-    JSON.stringify(detX.others));
+  // Der Kämpfe-Tab ist der einzige Ort mit allen Spielern, `member` markiert die Gruppe.
+  const fremdX = detX.players?.find((p) => p.name === "Fremdling");
+  check("Kampfdetail: Fremde sichtbar, als Nicht-Mitglied markiert", fremdX && fremdX.member === false && detX.players.some((p) => p.member === true),
+    JSON.stringify(detX.players?.map((p) => [p.name, p.member])));
   const listX = await getj("/fights?limit=5");
-  check("Kampfliste: nur Mitglieder in der Top-Liste", listX.fights?.every((f) => f.top.every((p) => p.name !== "Fremdling")));
+  check("Kampfliste: Fremde in der Top-Liste, markiert", listX.fights?.some((f) => f.top.some((p) => p.name === "Fremdling" && p.member === false)));
+  check("Übersicht: Fremde bleiben draußen", !JSON.stringify(await getj("/stats/overview")).includes("Fremdling"));
+  check("Vergleich: Fremde bleiben draußen", !JSON.stringify(await getj("/stats/compare?days=30")).includes("Fremdling"));
 
   // Neues Mitglied: bisher maskiert ("Ne****g"), nach dem ersten hello mit echtem Namen
   const NEU = `Neu${String(Date.now()).slice(-5)}`; // pro Lauf neu, sonst schon bekannt

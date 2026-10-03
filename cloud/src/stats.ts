@@ -104,7 +104,8 @@ export async function handleStats(
           .all<Record<string, any>>()
       ).results;
       const page = rows.slice(0, limit);
-      const tops = await membersOf(db, page.map((r) => r.id), ml);
+      // Der Kämpfe-Tab zeigt alle Spieler, `member` markiert die Gruppe.
+      const tops = await membersOf(db, page.map((r) => r.id), ml, true);
       const fights = page.map((r) => ({
         ...r,
         isTrain: !!r.isTrain,
@@ -309,21 +310,23 @@ export async function handleStats(
 }
 
 /** Mitglieder je Kampf (für Liste/Übersicht), sortiert nach DPS */
-async function membersOf(db: D1Database, ids: string[], ml: string) {
-  const out = new Map<string, { name: string; job: string; jobId: number; dps: number; share: number }[]>();
+async function membersOf(db: D1Database, ids: string[], ml: string, everyone = false) {
+  const out = new Map<string, { name: string; job: string; jobId: number; dps: number; share: number; member: boolean }[]>();
   if (!ids.length) return out;
   const rows = (
     await db
       .prepare(
-        `SELECT ps.encounter_id AS id, ps.player AS name, ps.job, ps.job_id AS jobId, ps.dps, ps.share
-         FROM player_stats ps WHERE ps.encounter_id IN (SELECT value FROM json_each(?1)) AND ${IS_MEMBER}
+        `SELECT ps.encounter_id AS id, ps.player AS name, ps.job, ps.job_id AS jobId, ps.dps, ps.share,
+           (${IS_MEMBER}) AS member
+         FROM player_stats ps WHERE ps.encounter_id IN (SELECT value FROM json_each(?1)) AND (?2 = 1 OR ${IS_MEMBER})
          ORDER BY ps.dps DESC`,
       )
-      .bind(JSON.stringify(ids), null, null, null, null, null, null, null, ml)
-      .all<{ id: string; name: string; job: string; jobId: number; dps: number; share: number }>()
+      .bind(JSON.stringify(ids), everyone ? 1 : 0, null, null, null, null, null, null, ml)
+      .all<{ id: string; name: string; job: string; jobId: number; dps: number; share: number; member: number }>()
   ).results;
   for (const r of rows) {
-    const { id, ...p } = r;
+    const { id, ...rest } = r;
+    const p = { ...rest, member: !!rest.member };
     if (!out.has(id)) out.set(id, []);
     out.get(id)!.push(p);
   }

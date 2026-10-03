@@ -520,30 +520,24 @@ export class Room extends DurableObject<Env> {
   private async fightDetail(room: string, id: string): Promise<Response> {
     const d = await loadEncounter(this.env.DB, room, id);
     if (!d) return json({ error: "not_found" }, 404);
-    // Inzwischen bekannte Mitgliedsnamen nachträglich auflösen, dann nur Mitglieder zeigen.
+    // Inzwischen bekannte Mitgliedsnamen nachträglich auflösen. Der Kämpfe-Tab
+    // ist der einzige Ort mit allen Spielern; `member` markiert die Gruppe.
     const members = await activeMembers(this.env.DB, this.env, room);
     unmaskDetail(d, unmasker(members));
     const isMember = new Set(members.map((n) => n.toLowerCase()));
-    const mine = d.players.filter((p) => isMember.has(p.name.toLowerCase()));
-    const mineDmg = mine.reduce((sum, p) => sum + p.dmg, 0);
-    const othersDmg = Math.max(0, d.summary.totalDamage - mineDmg);
-    const keep = (n: string) => isMember.has(n.toLowerCase());
+    const member = (n: string) => isMember.has(n.toLowerCase());
     const haveRaw = new Set(
       this.sql.exec<{ upload_id: string }>("SELECT upload_id FROM raw_index").toArray().map((r) => r.upload_id),
     );
     return json({
       ...d,
-      summary: { ...d.summary, top: d.summary.top.filter((t) => keep(t.name)) },
-      players: mine,
-      others: {
-        count: Math.max(0, d.summary.actorCount - mine.length),
-        dmg: othersDmg,
-        share: d.summary.totalDamage > 0 ? Math.round((othersDmg / d.summary.totalDamage) * 1000) / 10 : 0,
-      },
+      summary: { ...d.summary, top: d.summary.top.map((t) => ({ ...t, member: member(t.name) })) },
+      players: d.players.map((p) => ({ ...p, member: member(p.name) })),
+      others: null,
       timeline: {
         ...d.timeline,
-        series: d.timeline.series.filter((x) => keep(x.name)),
-        lanes: d.timeline.lanes.filter((x) => keep(x.name)),
+        series: d.timeline.series.map((x) => ({ ...x, member: member(x.name) })),
+        lanes: d.timeline.lanes.map((x) => ({ ...x, member: member(x.name) })),
       },
       uploads: d.uploads.map((u) => ({ ...u, raw: haveRaw.has(u.id) })),
     });
