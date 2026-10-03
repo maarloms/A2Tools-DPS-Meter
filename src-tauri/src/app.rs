@@ -151,8 +151,11 @@ fn apply_overlay_lock(app: &tauri::AppHandle, locked: bool) {
 // ===== TAURI COMMANDS =====
 
 #[tauri::command]
-fn get_app_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
+fn get_app_version(app: tauri::AppHandle) -> String {
+    // fork: the release version lives in tauri.conf.json; Cargo.toml keeps
+    // upstream's so merges stay clean. Reporting Cargo's made every fork
+    // build look outdated to the update check.
+    app.package_info().version.to_string()
 }
 
 #[tauri::command]
