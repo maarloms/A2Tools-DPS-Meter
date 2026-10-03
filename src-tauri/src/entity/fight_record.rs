@@ -37,6 +37,10 @@ pub struct FightRecord {
     /// leaderboards do not rank a Normal clear against a Hard one.
     #[serde(default)]
     pub dungeon_id: i32,
+    /// fork: the target died (combat death packet, or its live HP hit 0)
+    /// before this record was saved. False for older records.
+    #[serde(default)]
+    pub killed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

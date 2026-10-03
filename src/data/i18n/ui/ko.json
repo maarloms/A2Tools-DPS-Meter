@@ -85,6 +85,7 @@
       "perfectRate": "퍼펙트율",
       "doubleRate": "더블율",
       "backRate": "백어택율",
+      "frontalRate": "정면공격율",
       "parryRate": "패리율",
       "combatTime": "전투 시간",
       "multiHitDamage": "다중타 피해",

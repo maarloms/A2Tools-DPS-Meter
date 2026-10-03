@@ -86,6 +86,7 @@
       "perfectRate": "Perfect Rate",
       "doubleRate": "Double Rate",
       "backRate": "Back Attack Rate",
+      "frontalRate": "Frontal Attack Rate",
       "parryRate": "Parry Rate",
       "combatTime": "Combat Time",
       "selfHealing": "Self-Healing",

@@ -85,6 +85,7 @@
       "perfectRate": "完美率",
       "doubleRate": "雙重率",
       "backRate": "背擊率",
+      "frontalRate": "正面攻擊率",
       "parryRate": "格擋率",
       "combatTime": "戰鬥時間",
       "multiHitDamage": "額外傷害",

@@ -86,6 +86,7 @@
       "perfectRate": "Tasa de perfecto",
       "doubleRate": "Tasa de doble",
       "backRate": "Tasa de ataque por la espalda",
+      "frontalRate": "Tasa de ataque frontal",
       "parryRate": "Tasa de parada",
       "combatTime": "Tiempo de combate",
       "selfHealing": "Autocuración",

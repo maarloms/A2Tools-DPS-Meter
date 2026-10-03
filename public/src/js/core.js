@@ -1492,6 +1492,7 @@ class DpsApp {
     let totalCrit = 0;
     let totalParry = 0;
     let totalBack = 0;
+    let totalFrontal = 0;
     let totalPerfect = 0;
     let totalDouble = 0;
     let totalMultiHitCount = 0;
@@ -1541,6 +1542,7 @@ class DpsApp {
         totalCrit += Number(crit) || 0;
         totalParry += Number(parry) || 0;
         totalBack += Number(back) || 0;
+        totalFrontal += Number(frontal) || 0;
         totalPerfect += Number(perfect) || 0;
         totalDouble += Number(double) || 0;
         totalSmite += Number(smite) || 0;
@@ -1692,6 +1694,7 @@ class DpsApp {
           totalCrit: 0,
           totalParry: 0,
           totalBack: 0,
+          totalFrontal: 0,
           totalPerfect: 0,
           totalDouble: 0,
           totalHits: 0,
@@ -1711,6 +1714,7 @@ class DpsApp {
         entry.totalCrit += Number(skill.crit) || 0;
         entry.totalParry += Number(skill.parry) || 0;
         entry.totalBack += Number(skill.back) || 0;
+        entry.totalFrontal += Number(skill.frontal) || 0;
         entry.totalPerfect += Number(skill.perfect) || 0;
         entry.totalDouble += Number(skill.double) || 0;
         entry.totalSmite += Number(skill.smite) || 0;
@@ -1743,6 +1747,7 @@ class DpsApp {
         totalCrit: entry.totalCrit,
         totalParry: entry.totalParry,
         totalBack: entry.totalBack,
+        totalFrontal: entry.totalFrontal,
         totalPerfect: entry.totalPerfect,
         totalDouble: entry.totalDouble,
         totalSmite: entry.totalSmite,
@@ -1758,6 +1763,7 @@ class DpsApp {
         totalCritPct: pct(entry.totalCrit, entry.totalTimes),
         totalParryPct: pct(entry.totalParry, entry.totalTimes),
         totalBackPct: pct(entry.totalBack, entry.totalTimes),
+        totalFrontalPct: pct(entry.totalFrontal, entry.totalTimes),
         totalPerfectPct: pct(entry.totalPerfect, entry.totalTimes),
         totalDoublePct: pct(entry.totalDouble, entry.totalTimes),
         totalSmitePct: pct(entry.totalSmite, entry.totalTimes),
@@ -1817,6 +1823,7 @@ class DpsApp {
       totalCritPct: pct(totalCrit, totalTimes),
       totalParryPct: pct(totalParry, totalTimes),
       totalBackPct: pct(totalBack, totalTimes),
+      totalFrontalPct: pct(totalFrontal, totalTimes),
       totalPerfectPct: pct(totalPerfect, totalTimes),
       totalDoublePct: pct(totalDouble, totalTimes),
       totalSmitePct: pct(totalSmite, totalTimes),
@@ -2142,11 +2149,11 @@ class DpsApp {
         if (!value) {
           // User cleared the ID — reset so auto-detection can take over
           this.localPlayerId = null;
-          window.javaBridge?.bindLocalActorId?.(0);
+          window.javaBridge?.bindLocalActorId?.(0, true);
           return;
         }
         this.localPlayerId = Number(value);
-        window.javaBridge?.bindLocalActorId?.(value);
+        window.javaBridge?.bindLocalActorId?.(value, true);
         if (this.USER_NAME) {
           window.javaBridge?.bindLocalNickname?.(value, this.USER_NAME);
         }

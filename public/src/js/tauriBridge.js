@@ -373,13 +373,15 @@
     setCharacterName(name, manual) {
       invoke("set_character_name", { name, manual: !!manual }).catch(() => {});
     },
-    bindLocalActorId(actorId) {
+    // `manual`: typed in the settings; outranks what the game says (fork).
+    bindLocalActorId(actorId, manual) {
       const id = Number(actorId);
-      if (!Number.isFinite(id) || id <= 0) return;
+      if (!Number.isFinite(id) || id < 0) return;
       // Always invoke — the backend is idempotent and needs to reapply the
       // permanent nickname if the character name was set after the initial bind.
       window._boundLocalActorId = id;
-      invoke("bind_local_actor_id", { actorId: id }).catch(() => {});
+      invoke("bind_local_actor_id", { actorId: id, manual: !!manual }).catch(() => {});
+      if (id === 0) return;
       // Also bind nickname if we can find it from any source
       const name =
         window._dpsApp?.USER_NAME ||

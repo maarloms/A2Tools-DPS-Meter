@@ -86,6 +86,7 @@
       "perfectRate": "パーフェクト率",
       "doubleRate": "ダブル率",
       "backRate": "バックアタック率",
+      "frontalRate": "正面攻撃率",
       "parryRate": "パリィ率",
       "combatTime": "戦闘時間",
       "selfHealing": "自己回復",

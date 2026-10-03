@@ -155,6 +155,8 @@ const createDetailsUI = ({
     { key: "details.stats.critRate", fallback: "Crit Rate", getValue: (d) => pctText(d?.totalCritPct) },
     { key: "details.stats.perfectRate", fallback: "Perfect Rate", getValue: (d) => pctText(d?.totalPerfectPct) },
     { key: "details.stats.doubleRate", fallback: "Double Rate", getValue: (d) => pctText(d?.totalDoublePct) },
+    { key: "details.stats.backRate", fallback: "Back Attack Rate", getValue: (d) => pctText(d?.totalBackPct) }, // fork
+    { key: "details.stats.frontalRate", fallback: "Frontal Attack Rate", getValue: (d) => pctText(d?.totalFrontalPct) }, // fork
     { key: "details.stats.parryRate", fallback: "Parry Rate", getValue: (d) => pctText(d?.totalParryPct) },
     { key: "details.stats.powershardRate", fallback: "P.Shard Rate", getValue: (d) => pctText(d?.totalPowershardPct) },
     { key: "details.stats.regen", fallback: "Regen", getValue: (d) => formatDamageCompact(d?.totalRegen) },
@@ -335,6 +337,9 @@ const createDetailsUI = ({
         return pctText(data.totalDoublePct);
       case "details.stats.backRate":
         return pctText(data.totalBackPct);
+      case "details.stats.frontalRate":
+        return pctText(data.totalFrontalPct);
+        return pctText(data.totalFrontalPct);
       case "details.stats.parryRate":
         return pctText(data.totalParryPct);
       case "details.stats.smiteRate":
@@ -1910,6 +1915,7 @@ const createDetailsUI = ({
           totalCrit: 0,
           totalParry: 0,
           totalBack: 0,
+          totalFrontal: 0,
           totalPerfect: 0,
           totalDouble: 0,
           totalHits: 0,
@@ -1928,6 +1934,7 @@ const createDetailsUI = ({
         next.totalCrit += Number(entry?.totalCrit) || 0;
         next.totalParry += Number(entry?.totalParry) || 0;
         next.totalBack += Number(entry?.totalBack) || 0;
+        next.totalFrontal += Number(entry?.totalFrontal) || 0;
         next.totalPerfect += Number(entry?.totalPerfect) || 0;
         next.totalDouble += Number(entry?.totalDouble) || 0;
         next.totalHits += Number(entry?.totalHits) || 0;
@@ -1952,6 +1959,7 @@ const createDetailsUI = ({
     let totalCrit = 0;
     let totalParry = 0;
     let totalBack = 0;
+    let totalFrontal = 0;
     let totalPerfect = 0;
     let totalDouble = 0;
     let totalSmite = 0;
@@ -1973,6 +1981,7 @@ const createDetailsUI = ({
         totalCrit += Number(skill?.crit) || 0;
         totalParry += Number(skill?.parry) || 0;
         totalBack += Number(skill?.back) || 0;
+        totalFrontal += Number(skill?.frontal) || 0;
         totalPerfect += Number(skill?.perfect) || 0;
         totalDouble += Number(skill?.double) || 0;
         totalSmite += Number(skill?.smite) || 0;
@@ -1991,6 +2000,7 @@ const createDetailsUI = ({
       totalCritPct: pct(totalCrit, totalTimes),
       totalParryPct: pct(totalParry, totalTimes),
       totalBackPct: pct(totalBack, totalTimes),
+      totalFrontalPct: pct(totalFrontal, totalTimes),
       totalPerfectPct: pct(totalPerfect, totalTimes),
       totalDoublePct: pct(totalDouble, totalTimes),
       totalSmitePct: pct(totalSmite, totalTimes),

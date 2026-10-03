@@ -49,19 +49,11 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for DebugFileLayer {
         event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        if !DEBUG_ENABLED.load(Ordering::Relaxed) {
-            return;
-        }
-        // Use try_lock to avoid deadlock if tracing is called while we hold the lock
-        let mut guard = match DEBUG_WRITER.try_lock() {
-            Some(g) => g,
-            None => return,
-        };
-        let logger = match guard.as_mut() {
-            Some(l) => l,
-            None => return,
-        };
-        if logger.bytes_written > MAX_DEBUG_LOG_SIZE {
+        let debug = DEBUG_ENABLED.load(Ordering::Relaxed);
+        // fork: info and up also go to meter.log, debug logging or not.
+        let always = *event.metadata().level() <= tracing::Level::INFO
+            && ALWAYS_LOG.try_lock().is_some_and(|g| g.is_some());
+        if !debug && !always {
             return;
         }
 
@@ -89,10 +81,70 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for DebugFileLayer {
 
         let line = format!("{} {} {} - {}\n", now, level, short_module, msg);
         let len = line.len() as u64;
+        if always {
+            write_always(&line);
+        }
+        if !debug {
+            return;
+        }
+        // Use try_lock to avoid deadlock if tracing is called while we hold the lock
+        let mut guard = match DEBUG_WRITER.try_lock() {
+            Some(g) => g,
+            None => return,
+        };
+        let logger = match guard.as_mut() {
+            Some(l) => l,
+            None => return,
+        };
+        if logger.bytes_written > MAX_DEBUG_LOG_SIZE {
+            return;
+        }
         if logger.writer.write_all(line.as_bytes()).is_ok() {
             logger.bytes_written += len;
             let _ = logger.writer.flush();
         }
+    }
+}
+
+// ===== fork: always-on meter.log =====
+//
+// The debug log is off by default and stops at 5 MB, so a meter that misbehaved
+// an hour ago has nothing to show. meter.log keeps info, warnings and errors
+// (port lock, identity, lag, field bosses) at all times, rotating to meter.old.log.
+
+const MAX_ALWAYS_LOG_SIZE: u64 = 2 * 1024 * 1024;
+
+struct AlwaysLog {
+    writer: std::io::BufWriter<std::fs::File>,
+    bytes: u64,
+    dir: PathBuf,
+}
+
+static ALWAYS_LOG: Mutex<Option<AlwaysLog>> = Mutex::new(None);
+
+fn open_always(dir: &std::path::Path) -> Option<AlwaysLog> {
+    let path = dir.join("meter.log");
+    let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let file = std::fs::OpenOptions::new().create(true).append(true).open(&path).ok()?;
+    Some(AlwaysLog { writer: std::io::BufWriter::new(file), bytes, dir: dir.to_path_buf() })
+}
+
+pub fn start_always_log(dir: &std::path::Path) {
+    *ALWAYS_LOG.lock() = open_always(dir);
+}
+
+fn write_always(line: &str) {
+    let Some(mut guard) = ALWAYS_LOG.try_lock() else { return };
+    let Some(log) = guard.as_mut() else { return };
+    if log.writer.write_all(line.as_bytes()).is_ok() {
+        let _ = log.writer.flush();
+        log.bytes += line.len() as u64;
+    }
+    if log.bytes > MAX_ALWAYS_LOG_SIZE {
+        let dir = log.dir.clone();
+        *guard = None;
+        let _ = std::fs::rename(dir.join("meter.log"), dir.join("meter.old.log"));
+        *guard = open_always(&dir);
     }
 }
 

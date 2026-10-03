@@ -86,6 +86,7 @@
       "perfectRate": "Perfekt-Rate",
       "doubleRate": "Doppel-Rate",
       "backRate": "Rückenangriffsrate",
+      "frontalRate": "Frontalangriffsrate",
       "parryRate": "Paradenrate",
       "combatTime": "Kampfzeit",
       "selfHealing": "Selbstheilung",

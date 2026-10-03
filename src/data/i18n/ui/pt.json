@@ -86,6 +86,7 @@
       "perfectRate": "Taxa de perfeito",
       "doubleRate": "Taxa de duplo",
       "backRate": "Taxa de ataque pelas costas",
+      "frontalRate": "Taxa de ataque frontal",
       "parryRate": "Taxa de aparar",
       "combatTime": "Tempo de combate",
       "selfHealing": "Autocura",

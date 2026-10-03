@@ -86,6 +86,7 @@
       "perfectRate": "Taux de parfait",
       "doubleRate": "Taux de double",
       "backRate": "Taux d'attaque dans le dos",
+      "frontalRate": "Taux d'attaque frontale",
       "parryRate": "Taux de parade",
       "combatTime": "Temps de combat",
       "selfHealing": "Auto-soin",

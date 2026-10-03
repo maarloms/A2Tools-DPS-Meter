@@ -659,11 +659,17 @@ impl DpsCalculator {
     }
 
     fn resolve_local_ids(&self, summon_data: &HashMap<i32, i32>) -> Option<HashSet<i32>> {
-        let local_id = self.data_storage.local_player_id()? as i32;
-        let mut ids = HashSet::new();
-        ids.insert(local_id);
+        // fork: the bound id plus every player entity carrying your name, so a
+        // stale or wrong binding (a loot record's id, the id from before a zone
+        // load) never leaves TARGET empty while you are hitting things.
+        let mut ids: HashSet<i32> = self.data_storage.local_name_ids().into_iter().collect();
+        ids.extend(self.data_storage.local_player_id().map(|id| id as i32));
+        if ids.is_empty() {
+            return None;
+        }
+        let owners = ids.clone();
         for (&summon, &owner) in summon_data {
-            if summon_resolver::resolve(owner, summon_data) == local_id {
+            if owners.contains(&summon_resolver::resolve(owner, summon_data)) {
                 ids.insert(summon);
             }
         }
@@ -861,6 +867,8 @@ impl DpsCalculator {
                 app_version: crate::entity::fight_record::APP_VERSION.to_string(),
                 mob_code,
                 dungeon_id,
+                killed: self.data_storage.is_entity_dead(target_id)
+                    || self.data_storage.get_mob_current_hp(target_id) == Some(0),
             };
 
             if is_ended {

@@ -620,6 +620,16 @@ impl StreamProcessor {
             let Some((owner_id, name, name_end)) = found else {
                 continue;
             };
+            // fork: on global servers the owner id here is not the player's
+            // entity (captures of 2026-10-03: loot named 'marloms' as 114 while
+            // all of their hits came from 14701). An id that never dealt
+            // player damage is skipped: binding it as you, or naming it, only
+            // pointed "you" at an entity that never hits anything.
+            if !self.data_storage.is_known_player(owner_id) {
+                found_any = true;
+                search_offset = name_end;
+                continue;
+            }
 
             if self.data_storage.is_confirmed_summon(summon_id) {
                 self.data_storage.append_summon(owner_id, summon_id);

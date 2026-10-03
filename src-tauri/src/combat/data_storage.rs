@@ -229,6 +229,11 @@ struct Inner {
 
     nickname_storage: HashMap<i32, String>,
     pending_nicknames: HashMap<i32, String>,
+    /// fork: when a name for each id last came in, so a zone change keeps the
+    /// names that arrived with it (see `forget_entities`).
+    name_seen_ms: HashMap<i32, i64>,
+    /// fork: your entity id in the last self record; a different one means a new zone.
+    last_self_id: Option<i64>,
     permanent_nicknames: HashMap<i32, String>,
     summon_storage: HashMap<i32, i32>,
     mob_storage: HashMap<i32, i32>,
@@ -335,6 +340,8 @@ impl DataStorage {
                 actor_jobs: HashMap::new(),
                 nickname_storage: HashMap::new(),
                 pending_nicknames: HashMap::new(),
+            name_seen_ms: HashMap::new(),
+            last_self_id: None,
                 permanent_nicknames: HashMap::new(),
                 summon_storage: HashMap::new(),
                 mob_storage: HashMap::new(),
@@ -422,6 +429,20 @@ impl DataStorage {
     /// tutorial character. Returns whether anything changed.
     pub fn set_local_identity_from_game(&self, id: i64, name: Option<String>) -> bool {
         let mut inner = self.inner.write();
+        // fork: the game hands out entity ids per zone. A self record with a
+        // new id outside combat means a new zone or instance, where the old
+        // ids now belong to other players and mobs: forget who they were, or
+        // the previous instance's names stick to the new one's players.
+        let quiet = now_ms() - self.last_damage_ms.load(Ordering::Relaxed) >= ZONE_RESET_LULL_MS;
+        // (Not local_player_id: the self record's name was stored a moment
+        // earlier, and a stored name equal to yours already moves that.)
+        let new_zone = inner.last_self_id.is_some_and(|old| old != id);
+        inner.last_self_id = Some(id);
+        if new_zone && quiet {
+            forget_entities(&mut inner);
+            self.combat_reset_requested.store(true, Ordering::Relaxed);
+            tracing::info!("New zone (you are entity {id} now): names and entities of the last zone dropped");
+        }
         let changed = !inner.local_identity_from_game
             || inner.local_player_id != Some(id)
             || inner.local_character_name != name
@@ -780,6 +801,10 @@ impl DataStorage {
             inner.party_members.clear();
         }
         for (name, member) in members {
+            // fork: one player per slot. A partial roster that puts someone new
+            // into a slot means the old occupant left; keeping them showed the
+            // previous run's player (2026-10-03: Shraeden and Zhou both "slot 1").
+            inner.party_members.retain(|n, m| m.slot != member.slot || *n == name);
             inner.party_members.insert(name, member);
         }
     }
@@ -963,6 +988,20 @@ impl DataStorage {
 
     pub fn is_known_player(&self, id: i32) -> bool {
         self.inner.read().known_player_ids.contains(&id)
+    }
+
+    /// fork: every entity that deals player damage under the local player's
+    /// name. The game gives you a new entity id on each zone load and can run
+    /// more than one at once, so "you" is the name, not one remembered id.
+    pub fn local_name_ids(&self) -> Vec<i32> {
+        let inner = self.inner.read();
+        let Some(name) = inner.local_character_name.as_deref().map(str::trim).filter(|n| !n.is_empty()) else {
+            return Vec::new();
+        };
+        inner.nickname_storage.iter()
+            .filter(|(id, nick)| nick.trim() == name && inner.known_player_ids.contains(id))
+            .map(|(&id, _)| id)
+            .collect()
     }
 
     pub fn get_mob_hp_data(&self) -> HashMap<i32, i32> {
@@ -1259,6 +1298,40 @@ fn apply_damage(inner: &mut Inner, pdp: &ParsedDamagePacket) {
     }
 }
 
+/// fork: everything keyed by entity id that only holds within one zone.
+/// Identity (your name), the party roster and the dungeon stay.
+fn forget_entities(inner: &mut Inner) {
+    inner.target_combat.clear();
+    inner.held_dot_ticks.clear();
+    inner.training_dummy_ids.clear();
+    inner.actor_jobs.clear();
+    inner.summon_storage.clear();
+    inner.known_player_ids.clear();
+    inner.confirmed_summon_ids.clear();
+    inner.summon_spawn_ids.clear();
+    inner.actor_power_scalars.clear();
+    inner.hostile_target_ids.clear();
+    inner.dead_entity_ids.clear();
+    inner.boss_entity_ids.clear();
+    inner.mob_storage.clear();
+    inner.mob_hp_data.clear();
+    inner.mob_current_hp.clear();
+    inner.heal_storage.clear();
+    inner.has_boss_in_segment = false;
+    inner.current_target = 0;
+    // Names the UI pinned to ids of the last zone ("you" was 14701 there).
+    inner.permanent_nicknames.clear();
+    inner.pending_nicknames.clear();
+    // Names that came with the zone load itself (the same batch as the self
+    // record, possibly just before it) belong to the new zone.
+    let cutoff = now_ms() - 3_000;
+    inner.name_seen_ms.retain(|_, at| *at >= cutoff);
+    let fresh = std::mem::take(&mut inner.name_seen_ms);
+    inner.nickname_storage.retain(|id, _| fresh.contains_key(id));
+    inner.authoritative_name_ids.retain(|id| fresh.contains_key(id));
+    inner.name_seen_ms = fresh;
+}
+
 fn set_game_identity(inner: &mut Inner, id: i64, name: Option<String>) {
     inner.local_identity_from_game = true;
     inner.local_player_id = Some(id);
@@ -1270,6 +1343,7 @@ fn append_nickname_inner(inner: &mut Inner, uid: i32, nickname: &str) {
 }
 
 fn append_nickname_inner_with_force(inner: &mut Inner, uid: i32, nickname: &str, force: bool) {
+    inner.name_seen_ms.insert(uid, now_ms()); // fork
     let existing = inner.nickname_storage.get(&uid);
     if let Some(existing) = existing {
         if existing == nickname {
@@ -1518,5 +1592,64 @@ mod tests {
         assert_eq!(s.local_player_id(), Some(4099));
         assert!(!s.note_loot_owner(1454, "ApexZ"));
         assert_eq!(who(&s), (Some(4099), Some("Misti".into()), false));
+    }
+}
+
+#[cfg(test)]
+mod fork_identity_tests {
+    use super::*;
+
+    /// Capture of 2026-10-03: loot named 'marloms' as entity 114, but every
+    /// hit came from 14701 (and from 10917 after the next zone load).
+    #[test]
+    fn you_are_every_player_entity_with_your_name() {
+        let ds = DataStorage::new();
+        ds.set_local_player_id(Some(114));
+        {
+            let mut inner = ds.inner.write();
+            inner.local_character_name = Some("marloms".into());
+            for (id, name) in [(114, "marloms"), (14701, "marloms"), (10917, "marloms"), (2673, "PlastoFPS")] {
+                inner.nickname_storage.insert(id, name.into());
+            }
+            // 114 never dealt player damage; 14701 and the stranger did.
+            inner.known_player_ids.extend([14701, 2673]);
+        }
+        assert_eq!(ds.local_name_ids(), vec![14701]);
+        ds.inner.write().known_player_ids.insert(10917);
+        let mut ids = ds.local_name_ids();
+        ids.sort();
+        assert_eq!(ids, vec![10917, 14701]);
+    }
+
+    /// 19:02 on 2026-10-03: Zhou took slot 1 in a partial roster while
+    /// Shraeden, who had left, still held it.
+    #[test]
+    fn a_new_member_in_a_slot_replaces_the_old_one() {
+        let ds = DataStorage::new();
+        let m = |slot| PartyMember { slot, ..Default::default() };
+        ds.set_party_roster(vec![("marloms".into(), m(0)), ("Shraeden".into(), m(1)), ("Zhou".into(), m(2))], true);
+        ds.set_party_roster(vec![("Zhou".into(), m(1)), ("qae".into(), m(2))], false);
+        let mut names: Vec<String> = ds.get_party_members().into_keys().collect();
+        names.sort();
+        assert_eq!(names, ["Zhou", "marloms", "qae"]);
+    }
+
+    /// A new instance reuses entity ids for other players: the old names go,
+    /// the ones that came with the zone load stay.
+    #[test]
+    fn a_new_zone_drops_the_last_zones_names() {
+        let ds = DataStorage::new();
+        ds.append_nickname_authoritative(500, "marloms");
+        ds.set_local_identity_from_game(500, Some("marloms".into()));
+        ds.inner.write().nickname_storage.insert(777, "OldMate".into());
+        ds.inner.write().name_seen_ms.insert(777, now_ms() - 60_000);
+        // Zone load: the new zone's players, then your self record with a new id.
+        ds.append_nickname_authoritative(888, "NewMate");
+        ds.append_nickname_authoritative(600, "marloms");
+        ds.set_local_identity_from_game(600, Some("marloms".into()));
+        assert_eq!(ds.get_nickname(777), None, "id 777 is someone else now");
+        assert_eq!(ds.get_nickname(888).as_deref(), Some("NewMate"));
+        assert_eq!(ds.get_nickname(600).as_deref(), Some("marloms"));
+        assert_eq!(ds.local_player_id(), Some(600));
     }
 }

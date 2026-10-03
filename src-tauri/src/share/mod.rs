@@ -453,6 +453,7 @@ mod tests {
             app_version: "2.0.22".into(),
             mob_code: 4242,
             dungeon_id: 600093,
+            killed: false,
         }
     }
 

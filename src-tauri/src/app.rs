@@ -422,7 +422,12 @@ fn set_character_name(state: tauri::State<'_, AppState>, name: String, manual: O
 }
 
 #[tauri::command]
-fn bind_local_actor_id(state: tauri::State<'_, AppState>, actor_id: i64) {
+fn bind_local_actor_id(state: tauri::State<'_, AppState>, actor_id: i64, manual: Option<bool>) {
+    // fork: the UI guesses "you" from the rows it shows; once the game has
+    // said who you are, only an id the player typed in overrides that.
+    if state.data_storage.local_identity_from_game() && !manual.unwrap_or(false) {
+        return;
+    }
     if actor_id <= 0 {
         // Clear manual binding — auto-detection will take over
         tracing::info!("bind_local_actor_id: cleared");
@@ -1786,6 +1791,9 @@ pub fn run() {
     // Before anything starts a thread: it may set environment variables.
     let process_note = platform::process::prepare();
     logging::logger::init_logging();
+    if !crate::fork::ensure_single_instance() {
+        return; // fork: another meter is running and now in front
+    }
     crate::fork::migrate_legacy_data(); // fork
     if let Some(note) = process_note {
         tracing::info!("{note}");
@@ -1859,6 +1867,7 @@ pub fn run() {
 
             let settings = Settings::new(app_data_dir.clone());
 
+            logging::logger::start_always_log(&app_data_dir); // fork
             // Load logging settings from saved state
             if settings.get("dpsMeter.debugLoggingEnabled").as_deref() == Some("true") {
                 logging::logger::set_debug_enabled(true, &app_data_dir);
