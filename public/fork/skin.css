@@ -742,3 +742,25 @@
 :root.forkSkin .detailsPanel .detailsSkills .skillHeader { padding-right: 14px; }
 :root.forkSkin .detailsPanel .dpsChartWrap { min-height: 180px; }
 :root.forkSkin .detailsPanel .timelineChart { flex: 0 0 auto; min-height: auto; }
+
+/* ---------------- group sharing (fork/cloud.js) ---------------- */
+
+.forkCloudGroup .forkCloudInput {
+  width: 100%;
+  height: var(--set-field-h, 26px);
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--set-field-border, rgba(255, 255, 255, 0.18));
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+}
+.forkCloudGroup .forkCloudInput:focus { outline: none; border-color: var(--isUser-fill); }
+.forkCloudGroup .forkCloudInput::placeholder { color: var(--hud-faint); }
+.forkCloudGroup .forkCloudPair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.forkCloudGroup .forkCloudPair > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.forkCloudGroup .forkCloudStatus { font-size: 12px; opacity: 0.85; }
+.forkCloudGroup .forkCloudStatus[data-state="ok"] { color: #6fd08c; opacity: 1; }
+.forkCloudGroup .forkCloudStatus[data-state="error"] { color: #ff8a7a; opacity: 1; }
+.forkCloudGroup .forkCloudStatus[data-state="wait"] { color: #e8c987; }

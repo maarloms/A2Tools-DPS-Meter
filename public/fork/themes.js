@@ -52,6 +52,7 @@ window.FORK_THEMES = [
   };
 
   function renderSettings(app, setupDropdown, previewThemeVars) {
+    window.ForkCloud?.renderSettings?.(app);
     const row = ensureRow(app.themeDropdownBtn);
     if (!row) return;
     row.querySelector(".forkThemeLabel").textContent = text("Eigene Themes", "Custom themes");

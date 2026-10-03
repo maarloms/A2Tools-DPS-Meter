@@ -1,3 +1,5 @@
+pub mod cloud;
+
 use crate::app::AppState;
 use crate::platform::hotkeys::HotkeyManager;
 use tauri::{Manager, WindowEvent};

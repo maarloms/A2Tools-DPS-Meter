@@ -2191,6 +2191,7 @@ pub fn run() {
                                 if !records.is_empty() {
                                     share::prune_slices(&state.app_data_dir);
                                 }
+                                crate::fork::cloud::on_fights_saved(&handle_save, &records); // fork
                                 if state.settings.get(share::AUTO_UPLOAD_KEY).as_deref() == Some("true") {
                                     let now = crate::clock::now_ms();
                                     for record in records.into_iter()
