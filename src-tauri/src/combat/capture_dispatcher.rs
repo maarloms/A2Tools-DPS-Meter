@@ -160,6 +160,7 @@ impl CaptureDispatcher {
         let mut window_logged: Option<bool> = None;
         let mut unlocked_stats = UnlockedStats::default();
         let mut last_unlocked_report_ms = now_ms();
+        let mut last_lag_warn_ms = 0; // fork
 
         while let Some(cap) = receiver.recv().await {
             if self.suspended.load(Ordering::SeqCst) {
@@ -168,6 +169,12 @@ impl CaptureDispatcher {
 
             // Check AION window
             let now = now_ms();
+            // fork: a meter that lags the game shows up here.
+            let lag = now - cap.captured_at_ms;
+            if lag > 1_000 && now - last_lag_warn_ms > 10_000 {
+                last_lag_warn_ms = now;
+                tracing::warn!("Dispatch lag: {lag} ms behind capture, {} packets queued", receiver.len());
+            }
             let interval = if is_aion_running { WINDOW_CHECK_RUNNING_MS } else { WINDOW_CHECK_STOPPED_MS };
             if now - last_window_check_ms >= interval {
                 last_window_check_ms = now;

@@ -95,6 +95,8 @@ impl DpsCalculator {
 
     pub fn set_target_selection_mode(&mut self, id: &str) {
         self.target_selection_mode = TargetSelectionMode::from_id(id);
+        // fork: recompute on the next tick, not only once the next hit lands.
+        self.last_damage_gen = -1;
     }
 
     pub fn set_all_targets_window_ms(&mut self, ms: i64) {
