@@ -245,11 +245,13 @@ export async function handleStats(
           .all()
       ).results;
       const job = (await latestJobs(db, room, JSON.stringify([name]))).get(name);
+      const gear = (await latestGear(db, room, JSON.stringify([name]))).get(name);
       return {
         name: members.find((m) => m.toLowerCase() === name) ?? name,
         job: job?.job ?? "",
         jobId: job?.jobId ?? 0,
-        kpi: { ...kpi, prevAvgDps: prev?.avgDps ?? null, favorite: records[0] ?? null },
+        kpi: { ...kpi, prevAvgDps: prev?.avgDps ?? null, favorite: records[0] ?? null, gs: gear?.gs ?? null, cp: gear?.cp ?? null },
+        gear: await gearSeries(db, room, JSON.stringify([name]), from, url),
         records,
         recent,
         series: await series(db, room, JSON.stringify([name]), from, url, name),
@@ -289,6 +291,7 @@ export async function handleStats(
           .all<{ lc: string; together: number; firsts: number }>()
       ).results;
       const jobs = await latestJobs(db, room, ml);
+      const gear = await latestGear(db, room, ml);
       return {
         members: members.map((name) => {
           const lc = name.toLowerCase();
@@ -298,6 +301,8 @@ export async function handleStats(
             name,
             job: jobs.get(lc)?.job ?? "",
             jobId: jobs.get(lc)?.jobId ?? 0,
+            gs: gear.get(lc)?.gs ?? null,
+            cp: gear.get(lc)?.cp ?? null,
             fights: 0,
             ...(r ?? {}),
             together: w?.together ?? 0,
@@ -306,6 +311,7 @@ export async function handleStats(
         }),
         matrix: await bossMatrix(db, room, ml, from, boss),
         series: await series(db, room, ml, from, url, null),
+        gear: await gearSeries(db, room, ml, from, url),
       };
     }
 
@@ -377,6 +383,45 @@ async function latestJobs(db: D1Database, room: string, ml: string) {
       .all<{ lc: string; job: string; jobId: number }>()
   ).results;
   return new Map(rows.map((r) => [r.lc, r]));
+}
+
+/** Aktueller Gearscore und Combat Score je Mitglied (jeweils letzter Kampf mit Wert) */
+async function latestGear(db: D1Database, room: string, ml: string) {
+  const latest = async (col: "gear_score" | "cp") =>
+    (
+      await db
+        .prepare(
+          `SELECT lc, v FROM (SELECT ps.player_lc AS lc, ps.${col} AS v,
+               ROW_NUMBER() OVER (PARTITION BY ps.player_lc ORDER BY ps.start_ms DESC) AS rn
+             FROM player_stats ps WHERE ps.room = ?1 AND ps.${col} > 0 AND ${IS_MEMBER}) WHERE rn = 1`,
+        )
+        .bind(room, null, null, null, null, null, null, null, ml)
+        .all<{ lc: string; v: number }>()
+    ).results;
+  const out = new Map<string, { gs: number | null; cp: number | null }>();
+  for (const r of await latest("gear_score")) out.set(r.lc, { gs: r.v, cp: null });
+  for (const r of await latest("cp")) out.set(r.lc, { gs: out.get(r.lc)?.gs ?? null, cp: r.v });
+  return out;
+}
+
+/** Gearscore und Combat Score je Mitglied und Tag: der Stand beim letzten Kampf des Tages */
+async function gearSeries(db: D1Database, room: string, ml: string, from: number, url: URL) {
+  const tz = int(url.searchParams.get("tz"), 0, -840, 840);
+  return (
+    await db
+      .prepare(
+        `SELECT player, period, gs, cp FROM (
+           SELECT ps.player AS player, strftime('%Y-%m-%d', ps.start_ms / 1000 + ?2, 'unixepoch') AS period,
+             ps.gear_score AS gs, ps.cp AS cp,
+             ROW_NUMBER() OVER (PARTITION BY ps.player_lc, strftime('%Y-%m-%d', ps.start_ms / 1000 + ?2, 'unixepoch')
+                                ORDER BY ps.start_ms DESC) AS rn
+           FROM player_stats ps WHERE ps.room = ?1 AND ps.start_ms >= ?3 AND ps.is_train = 0 AND ${IS_MEMBER}
+             AND ps.gear_score > 0 AND ps.cp > 0)
+         WHERE rn = 1 ORDER BY period`,
+      )
+      .bind(room, tz * 60, from, null, null, null, null, null, ml)
+      .all()
+  ).results;
 }
 
 /** Bestwert je Boss und Mitglied; `leader` = wer vorne liegt */

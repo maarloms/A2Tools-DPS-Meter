@@ -165,8 +165,8 @@ async function remerge(db: D1Database, room: string, encounterId: string, known:
       db
         .prepare(
           `INSERT OR REPLACE INTO player_stats (encounter_id, room, player, player_lc, job, job_id, source, self_report, dps, dmg, share,
-             crit_rate, back_rate, hits, heal, cp, mob_code, boss, dungeon_id, start_ms, duration_ms, is_train, peak_dps, front_rate, killed)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)`,
+             crit_rate, back_rate, hits, heal, cp, mob_code, boss, dungeon_id, start_ms, duration_ms, is_train, peak_dps, front_rate, killed, gear_score)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)`,
         )
         .bind(
           encounterId, room, p.name, p.name.toLowerCase(), p.job, p.jobId, p.source, p.selfReport ? 1 : 0, p.dps, p.dmg, p.share,
@@ -174,6 +174,7 @@ async function remerge(db: D1Database, room: string, encounterId: string, known:
           peaks.get(p.name.toLowerCase()) ?? p.dps,
           frontRateOf(p),
           s.killed ? 1 : 0,
+          p.gs ?? 0,
         ),
     );
   }
@@ -191,7 +192,7 @@ function peaksOf(d: EncounterDetail): Map<string, number> {
   return out;
 }
 
-const MISSING = "(peak_dps IS NULL OR front_rate IS NULL)";
+const MISSING = "(peak_dps IS NULL OR front_rate IS NULL OR gear_score IS NULL)";
 
 /**
  * Peak-DPS und Frontal-Quote für Kämpfe von vor ihrer Einführung nachtragen (aus dem gespeicherten
@@ -208,13 +209,16 @@ export async function backfillStats(db: D1Database, room: string, limit = 100): 
     const row = await db.prepare("SELECT detail FROM encounters WHERE id = ?1").bind(id).first<{ detail: string }>();
     const d = row ? await unpackJson<EncounterDetail>(row.detail) : null;
     const peaks = d ? peaksOf(d) : new Map<string, number>();
-    const set = "UPDATE player_stats SET peak_dps = COALESCE(peak_dps, ?1), front_rate = COALESCE(front_rate, ?2) WHERE encounter_id = ?3 AND player_lc = ?4";
+    const set =
+      "UPDATE player_stats SET peak_dps = COALESCE(peak_dps, ?1), front_rate = COALESCE(front_rate, ?2), gear_score = COALESCE(gear_score, ?5) WHERE encounter_id = ?3 AND player_lc = ?4";
     const stmts = (d?.players ?? []).map((p) =>
-      db.prepare(set).bind(peaks.get(p.name.toLowerCase()) ?? null, frontRateOf(p), id, p.name.toLowerCase()),
+      db.prepare(set).bind(peaks.get(p.name.toLowerCase()) ?? null, frontRateOf(p), id, p.name.toLowerCase(), p.gs ?? 0),
     );
     // Rest (kurze Kämpfe, kein Verlauf, Spieler nicht im Detail): Peak = Kampfschnitt, Frontal unbekannt = 0
     stmts.push(
-      db.prepare("UPDATE player_stats SET peak_dps = COALESCE(peak_dps, dps), front_rate = COALESCE(front_rate, 0) WHERE encounter_id = ?1").bind(id),
+      db
+        .prepare("UPDATE player_stats SET peak_dps = COALESCE(peak_dps, dps), front_rate = COALESCE(front_rate, 0), gear_score = COALESCE(gear_score, 0) WHERE encounter_id = ?1")
+        .bind(id),
     );
     await db.batch(stmts);
   }

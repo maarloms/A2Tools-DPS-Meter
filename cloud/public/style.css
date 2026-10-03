@@ -139,6 +139,9 @@ main { min-width: 0; }
   background: color-mix(in srgb, var(--c) 22%, var(--panel)); border: 2px solid var(--c);
 }
 .avatar.ghost { --c: var(--faint); color: var(--muted); }
+.avatar.icon img { width: 82%; height: 82%; object-fit: contain; }
+.job.icon { display: inline-grid; place-items: center; padding: 1px; border: 0; vertical-align: middle; }
+.job.icon img { width: 18px; height: 18px; object-fit: contain; }
 .job { font-size: 11px; font-weight: 700; color: var(--title); border: 1px solid var(--hair); border-radius: 4px; padding: 1px 5px; }
 .badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--hair); color: var(--muted); vertical-align: middle; }
 .badge.live { color: #10141f; background: var(--good); border-color: transparent; }
@@ -242,6 +245,7 @@ main { min-width: 0; }
 .cmp-heads { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px; }
 .cmp-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--hair); border-radius: var(--radius-lg); }
 .cmp-head .avatar { width: 38px; height: 38px; }
+.cmp-head .gear { color: var(--num); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .cmp-row { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
 .cmp-row:last-child { border-bottom: 0; }
 .cmp-label { color: var(--text); font-weight: 600; display: flex; flex-direction: column; }

@@ -5,7 +5,11 @@ import {
 } from "./core.js";
 import { drawTrend } from "./me.js";
 
-const ui = { days: 30, boss: "", metric: "avgDps", hidden: new Set() };
+const ui = { days: 30, boss: "", metric: "avgDps", hidden: new Set(), gear: "gs", gearHidden: new Set() };
+const GEAR = { gs: "Gearscore", cp: "Combat Score" };
+/** „GS 1.560 · CS 73,5K“ – fehlende Werte weglassen */
+const gearText = (m) =>
+  [m.gs ? `GS ${fmtNum(m.gs)}` : "", m.cp ? `CS ${fmtShort(m.cp)}` : ""].filter(Boolean).join(" · ");
 // Pro Kampf gibt es je Spieler nur einen Wert – Ø und Bestwert fallen zusammen.
 const METRICS = { avgDps: "DPS", peakDps: "Peak (10 s)", avgShare: "Anteil" };
 
@@ -50,7 +54,9 @@ function render(d) {
   }
   const heads = ms
     .map(
-      (m) => `<div class="cmp-head">${avatar(m.name, m.job, m.jobId)}<div><b>${esc(m.name)}</b><div class="muted small">${esc(job(m.job, m.jobId).name)} · ${fmtNum(m.fights)} Kämpfe</div></div></div>`,
+      (m) => `<div class="cmp-head">${avatar(m.name, m.job, m.jobId)}<div><b>${esc(m.name)}</b><div class="muted small">${esc(job(m.job, m.jobId).name)} · ${fmtNum(m.fights)} Kämpfe</div>${
+        gearText(m) ? `<div class="small gear">${gearText(m)}</div>` : ""
+      }</div></div>`,
     )
     .join("");
   const bosses = d.matrix.slice(0, 12);
@@ -86,6 +92,11 @@ function render(d) {
         .map(([k, l]) => `<button type="button" data-metric="${k}" class="${ui.metric === k ? "on" : ""}">${l}</button>`)
         .join("")}</div></div>
       <div class="chart" id="cChart"></div><div class="legend" id="cLegend"></div></section>
+    <section class="card"><div class="card-head"><div><h2>Ausrüstung über die Zeit</h2><p class="muted small">Stand beim letzten Kampf des Tages.</p></div>
+      <div class="seg" role="group" aria-label="Wert">${Object.entries(GEAR)
+        .map(([k, l]) => `<button type="button" data-gear="${k}" class="${ui.gear === k ? "on" : ""}">${l}</button>`)
+        .join("")}</div></div>
+      <div class="chart" id="gChart"></div><div class="legend" id="gLegend"></div></section>
     <section class="card"><h2>Pro Boss</h2><p class="muted small">Bester DPS, darunter Ø DPS und Ø Anteil. ★ = vorne.</p>
       <div class="table-wrap"><table class="tbl"><thead><tr><th>Boss</th>${names.map((n) => `<th class="num">${esc(n)}</th>`).join("")}</tr></thead><tbody>${matrix}</tbody></table></div></section>
   </div>`;
@@ -94,6 +105,14 @@ function render(d) {
   const host = $("#cChart");
   const bossAt = new Map(d.series.points.map((p) => [p.period, p.boss]));
   drawTrend(host, periods, lines, d.series.bucket, ui.hidden, ui.metric === "avgShare" ? fmtPct : fmtShort, bossAt);
+  const gear = seriesLines((d.gear ?? []).filter((p) => p[ui.gear] > 0), ui.gear);
+  drawTrend($("#gChart"), gear.periods, gear.lines, "day", ui.gearHidden, ui.gear === "gs" ? fmtNum : fmtShort);
+  view.querySelectorAll("[data-gear]").forEach((b) =>
+    b.addEventListener("click", () => {
+      ui.gear = b.dataset.gear;
+      render(d);
+    }),
+  );
   view.querySelectorAll("[data-metric]").forEach((b) =>
     b.addEventListener("click", () => {
       ui.metric = b.dataset.metric;

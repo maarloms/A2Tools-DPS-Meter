@@ -276,6 +276,9 @@ async function main() {
   const mPeak = (await getj("/stats/compare?days=30")).members.find((m) => m.name === "Marlon");
   check("Frontal-Quote im Vergleich", mPeak?.avgFront > 0, String(mPeak?.avgFront));
   check("Peak (10 s) da und mindestens der Kampfschnitt", mPeak?.bestPeak >= mPeak?.bestDps * 0.95, `${mPeak?.bestPeak} / ${mPeak?.bestDps}`);
+  const cmpG = await getj("/stats/compare?days=30");
+  const mG = cmpG.members.find((m) => m.name === "Marlon");
+  check("Vergleich: Gearscore, Combat Score und Verlauf", mG?.gs === 900 && mG?.cp > 0 && cmpG.gear?.some((p) => p.player === "Marlon" && p.gs === 900), `${mG?.gs} / ${mG?.cp}`);
   const fl = await getj("/fights?limit=5");
   check("Kampfliste: besiegt-Flag", fl.fights?.some((f) => f.killed === true));
   const meK = await getj(`/stats/player?name=Marlon&days=30`);

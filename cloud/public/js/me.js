@@ -8,6 +8,15 @@ import {
 
 const ui = { days: 30, boss: "", hidden: new Set() };
 
+/** „+40 seit 12.10.“: Veränderung seit dem ersten Tag im Zeitraum */
+function gearTrend(points, key, fmt) {
+  const pts = (points ?? []).filter((p) => p[key] > 0);
+  if (pts.length < 2) return "aktueller Stand";
+  const diff = pts.at(-1)[key] - pts[0][key];
+  const [, m, d] = pts[0].period.split("-");
+  return diff ? `${diff > 0 ? "+" : "−"}${fmt(Math.abs(diff))} seit ${d}.${m}.` : `unverändert seit ${d}.${m}.`;
+}
+
 export async function loadMe(who) {
   view.innerHTML = loading("Mein Bereich");
   try {
@@ -76,6 +85,8 @@ async function renderMe(name) {
       ${kpi("Bester Schnitt", fmtShort(k.bestDps), "über einen ganzen Kampf")}
       ${kpi("Peak (10 s)", k.bestPeak ? fmtShort(k.bestPeak) : "–", "bester 10-Sekunden-Burst")}
       ${kpi("Ø Anteil", fmtPct(k.avgShare), "am Bossschaden")}
+      ${kpi("Gearscore", k.gs ? fmtNum(k.gs) : "–", gearTrend(d.gear, "gs", fmtNum))}
+      ${kpi("Combat Score", k.cp ? fmtShort(k.cp) : "–", gearTrend(d.gear, "cp", fmtShort))}
       ${kpi("Kämpfe", fmtNum(k.fights), periodTxt)}
       ${kpi("Lieblingsboss", fav ? esc(fav.boss) : "–", fav ? `${fmtNum(fav.fights)} Kämpfe` : "", "text")}
     </div>

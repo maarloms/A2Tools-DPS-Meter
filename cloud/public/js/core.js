@@ -80,13 +80,16 @@ export function job(j, id) {
   const row =
     (id ? JOBS.find((r) => r[0] === Number(id)) : null) ||
     JOBS.find((r) => r[1] === key || r[2] === up || r[3].toUpperCase() === up || String(r[0]) === key);
-  if (row) return { short: row[4], name: row[3] };
-  if (!key || key === "Unknown" || key === "0") return { short: "–", name: "Klasse unbekannt" };
-  return { short: key.slice(0, 3).toUpperCase(), name: key };
+  // Symbol wie im Spiel (shared/jobs/<id>.png, aus dem Meter); Faustkämpfer hat keins
+  if (row) return { short: row[4], name: row[3], icon: row[0] <= 18 ? `shared/jobs/${row[0]}.png` : "" };
+  if (!key || key === "Unknown" || key === "0") return { short: "–", name: "Klasse unbekannt", icon: "" };
+  return { short: key.slice(0, 3).toUpperCase(), name: key, icon: "" };
 }
 export const jobTag = (j, id) => {
   const x = job(j, id);
-  return `<span class="job" title="${esc(x.name)}">${esc(x.short)}</span>`;
+  return x.icon
+    ? `<span class="job icon" title="${esc(x.name)}"><img src="${x.icon}" alt="${esc(x.name)}"></span>`
+    : `<span class="job" title="${esc(x.name)}">${esc(x.short)}</span>`;
 };
 export const MODES = { bossTargets: "Boss", allTargets: "Alle Ziele", groupTargets: "Gruppe", train: "Trainingspuppe" };
 /** Dungeon-Namen (shared/dungeons.json, aus den Spieldaten des Meters); unbekannte als „Instanz <id>“ */
@@ -192,8 +195,12 @@ export function trend(now, prev, what = "Vorwoche") {
     : `<span class="trend down" title="schwächer als ${what}">▼ −${nf0.format(-d)} %</span>`;
 }
 
-export const avatar = (name, j, id) =>
-  `<span class="avatar" style="--c:${memberColor(name)}" title="${esc(job(j, id).name)}">${esc(job(j, id).short)}</span>`;
+export const avatar = (name, j, id) => {
+  const x = job(j, id);
+  return `<span class="avatar${x.icon ? " icon" : ""}" style="--c:${memberColor(name)}" title="${esc(x.name)}">${
+    x.icon ? `<img src="${x.icon}" alt="${esc(x.name)}">` : esc(x.short)
+  }</span>`;
+};
 
 export const PERIODS = [
   [7, "7 Tage"],
