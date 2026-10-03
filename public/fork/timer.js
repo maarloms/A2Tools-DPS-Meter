@@ -199,6 +199,9 @@ async function boot() {
     const legacyMinigames = ["track","nyerk","lugi","up","shugo","goldrin"];
     if (preferences.enabled.some(id => legacyMinigames.includes(id))) preferences.enabled.push("shugofesta");
     if (preferences.enabled.includes("beritra")) preferences.enabled.push("invasion");
+    // The grouped Reshanta boss entries became one entry per boss.
+    if (preferences.enabled.includes("siege-bosses-lower")) preferences.enabled.push("executor-tamasa", "executor-agro", "executor-kaira");
+    if (preferences.enabled.includes("siege-bosses-middle")) preferences.enabled.push("dhramos", "ducal", "maraka");
     // Events added in an update start with their default, even for users who
     // already saved a selection. Saves before `known` existed knew these three.
     const known = Array.isArray(preferences.known) ? preferences.known

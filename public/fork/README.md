@@ -19,8 +19,7 @@ für Europa `Europe/Berlin`; Resets auf 16:00 koreanischer Zeit.
 | Shugofesta | jede volle Stunde (9 wechselnde Minispiele) | Clientdaten |
 | Dimensionale Invasion | jede halbe Stunde (3 Varianten) | Clientdaten |
 | Artefakt-Eroberung | Mo/Do/Sa 21:00 | Clientdaten, ingame offen |
-| Vollstrecker Tamasa · Agro · Kaira (Untere Ebene) | Mo/Do/Sa 21:30 | Clientdaten, ingame offen |
-| Dhramos · Ducal · Maraka (Mittlere Ebene) | Mo/Do/Sa 21:30 | Clientdaten, ingame offen |
+| Weltbosse, einzeln wählbar: Vollstrecker Tamasa, Agro, Kaira (Untere Ebene); Dhramos, Ducal, Maraka (Mittlere Ebene) | Mo/Do/Sa 21:30 | Clientdaten, ingame offen |
 | Wächtergott Nahma / Wütender Wächtergott Nahma | Fr/So 21:00 | Clientdaten, ingame offen |
 | Aufseherin Kaira | täglich 01/04/…/22 | Clientdaten, ingame offen |
 | Arena der Strategie | täglich 11–14 und 19–21 | Clientdaten, ingame offen |

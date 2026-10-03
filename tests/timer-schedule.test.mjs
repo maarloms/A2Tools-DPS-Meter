@@ -39,7 +39,8 @@ test("weekly sieges and bosses land on their German weekdays",()=>{
   // Sat 03.10.2026 18:00 CEST: siege tonight, Nahma on Sunday.
   const now=at("2026-10-03T18:00:00+02:00");
   assert.equal(eventState(ev("artifact"),now).next,at("2026-10-03T21:00:00+02:00"));
-  assert.equal(eventState(ev("siege-bosses-lower"),now).next,at("2026-10-03T21:30:00+02:00"));
+  for (const id of ["executor-tamasa","executor-agro","executor-kaira","dhramos","ducal","maraka"])
+    assert.equal(eventState(ev(id),now).next,at("2026-10-03T21:30:00+02:00"));
   assert.equal(eventState(ev("nahma"),now).next,at("2026-10-04T21:00:00+02:00"));
   // After Saturday's siege the next one is Monday.
   assert.equal(eventState(ev("artifact"),at("2026-10-03T22:00:00+02:00")).next,at("2026-10-05T21:00:00+02:00"));

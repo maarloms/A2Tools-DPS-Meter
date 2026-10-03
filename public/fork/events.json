@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "displayTimeZone": "Europe/Berlin",
   "sources": [
     "https://aion2.gaming.tools/de/event-calendar",
@@ -128,9 +128,47 @@
       "durationMinutes": 30,
       "enabled": true,
       "confirmed": false,
-      "id": "siege-bosses-lower",
-      "category": "Abyss",
-      "name": "Vollstrecker Tamasa · Agro · Kaira",
+      "id": "executor-tamasa",
+      "category": "Weltbosse",
+      "name": "Vollstrecker Tamasa",
+      "hours": [
+        21
+      ],
+      "weekdays": [
+        1,
+        4,
+        6
+      ],
+      "note": "Mo, Do, Sa 21:30, Chaotische Untere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+    },
+    {
+      "timeZone": "Europe/Berlin",
+      "minute": 30,
+      "durationMinutes": 30,
+      "enabled": true,
+      "confirmed": false,
+      "id": "executor-agro",
+      "category": "Weltbosse",
+      "name": "Vollstrecker Agro",
+      "hours": [
+        21
+      ],
+      "weekdays": [
+        1,
+        4,
+        6
+      ],
+      "note": "Mo, Do, Sa 21:30, Chaotische Untere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+    },
+    {
+      "timeZone": "Europe/Berlin",
+      "minute": 30,
+      "durationMinutes": 30,
+      "enabled": true,
+      "confirmed": false,
+      "id": "executor-kaira",
+      "category": "Weltbosse",
+      "name": "Vollstrecker Kaira",
       "hours": [
         21
       ],
@@ -147,9 +185,9 @@
       "durationMinutes": 30,
       "enabled": false,
       "confirmed": false,
-      "id": "siege-bosses-middle",
-      "category": "Abyss",
-      "name": "Dhramos · Ducal · Maraka",
+      "id": "dhramos",
+      "category": "Weltbosse",
+      "name": "Scharfrichter Dhramos",
       "hours": [
         21
       ],
@@ -158,7 +196,45 @@
         4,
         6
       ],
-      "note": "Scharfrichter Dhramos, Verräter Ducal, Verwüster Maraka. Mo, Do, Sa 21:30, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Mo, Do, Sa 21:30, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+    },
+    {
+      "timeZone": "Europe/Berlin",
+      "minute": 30,
+      "durationMinutes": 30,
+      "enabled": false,
+      "confirmed": false,
+      "id": "ducal",
+      "category": "Weltbosse",
+      "name": "Verräter Ducal",
+      "hours": [
+        21
+      ],
+      "weekdays": [
+        1,
+        4,
+        6
+      ],
+      "note": "Mo, Do, Sa 21:30, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+    },
+    {
+      "timeZone": "Europe/Berlin",
+      "minute": 30,
+      "durationMinutes": 30,
+      "enabled": false,
+      "confirmed": false,
+      "id": "maraka",
+      "category": "Weltbosse",
+      "name": "Verwüster Maraka",
+      "hours": [
+        21
+      ],
+      "weekdays": [
+        1,
+        4,
+        6
+      ],
+      "note": "Mo, Do, Sa 21:30, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
     },
     {
       "timeZone": "Europe/Berlin",
@@ -167,7 +243,7 @@
       "enabled": true,
       "confirmed": false,
       "id": "nahma",
-      "category": "Abyss",
+      "category": "Weltbosse",
       "name": "Wächtergott Nahma",
       "hours": [
         21
@@ -185,7 +261,7 @@
       "enabled": false,
       "confirmed": false,
       "id": "nahma-enraged",
-      "category": "Abyss",
+      "category": "Weltbosse",
       "name": "Wütender Wächtergott Nahma",
       "hours": [
         21
@@ -203,7 +279,7 @@
       "enabled": true,
       "confirmed": false,
       "id": "watcher-kaira",
-      "category": "Abyss",
+      "category": "Weltbosse",
       "name": "Aufseherin Kaira",
       "hours": [
         1,
