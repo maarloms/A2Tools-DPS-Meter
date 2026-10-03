@@ -332,23 +332,37 @@ pub(super) fn on_packet(packet: &[u8]) {
     publish(app, "local", changed);
 }
 
-/// Every boss of an opened map into meter.log, once a minute per map: which
-/// spawn id is which boss is matched against the map's countdowns by hand.
+/// The bosses of an opened map whose state changed since it was last logged
+/// into meter.log, at most once a minute per map: which spawn id is which boss
+/// is matched against the map's countdowns by hand. Unchanged ones are left
+/// out (the whole list every minute was half of the log).
 fn log_map(map: u32, bosses: &[MapBoss], now: i64) {
-    static LOGGED: Mutex<Option<HashMap<u32, i64>>> = Mutex::new(None);
-    {
+    type Seen = HashMap<u32, (i64, HashMap<i32, (bool, i64)>)>;
+    static LOGGED: Mutex<Option<Seen>> = Mutex::new(None);
+    let changed: Vec<&MapBoss> = {
         let mut logged = LOGGED.lock().unwrap_or_else(|e| e.into_inner());
-        let last = logged.get_or_insert_with(HashMap::new).entry(map).or_insert(0);
+        let (last, seen) = logged.get_or_insert_with(HashMap::new).entry(map).or_default();
         if now - *last < 60_000 {
             return;
         }
         *last = now;
+        bosses
+            .iter()
+            .filter(|b| {
+                let before = seen.insert(b.spawn_id, (b.alive, b.at_ms));
+                // The same state, give or take a minute of clock.
+                !before.is_some_and(|(alive, at)| alive == b.alive && (at - b.at_ms).abs() < 60_000)
+            })
+            .collect()
+    };
+    if changed.is_empty() {
+        return;
     }
     let local = |ms: i64| chrono::DateTime::from_timestamp_millis(ms)
         .map(|t| t.with_timezone(&chrono::Local).format("%a %H:%M:%S").to_string())
         .unwrap_or_default();
-    tracing::info!("Field boss map {map}: {} bosses", bosses.len());
-    for b in bosses {
+    tracing::info!("Field boss map {map}: {} bosses, {} changed", bosses.len(), changed.len());
+    for b in changed {
         tracing::info!("  spawn {}{}{} {}", b.spawn_id,
             spawn_ids().get(&b.spawn_id).map(|c| format!(" (mob {c})")).unwrap_or_default(),
             if b.alive { " lebt seit" } else { " spawnt" }, local(b.at_ms));
