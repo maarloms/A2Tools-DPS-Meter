@@ -83,4 +83,8 @@ footer { padding:7px 13px; font-size:10px; color:#9cacc8; border-top:1px solid v
 .themeDot { width:5px; height:5px; border-radius:50%; flex:none; background:var(--isUser-fill,#8aaaff); }
 @media (prefers-reduced-motion:reduce) { .chevron,.toggleTrack,.toggleTrack::after { transition:none; } }
 .empty,#error { margin:15px 13px; color:#a8b8d2; font-size:12px; line-height:1.5; }
-#error { color:#ffc4c4; }
+#error { color:#ffc4c4; }.alarmRow { display:flex; gap:8px; align-items:center; }
+.alarmRow select { flex:1; min-width:0; color:inherit; font:inherit; font-size:13px; padding:5px 8px; border-radius:6px;
+  background:rgba(0,0,0,.32); border:1px solid var(--panel-border,rgba(140,180,255,.22)); }
+.alarmRow select option { background:#141a2a; color:#e6edfa; }
+.testButton { border:1px solid var(--panel-border,rgba(140,180,255,.22)); font-size:12px; padding:5px 10px; }

@@ -49,6 +49,20 @@
           </div>
           <p class="settingsNote">Verschiebt alle Events gemeinsam. Normalerweise bleibt dieser Wert bei 0.</p>
         </div>
+        <div class="appearanceSetting">
+          <div class="settingHeading"><label for="alarm">Ton vor Start</label><span class="settingUnit">nur ausgewählte Events</span></div>
+          <div class="alarmRow">
+            <select id="alarm">
+              <option value="0">Aus</option>
+              <option value="1">1 Minute vorher</option>
+              <option value="3">3 Minuten vorher</option>
+              <option value="5">5 Minuten vorher</option>
+              <option value="10">10 Minuten vorher</option>
+            </select>
+            <button id="alarm-test" type="button" class="testButton">Test</button>
+          </div>
+          <p class="settingsNote">Klingt nur, solange das Timer-Fenster eingeblendet ist.</p>
+        </div>
         <div class="themeNote"><span class="themeDot" aria-hidden="true"></span>Das Design folgt deinem DPS-Meter.</div>
       </div>
     </div>

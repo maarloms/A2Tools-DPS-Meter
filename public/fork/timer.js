@@ -11,7 +11,9 @@ function when(ms, now) {
   const t = time.format(ms);
   return dayKey.format(ms) === dayKey.format(now) ? t : weekday.format(ms).replace(".", "") + " " + t;
 }
-const defaultPreferences = { enabled:[], offset:0, opacity:88 };
+const defaultPreferences = { enabled:[], offset:0, opacity:88, alarm:0 };
+const alarmed = new Set();
+let alarmsPrimed = false;
 function message(text) { $("error").textContent = text; $("error").hidden = false; }
 function parse(value, fallback) { try { return JSON.parse(value); } catch { return fallback; } }
 async function save() {
@@ -20,6 +22,36 @@ async function save() {
     ? native.core.invoke("update_settings", { key:"fork.timer.preferences", value })
     : localStorage.setItem("fork.timer.preferences", value));
   try { await writeQueue; } catch { message("Einstellungen konnten nicht gespeichert werden."); }
+}
+// A short two-note chime, synthesized so no sound file has to ship.
+function chime() {
+  try {
+    const ctx = new AudioContext();
+    for (const [freq, at] of [[880, 0], [1320, 0.18]]) {
+      const osc = ctx.createOscillator(), gain = ctx.createGain();
+      osc.type = "sine"; osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + at);
+      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + at + 0.6);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(ctx.currentTime + at); osc.stop(ctx.currentTime + at + 0.65);
+    }
+    setTimeout(() => ctx.close(), 1200);
+  } catch (e) { console.error("Timer chime:", e); }
+}
+// Once per start, when an event enters the alarm window. Events already
+// inside it when the timer opens or the setting changes stay quiet.
+function checkAlarms(rows) {
+  const lead = preferences.alarm * 60000;
+  if (!lead) return;
+  let ring = false;
+  for (const {event, state} of rows) {
+    if (state.active || state.remaining > lead) continue;
+    const key = event.id + ":" + state.start;
+    if (!alarmed.has(key)) { alarmed.add(key); ring = alarmsPrimed; }
+  }
+  alarmsPrimed = true;
+  if (ring) chime();
 }
 function applyAppearance(settings) {
   document.documentElement.dataset.theme = settings["dpsMeter.theme"] || "aion2";
@@ -143,6 +175,7 @@ function render() {
       row.append(dot,info,count); $("events").append(row);
     }
   }
+  checkAlarms(rows);
   for (const {event,state} of rows) {
     const row = $("events").querySelector('[data-id="' + event.id + '"]');
     row.querySelector(".countdown").textContent = countdown(state.remaining);
@@ -175,9 +208,16 @@ async function boot() {
     preferences.enabled = [...new Set(preferences.enabled.filter(id => data.events.some(e => e.id === id)))];
     preferences.offset = Math.max(-180, Math.min(180, Number(preferences.offset) || 0));
     preferences.opacity = Math.max(35, Math.min(100, Number(preferences.opacity) || 88));
+    preferences.alarm = [0, 1, 3, 5, 10].includes(Number(preferences.alarm)) ? Number(preferences.alarm) : 0;
     applyAppearance(settings); buildFilters();
     $("offset").value = preferences.offset; $("opacity").value = preferences.opacity;
     $("opacity-value").value = preferences.opacity + " %";
+    $("alarm").value = String(preferences.alarm);
+    $("alarm").addEventListener("change", async e => {
+      preferences.alarm = Number(e.target.value) || 0;
+      alarmed.clear(); alarmsPrimed = false; render(); await save();
+    });
+    $("alarm-test").addEventListener("click", chime);
     for (const id of ["events","appearance"]) {
       $(id + "-tab").addEventListener("click", () => settingsTab(id));
       $(id + "-tab").addEventListener("keydown", e => {
