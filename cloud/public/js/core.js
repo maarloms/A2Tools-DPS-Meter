@@ -17,6 +17,10 @@ export const state = {
   train: false,
   query: "",
   bossFilter: "",
+  // Kämpfe-Filter
+  killedOnly: false,
+  withMe: false,
+  dungeonFilter: "",
   bosses: null,
   detail: null,
   openEnc: new Set(),
@@ -163,6 +167,7 @@ export async function loadMembers(force = false) {
 export function currentRoute() {
   const h = location.hash || "#/start";
   let m;
+  if ((m = /^#\/fight\/([0-9a-f]{16})\/vs\/([0-9a-f]{16})$/.exec(h))) return { name: "versus", a: m[1], b: m[2] };
   if ((m = /^#\/fight\/([0-9a-f]{16})$/.exec(h))) return { name: "fight", id: m[1] };
   if ((m = /^#\/me(?:\/(.+))?$/.exec(h))) return { name: "me", who: m[1] ? decodeURIComponent(m[1]) : "" };
   for (const n of ["overview", "compare", "fights", "live", "timer", "members", "start"]) if (h.startsWith(`#/${n}`)) return { name: n };

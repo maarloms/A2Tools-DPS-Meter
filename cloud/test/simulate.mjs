@@ -279,6 +279,13 @@ async function main() {
   const cmpG = await getj("/stats/compare?days=30");
   const mG = cmpG.members.find((m) => m.name === "Marlon");
   check("Vergleich: Gearscore, Combat Score und Verlauf", mG?.gs === 900 && mG?.cp > 0 && cmpG.gear?.some((p) => p.player === "Marlon" && p.gs === 900), `${mG?.gs} / ${mG?.cp}`);
+  const fK = await getj("/fights?limit=20&killed=1&with=Marlon&dungeon=600072");
+  check("Kämpfe filtern: besiegt, mit Mitglied, Dungeon", fK.fights?.length > 0 && fK.fights.every((f) => f.killed && f.dungeonId === 600072));
+  const fNone = await getj("/fights?limit=20&with=niemand");
+  check("Kämpfe filtern: unbekanntes Mitglied → leer", fNone.fights?.length === 0);
+  const ovW = await getj("/stats/overview");
+  check("Übersicht: Wochenrückblick", ovW.week?.fights > 0 && ovW.week.members?.some((m) => m.name === "Marlon" && m.best?.dps > 0) && ovW.week.bestRun?.fightId,
+    JSON.stringify(ovW.week?.bestRun));
   const fl = await getj("/fights?limit=5");
   check("Kampfliste: besiegt-Flag", fl.fights?.some((f) => f.killed === true));
   const meK = await getj(`/stats/player?name=Marlon&days=30`);

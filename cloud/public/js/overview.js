@@ -26,6 +26,39 @@ export function refreshOverviewLive() {
   if (host) host.innerHTML = livePanel();
 }
 
+/** Wochenrückblick: letzte 7 Tage, Verbesserung gegen die Woche davor */
+function weekCard(w, members) {
+  if (!w || !w.fights) return "";
+  const pct = (v) => `${v > 0 ? "+" : ""}${v.toFixed(1).replace(".", ",")} %`;
+  const jobOf = (name) => members.find((m) => m.name.toLowerCase() === name.toLowerCase()) ?? {};
+  const highlights = [
+    w.bestRun
+      ? `<a class="wk" href="#/fight/${esc(w.bestRun.fightId)}"><span class="kpi-label">Bester Run</span><b>${esc(w.bestRun.name)} · ${fmtShort(w.bestRun.dps)}</b><span class="muted small">${esc(w.bestRun.boss)}</span></a>`
+      : "",
+    w.riser
+      ? `<div class="wk"><span class="kpi-label">Größter Fortschritt</span><b>${esc(w.riser.name)} · ${pct(w.riser.change)}</b><span class="muted small">Ø DPS je Boss gegen die Vorwoche</span></div>`
+      : "",
+    w.fastestKill
+      ? `<a class="wk" href="#/fight/${esc(w.fastestKill.fightId)}"><span class="kpi-label">Schnellster Kill</span><b>${fmtTime(w.fastestKill.durationMs)}</b><span class="muted small">${esc(w.fastestKill.boss)}</span></a>`
+      : "",
+  ].join("");
+  const rows = [...w.members]
+    .sort((a, b) => b.fights - a.fights)
+    .map((m) => {
+      const j = jobOf(m.name);
+      const cls = m.change === null ? "muted" : m.change >= 0 ? "up" : "down";
+      return `<tr><td>${avatar(m.name, j.job, j.jobId)} <b>${esc(m.name)}</b></td><td class="num">${fmtNum(m.fights)}</td><td class="num">${fmtNum(m.kills)}</td>
+        <td class="num">${m.best ? fmtShort(m.best.dps) : "–"}</td><td class="num ${cls}">${m.change === null ? "–" : pct(m.change)}</td></tr>`;
+    })
+    .join("");
+  return `<section class="card week"><div class="card-head"><div><h2>Diese Woche</h2>
+      <p class="muted small">Seit ${fmtDate(w.from)} · ${fmtNum(w.fights)} Bosskämpfe, ${fmtNum(w.kills)} besiegt</p></div></div>
+    ${highlights ? `<div class="wks">${highlights}</div>` : ""}
+    <div class="table-wrap"><table class="tbl"><thead><tr><th>Wer</th><th class="num">Kämpfe</th><th class="num">Kills</th><th class="num">Bester DPS</th>
+      <th class="num" title="Ø DPS je Boss gegen die Vorwoche, nur Bosse aus beiden Wochen">Fortschritt</th></tr></thead><tbody>${rows}</tbody></table></div>
+  </section>`;
+}
+
 function renderOverview(d) {
   const g = d.group;
   if (!d.members.length) {
@@ -84,6 +117,7 @@ function renderOverview(d) {
     ${pageHead("Übersicht", "Unsere Gruppe auf einen Blick")}
     <div id="livePanel">${livePanel()}</div>
     <div class="mcards">${cards}</div>
+    ${weekCard(d.week, d.members)}
     <div class="kpis">
       ${kpi("Kämpfe zusammen", fmtNum(g.together), `von ${fmtNum(g.fights)} Bosskämpfen`)}
       ${kpi("Diese Woche", fmtNum(g.fights7), "Bosskämpfe")}

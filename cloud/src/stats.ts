@@ -113,6 +113,10 @@ export async function handleStats(
       const limit = int(url.searchParams.get("limit"), 50, 1, 100);
       const before = int(url.searchParams.get("before"), Number.MAX_SAFE_INTEGER, 0, Number.MAX_SAFE_INTEGER);
       const boss = bossFilter(url);
+      // Filter: nur besiegte, nur mit einem Mitglied (?5), nur ein Dungeon (?6)
+      const killedOnly = url.searchParams.get("killed") === "1";
+      const withName = (url.searchParams.get("with") ?? "").toLowerCase().slice(0, 32) || null;
+      const dungeon = url.searchParams.get("dungeon") ? int(url.searchParams.get("dungeon"), 0, 0, 2147483647) : null;
       const rows = (
         await db
           .prepare(
@@ -123,9 +127,11 @@ export async function handleStats(
              WHERE e.room = ?1 AND e.start_ms < ?2 AND (?3 = 1 OR e.is_train = 0)
                AND (?7 IS NULL OR (e.mob_code = ?7 AND e.dungeon_id = ?8))
                AND EXISTS (SELECT 1 FROM player_stats ps WHERE ps.encounter_id = e.id AND ${IS_MEMBER})
+               AND (?5 IS NULL OR EXISTS (SELECT 1 FROM player_stats w WHERE w.encounter_id = e.id AND w.player_lc = ?5))
+               AND (?6 IS NULL OR e.dungeon_id = ?6)${killedOnly ? " AND e.killed = 1" : ""}
              ORDER BY e.start_ms DESC LIMIT ?4`,
           )
-          .bind(room, before, train, limit + 1, null, null, boss?.mob ?? null, boss?.dungeon ?? null, ml)
+          .bind(room, before, train, limit + 1, withName, dungeon, boss?.mob ?? null, boss?.dungeon ?? null, ml)
           .all<Record<string, any>>()
       ).results;
       const page = rows.slice(0, limit);
@@ -194,6 +200,7 @@ export async function handleStats(
         group: { ...group, bosses: matrix.length },
         matrix,
         recent: recentRows.map((r) => ({ ...r, members: tops.get(r.id) ?? [] })),
+        week: await weekRecap(db, room, ml),
       };
     }
 
@@ -383,6 +390,88 @@ async function latestJobs(db: D1Database, room: string, ml: string) {
       .all<{ lc: string; job: string; jobId: number }>()
   ).results;
   return new Map(rows.map((r) => [r.lc, r]));
+}
+
+/**
+ * Wochenrückblick: die letzten 7 Tage gegen die 7 davor. Verbesserung je Mitglied
+ * nur über Bosse, die es in beiden Wochen gelegt hat (Ø DPS je Boss), damit ein
+ * leichterer Boss nicht als Fortschritt zählt.
+ */
+async function weekRecap(db: D1Database, room: string, ml: string, now = Date.now()) {
+  const day = 86_400_000;
+  const w1 = now - 7 * day;
+  const w0 = now - 14 * day;
+  const rows = (
+    await db
+      .prepare(
+        `SELECT MAX(ps.player) AS player, ps.player_lc AS lc, ps.mob_code AS mob, ps.dungeon_id AS dungeon,
+           (ps.start_ms >= ?2) AS cur, COUNT(*) AS fights, SUM(ps.killed) AS kills, AVG(ps.dps) AS avgDps
+         FROM player_stats ps WHERE ps.room = ?1 AND ps.start_ms >= ?3 AND ps.is_train = 0 AND ${IS_MEMBER}
+         GROUP BY ps.player_lc, ps.mob_code, ps.dungeon_id, cur`,
+      )
+      .bind(room, w1, w0, null, null, null, null, null, ml)
+      .all<{ player: string; lc: string; mob: number; dungeon: number; cur: number; fights: number; kills: number; avgDps: number }>()
+  ).results;
+  const best = (
+    await db
+      .prepare(
+        `SELECT player, lc, dps, boss, fightId FROM (SELECT ps.player AS player, ps.player_lc AS lc, ps.dps AS dps, ps.boss AS boss,
+           ps.encounter_id AS fightId, ROW_NUMBER() OVER (PARTITION BY ps.player_lc ORDER BY ps.dps DESC) AS rn
+         FROM player_stats ps WHERE ps.room = ?1 AND ps.start_ms >= ?2 AND ps.is_train = 0 AND ${IS_MEMBER}) WHERE rn = 1`,
+      )
+      .bind(room, w1, null, null, null, null, null, null, ml)
+      .all<{ player: string; lc: string; dps: number; boss: string; fightId: string }>()
+  ).results;
+  const fastest = await db
+    .prepare(
+      `SELECT e.id AS fightId, e.boss, e.duration_ms AS durationMs FROM encounters e
+       WHERE e.room = ?1 AND e.start_ms >= ?2 AND e.is_train = 0 AND e.killed = 1
+         AND EXISTS (SELECT 1 FROM player_stats ps WHERE ps.encounter_id = e.id AND ${IS_MEMBER})
+       ORDER BY e.duration_ms LIMIT 1`,
+    )
+    .bind(room, w1, null, null, null, null, null, null, ml)
+    .first<{ fightId: string; boss: string; durationMs: number }>();
+  const group = await db
+    .prepare(
+      `SELECT COUNT(*) AS fights, COALESCE(SUM(e.killed), 0) AS kills FROM encounters e
+       WHERE e.room = ?1 AND e.start_ms >= ?2 AND e.is_train = 0
+         AND EXISTS (SELECT 1 FROM player_stats ps WHERE ps.encounter_id = e.id AND ${IS_MEMBER})`,
+    )
+    .bind(room, w1, null, null, null, null, null, null, ml)
+    .first<{ fights: number; kills: number }>();
+
+  const byMember = new Map<string, { name: string; fights: number; kills: number; changes: number[] }>();
+  const prev = new Map(rows.filter((r) => !r.cur).map((r) => [`${r.lc}|${r.mob}|${r.dungeon}`, r.avgDps]));
+  for (const r of rows.filter((x) => x.cur)) {
+    const m = byMember.get(r.lc) ?? { name: r.player, fights: 0, kills: 0, changes: [] };
+    m.fights += r.fights;
+    m.kills += r.kills ?? 0;
+    const before = prev.get(`${r.lc}|${r.mob}|${r.dungeon}`);
+    if (before && before > 0) m.changes.push((r.avgDps - before) / before);
+    byMember.set(r.lc, m);
+  }
+  const members = [...byMember.entries()].map(([lc, m]) => {
+    const b = best.find((x) => x.lc === lc);
+    return {
+      name: m.name,
+      fights: m.fights,
+      kills: m.kills,
+      // Ø Veränderung des Ø DPS je Boss gegenüber der Vorwoche, in Prozent; null = kein Vergleich
+      change: m.changes.length ? (m.changes.reduce((a, c) => a + c, 0) / m.changes.length) * 100 : null,
+      best: b ? { dps: b.dps, boss: b.boss, fightId: b.fightId } : null,
+    };
+  });
+  const top = members.filter((m) => m.best).sort((a, b) => b.best!.dps - a.best!.dps)[0] ?? null;
+  const riser = members.filter((m) => m.change !== null && m.change > 0).sort((a, b) => b.change! - a.change!)[0] ?? null;
+  return {
+    from: w1,
+    fights: group?.fights ?? 0,
+    kills: group?.kills ?? 0,
+    members,
+    bestRun: top ? { name: top.name, ...top.best! } : null,
+    riser: riser ? { name: riser.name, change: riser.change } : null,
+    fastestKill: fastest ?? null,
+  };
 }
 
 /** Aktueller Gearscore und Combat Score je Mitglied (jeweils letzter Kampf mit Wert) */

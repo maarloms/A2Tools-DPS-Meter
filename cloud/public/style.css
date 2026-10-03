@@ -433,3 +433,18 @@ details.more[open] > summary::before { content: "▾ "; }
 .tbl tr.p.other td { color: var(--muted); }
 .tbl tr.p.other td b { font-weight: 500; color: var(--muted); }
 .tbl tr.p.other .fill { opacity: 0.45; }
+
+/* Wochenrückblick (Übersicht) */
+.week .wks { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 6px 0 12px; }
+.week .wk { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); color: inherit; text-decoration: none; }
+.week .wk b { color: var(--num); font-variant-numeric: tabular-nums; }
+.week td.up { color: var(--good); }
+.week td.down { color: var(--bad); }
+
+/* Kampfvergleich */
+.vs-heads { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+.vs-head { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: var(--radius-lg); background: var(--panel);
+  border: 1px solid var(--hair); border-left: 4px solid var(--c); color: inherit; text-decoration: none; }
+.vs-head b { color: var(--num); }
+.tbl td.up { color: var(--good); }
+.tbl td.down { color: var(--bad); }

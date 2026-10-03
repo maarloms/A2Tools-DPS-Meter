@@ -8,6 +8,7 @@ import { loadOverview, refreshOverviewLive } from "./js/overview.js";
 import { loadMe } from "./js/me.js";
 import { loadCompare } from "./js/compare.js";
 import { drawCharts, loadFight, loadFights } from "./js/fights.js";
+import { loadVersus, redrawVersus } from "./js/versus.js";
 import { renderLive } from "./js/live.js";
 import { loadTimer } from "./js/timer.js";
 import { loadMembersPage } from "./js/members.js";
@@ -60,7 +61,7 @@ function toggleSheet(open) {
   $("#moreBtn")?.setAttribute("aria-expanded", String(show));
 }
 function markNav(name) {
-  const key = name === "fight" ? "fights" : name;
+  const key = name === "fight" || name === "versus" ? "fights" : name;
   document.querySelectorAll("[data-nav]").forEach((a) => {
     const on = a.dataset.nav === key;
     a.classList.toggle("active", on);
@@ -165,6 +166,7 @@ async function route({ quiet = false } = {}) {
   else if (r.name === "compare") done = loadCompare({ quiet });
   else if (r.name === "fights") done = loadFights();
   else if (r.name === "fight") done = loadFight(r.id);
+  else if (r.name === "versus") done = loadVersus(r.a, r.b);
   else if (r.name === "live") renderLive();
   else if (r.name === "timer") done = loadTimer();
   else if (r.name === "members") done = loadMembersPage();
@@ -213,6 +215,7 @@ window.addEventListener("resize", () => {
     lastWidth = window.innerWidth;
     const n = currentRoute().name;
     if (n === "fight" && state.detail) drawCharts();
+    if (n === "versus") redrawVersus();
     if (n === "me" || n === "compare") keepScroll(() => route({ quiet: true }));
   }, 200);
 });

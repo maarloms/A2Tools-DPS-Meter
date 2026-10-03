@@ -2,7 +2,7 @@
 
 import { lineChart } from "./chart.js";
 import {
-  $, $$, api, apiJson, avatar, bossSelect, currentRoute, dungeonName, empty, esc, failed, fmtDate, fmtNum, fmtPct, fmtShort, fmtTime, job, kpi, loadBosses, loading, loadMembers, memberColor, pageHead, SERIES_COLORS, state, trunc, view,
+  $, $$, api, apiJson, avatar, bossSelect, currentRoute, dungeonName, empty, esc, failed, fmtDate, fmtNum, fmtPct, fmtShort, fmtTime, getMe, job, kpi, loadBosses, loading, loadMembers, memberColor, pageHead, SERIES_COLORS, state, trunc, view,
 } from "./core.js";
 
 /** Frontal-Quote eines Spielers; ältere Kämpfe haben sie nur in den Skills (frontal je Skill). */
@@ -14,6 +14,17 @@ function frontRate(p) {
 
 // ================= Liste =================
 
+/** Dungeons, in denen ihr Bosse gelegt habt (aus der Boss-Liste) */
+function dungeonSelect() {
+  const ids = [...new Set((state.bosses || []).map((b) => b.dungeonId).filter(Boolean))];
+  const opts = ids
+    .map((id) => [id, dungeonName(id)])
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .map(([id, n]) => `<option value="${id}" ${String(id) === String(state.dungeonFilter) ? "selected" : ""}>${esc(n)}</option>`)
+    .join("");
+  return `<select class="select" id="dungeonSel" aria-label="Dungeon"><option value="">Alle Orte</option>${opts}</select>`;
+}
+
 export async function loadFights(more = false, { quiet = false } = {}) {
   if (!more && state.fights && !quiet) renderFights();
   else if (!more && !quiet) view.innerHTML = loading("Kämpfe");
@@ -21,6 +32,9 @@ export async function loadFights(more = false, { quiet = false } = {}) {
     const qs = new URLSearchParams({ limit: "40" });
     if (state.train) qs.set("train", "1");
     if (state.bossFilter) qs.set("boss", state.bossFilter);
+    if (state.killedOnly) qs.set("killed", "1");
+    if (state.withMe && getMe()) qs.set("with", getMe());
+    if (state.dungeonFilter) qs.set("dungeon", state.dungeonFilter);
     if (more && state.next) qs.set("before", String(state.next));
     const [data] = await Promise.all([apiJson(`/fights?${qs}`), loadBosses().catch(() => null), loadMembers().catch(() => null)]);
     state.fights = more ? [...(state.fights || []), ...data.fights] : data.fights;
@@ -59,6 +73,9 @@ export function renderFights() {
     <div class="toolbar">
       <input class="input" type="search" id="q" placeholder="Boss oder Name suchen" value="${esc(state.query)}" aria-label="Suchen">
       ${bossSelect("bossSel", state.bossFilter)}
+      ${dungeonSelect()}
+      <label class="check"><input type="checkbox" id="killedOnly" ${state.killedOnly ? "checked" : ""}> Nur besiegt</label>
+      ${getMe() ? `<label class="check"><input type="checkbox" id="withMe" ${state.withMe ? "checked" : ""}> Nur mit mir</label>` : ""}
       <label class="check"><input type="checkbox" id="train" ${state.train ? "checked" : ""}> Training</label>
     </div>
     <div class="fights">${
@@ -88,6 +105,14 @@ export function renderFights() {
     state.fights = null;
     loadFights();
   });
+  // Filter, die die Server-Abfrage ändern: Liste neu laden, Seite bleibt stehen
+  const refilter = (key, value) => {
+    state[key] = value;
+    loadFights(false, { quiet: true });
+  };
+  $("#killedOnly", view).addEventListener("change", (e) => refilter("killedOnly", e.target.checked));
+  $("#withMe", view)?.addEventListener("change", (e) => refilter("withMe", e.target.checked));
+  $("#dungeonSel", view).addEventListener("change", (e) => refilter("dungeonFilter", e.target.value));
   $("#more", view)?.addEventListener("click", () => loadFights(true));
 }
 
@@ -146,7 +171,8 @@ export function renderFight() {
   view.innerHTML = `<div class="page">
     <p><a class="link" href="#/fights">← Alle Kämpfe</a></p>
     ${pageHead(s.boss, `${fmtDate(s.startMs)}${s.dungeonId ? ` · ${esc(dungeonName(s.dungeonId))}` : ""}${s.killed ? " · besiegt" : ""}${s.isTrain ? " · Training" : ""}`,
-      `<button class="btn danger" id="del" type="button">Löschen</button>`)}
+      `<button class="btn" id="vsBtn" type="button">Vergleichen mit …</button><button class="btn danger" id="del" type="button">Löschen</button>`)}
+    <div id="vsPick" hidden></div>
     <div class="kpis">
       ${kpi("Kampfzeit", fmtTime(s.durationMs))}
       ${kpi("Unser Anteil", fmtPct(ourShare), "am Bossschaden")}
@@ -185,6 +211,7 @@ export function renderFight() {
   });
   $$("[data-raw]", view).forEach((b) => b.addEventListener("click", () => downloadRaw(b.dataset.raw)));
   $("#del", view).addEventListener("click", deleteFight);
+  $("#vsBtn", view).addEventListener("click", pickVersus);
   $$(".seg button", view).forEach((b) =>
     b.addEventListener("click", () => {
       ui.mode = b.dataset.mode;
@@ -195,6 +222,36 @@ export function renderFight() {
   $("details.more", view).addEventListener("toggle", () => drawCharts());
   renderSkills();
   drawCharts();
+}
+
+/** Andere Kämpfe desselben Bosses (gleiche Instanz) zur Auswahl für den Vergleich */
+async function pickVersus() {
+  const host = $("#vsPick");
+  const s = state.detail.summary;
+  if (!host.hidden) {
+    host.hidden = true;
+    return;
+  }
+  host.hidden = false;
+  host.innerHTML = `<p class="muted small">Lade Kämpfe …</p>`;
+  try {
+    const qs = new URLSearchParams({ limit: "30", boss: `${s.mobCode}:${s.dungeonId}`, train: s.isTrain ? "1" : "0" });
+    const others = (await apiJson(`/fights?${qs}`)).fights.filter((f) => f.id !== s.id);
+    host.innerHTML = others.length
+      ? `<section class="card"><h2>Vergleichen mit</h2><div class="flist">${others
+          .map(
+            (f) => `<a class="frow" href="#/fight/${s.id}/vs/${f.id}"><div><b>${fmtDate(f.startMs)}</b>
+              <div class="muted small">${fmtTime(f.durationMs)}${f.killed ? " · besiegt" : ""}</div></div>
+              <div class="frow-people">${f.top
+                .filter((p) => p.member)
+                .map((p) => `<span class="mini">${avatar(p.name, p.job, p.jobId)}<b>${fmtShort(p.dps)}</b></span>`)
+                .join("")}</div></a>`,
+          )
+          .join("")}</div></section>`
+      : `<p class="muted small">Keine anderen Kämpfe gegen ${esc(s.boss)} hier.</p>`;
+  } catch (e) {
+    host.innerHTML = `<p class="muted small">Kämpfe konnten nicht geladen werden.</p>`;
+  }
 }
 
 /** Gleitender DPS wie in der App: Fenster ~10 % der Kampfzeit, 5–15 s */

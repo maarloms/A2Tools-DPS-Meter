@@ -2,7 +2,7 @@
 // events.json und schedule.js werden beim Build unverändert aus app/public/fork
 // kopiert (scripts/sync-shared.mjs); hier wird nur importiert, nichts nachgebaut.
 
-import { countdown, eventState, respawnState } from "../shared/schedule.js";
+import { countdown, eventState, intervalText, respawnState } from "../shared/schedule.js";
 import { $, $$, apiJson, currentRoute, empty, esc, pageHead, view } from "./core.js";
 
 const KEY = "a2dps.timer";
@@ -47,7 +47,8 @@ function bossText(event, st, now) {
   switch (st.status) {
     case "alive": return ["da", `Gesichtet ${when(st.seen, now)}${by}`];
     case "due": return ["fällig", `Respawn seit ${when(st.respawn, now)}${by}`];
-    case "waiting": return [countdown(st.remaining), `Respawn ${st.estimated ? "~" : ""}${when(st.respawn, now)}${by}`];
+    case "waiting":
+      return [countdown(st.remaining), `Respawn ${st.estimated ? "~" : ""}${when(st.respawn, now)}${st.interval ? ` · alle ${intervalText(st.interval)}` : ""}${by}`];
     case "killed": return [`+${countdown(now - st.killed)}`, `Getötet ${when(st.killed, now)} · Takt noch offen${by}`];
     default: return ["—", `${event.zone} · noch keine Meldung`];
   }
