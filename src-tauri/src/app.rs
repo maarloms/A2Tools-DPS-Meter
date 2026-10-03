@@ -2266,6 +2266,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             crate::fork::toggle_timer,
+            crate::fork::npcap::fork_install_npcap,
+            crate::fork::npcap::fork_restart,
             crate::fork::set_timer_locked,
             crate::fork::resize_timer_settings,
             get_app_version,

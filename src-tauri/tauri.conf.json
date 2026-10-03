@@ -46,7 +46,7 @@
         "upgradeCode": "59F36FCA-6916-4275-B32F-C3E99B33AB02"
       },
       "webviewInstallMode": {
-        "type": "skip"
+        "type": "downloadBootstrapper"
       }
     },
     "linux": {

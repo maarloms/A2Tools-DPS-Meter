@@ -185,10 +185,17 @@
     window._dpsApp?._onOverlayLockChanged?.(!!event?.payload);
   });
 
+  // fork: fetch and start the official Npcap installer instead of only
+  // linking to it, then offer the restart capture needs.
   listen("npcap-missing", () => {
-    const msg = "Npcap is required for packet capture but is not installed.\n\nWould you like to download it now?";
+    const msg = "Das DPS-Meter braucht Npcap, um die Kampfdaten mitzulesen.\n\nJetzt herunterladen und installieren? (Standardoptionen übernehmen)";
     if (confirm(msg)) {
-      shellOpen("https://npcap.com/#download");
+      invoke("fork_install_npcap").catch(() => shellOpen("https://npcap.com/#download"));
+    }
+  });
+  listen("fork-npcap-ready", () => {
+    if (confirm("Npcap ist installiert. Meter jetzt neu starten?")) {
+      invoke("fork_restart").catch(() => {});
     }
   });
 

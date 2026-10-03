@@ -1,4 +1,5 @@
 pub mod cloud;
+pub mod npcap;
 
 use crate::app::AppState;
 use crate::platform::hotkeys::HotkeyManager;
