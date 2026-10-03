@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "displayTimeZone": "Europe/Berlin",
   "sources": [
     "https://aion2.gaming.tools/de/event-calendar",
@@ -356,8 +356,348 @@
     },
     {
       "kind": "respawn",
-      "enabled": true,
+      "enabled": false,
       "confirmed": false,
+      "id": "fb-geschmolzener-danar-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Geschmolzener Danar",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400017
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111001
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-dunkelkrieger-aed-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Dunkelkrieger Aed",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400074
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111002
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-treuer-rajit-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Treuer Rajit",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400140
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111003
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-berserker-vargor-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Berserker Vargor",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400141
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111004
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-verschlinger-garsan-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Verschlinger Garsan",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400212
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111005
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-blutkrieger-lannar-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Blutkrieger Lannar",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400223
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111006
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-taeuscherin-trid-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Täuscherin Trid",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400274
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111007
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": true,
+      "id": "fb-blauwelle-kelpina-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Blauwelle Kelpina",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400335
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111008
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-hauptaufseher-nutah-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Hauptaufseher Nutah",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400353
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111009
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-berater-resana-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Berater Resana",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400358
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111010
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": true,
+      "id": "fb-sondereinsatzhauptmann-linx-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Sondereinsatzhauptmann Linx",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400419
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111011
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": true,
+      "id": "fb-schaender-newbold-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Schänder Newbold",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400424
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111012
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": true,
+      "id": "fb-schattenarchon-axios-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Schattenarchon Axios",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400425
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111013
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": true,
+      "id": "fb-vergifteter-hadirun-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Vergifteter Hadirun",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400474
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111014
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": true,
+      "id": "fb-henker-barthien-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Henker Barthien",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400504
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111015
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-bataillonswaffe-guruta-drakan-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Bataillonswaffe Guruta (Drakan)",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400593
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111016
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-veteran-shujakan-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Veteran Shujakan",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400607
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111017
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": true,
+      "id": "fb-visionaerer-karuka-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Visionärer Karuka",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400608
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111018
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": true,
+      "id": "fb-dunkelschatten-vishwada-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Dunkelschatten Vishwada",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400659
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111019
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": true,
+      "id": "fb-scharfer-shylak-altgard",
+      "category": "Feldbosse Altgard",
+      "name": "Scharfer Shylak",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400709
+      ],
+      "respawnMinutes": null,
+      "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
+      "spawnIds": [
+        111020
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": true,
+      "confirmed": true,
       "id": "fb-gartua-altgard",
       "category": "Feldbosse Altgard",
       "name": "Unsterblicher Gartua",
@@ -366,7 +706,7 @@
         2400800
       ],
       "respawnMinutes": null,
-      "note": "Stufe 51, Altgard · Unsterbliche Insel. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown.",
+      "note": "Altgard · Unsterbliche Insel. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111021
       ]
@@ -374,7 +714,7 @@
     {
       "kind": "respawn",
       "enabled": true,
-      "confirmed": false,
+      "confirmed": true,
       "id": "fb-lagta-altgard",
       "category": "Feldbosse Altgard",
       "name": "Legat Lagta",
@@ -383,12 +723,15 @@
         2400853
       ],
       "respawnMinutes": null,
-      "note": "Stufe 45, Altgard. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown."
+      "note": "Stufe 45, Altgard. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown.",
+      "spawnIds": [
+        111022
+      ]
     },
     {
       "kind": "respawn",
       "enabled": true,
-      "confirmed": false,
+      "confirmed": true,
       "id": "fb-kashapa-altgard",
       "category": "Feldbosse Altgard",
       "name": "Seelenherrscher Kashapa",
@@ -405,7 +748,7 @@
     {
       "kind": "respawn",
       "enabled": true,
-      "confirmed": false,
+      "confirmed": true,
       "id": "fb-dartan-altgard",
       "category": "Feldbosse Altgard",
       "name": "Schweigender Dartan",
@@ -414,7 +757,10 @@
         2400855
       ],
       "respawnMinutes": null,
-      "note": "Stufe 45, Altgard. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown."
+      "note": "Stufe 45, Altgard. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown.",
+      "spawnIds": [
+        111024
+      ]
     },
     {
       "kind": "respawn",

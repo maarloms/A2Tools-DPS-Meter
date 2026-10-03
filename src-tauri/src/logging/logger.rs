@@ -74,7 +74,12 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for DebugFileLayer {
 
         // Truncate long messages like the Kotlin version (240 chars max)
         let msg = if visitor.0.len() > 240 {
-            format!("{}...", &visitor.0[..237])
+            // fork: cut on a char boundary; a byte index inside a Korean name panicked.
+            let mut cut = 237;
+            while !visitor.0.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            format!("{}...", &visitor.0[..cut])
         } else {
             visitor.0
         };

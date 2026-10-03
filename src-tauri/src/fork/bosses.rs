@@ -104,7 +104,7 @@ fn plausible_ms(v: u64) -> bool {
 }
 
 /// `<len> 01 91 <u16> <map u32> <count varint>`, then per boss
-/// `<alive u8> <spawn id varint> [alive: x y z f32, sometimes one more byte] <u64 ms>`.
+/// `<alive u8> <spawn id varint> [alive: x y z f32] [sometimes a byte] <u64 ms>`.
 /// Read off a capture of the Altgard map (map 1110, spawn ids 111001-111024)
 /// against the countdowns the map showed. All or nothing: one record that
 /// does not fit and the packet is ignored.
@@ -132,10 +132,11 @@ pub fn parse_map_bosses(packet: &[u8]) -> Option<(u32, Vec<MapBoss>)> {
             return None;
         }
         pos += 1 + id.length as usize + if alive { 12 } else { 0 };
-        if alive && !u64_at(pos).is_some_and(plausible_ms) {
-            pos += 1;
-        }
-        let at = u64_at(pos).filter(|v| plausible_ms(*v))?;
+        // Some records, alive or dead, carry an extra byte before the time.
+        // A shifted read is ~256 times too large, so the first plausible
+        // time within reach is the right one.
+        pos += (0..3).find(|d| u64_at(pos + d).is_some_and(plausible_ms))?;
+        let at = u64_at(pos)?;
         pos += 8;
         out.push(MapBoss { spawn_id: id.value, alive, at_ms: at as i64 });
     }
@@ -294,6 +295,7 @@ fn on_packet(packet: &[u8]) {
     let Some((map, bosses)) = parse_map_bosses(packet) else { return };
     let Some(app) = APP.get() else { return };
     let now = crate::clock::now_ms();
+    log_map(map, &bosses, now);
     let changed: Vec<BossTimer> = with_timers(app, |timers| {
         bosses.iter().filter_map(|m| {
             let code = *spawn_ids().get(&m.spawn_id)?;
@@ -305,6 +307,29 @@ fn on_packet(packet: &[u8]) {
         tracing::info!("Field boss map {map}: {} timers updated", changed.len());
     }
     publish(app, "local", changed);
+}
+
+/// Every boss of an opened map into meter.log, once a minute per map: which
+/// spawn id is which boss is matched against the map's countdowns by hand.
+fn log_map(map: u32, bosses: &[MapBoss], now: i64) {
+    static LOGGED: Mutex<Option<HashMap<u32, i64>>> = Mutex::new(None);
+    {
+        let mut logged = LOGGED.lock().unwrap_or_else(|e| e.into_inner());
+        let last = logged.get_or_insert_with(HashMap::new).entry(map).or_insert(0);
+        if now - *last < 60_000 {
+            return;
+        }
+        *last = now;
+    }
+    let local = |ms: i64| chrono::DateTime::from_timestamp_millis(ms)
+        .map(|t| t.with_timezone(&chrono::Local).format("%a %H:%M:%S").to_string())
+        .unwrap_or_default();
+    tracing::info!("Field boss map {map}: {} bosses", bosses.len());
+    for b in bosses {
+        tracing::info!("  spawn {}{}{} {}", b.spawn_id,
+            spawn_ids().get(&b.spawn_id).map(|c| format!(" (mob {c})")).unwrap_or_default(),
+            if b.alive { " lebt seit" } else { " spawnt" }, local(b.at_ms));
+    }
 }
 
 pub fn start(app: &tauri::AppHandle) {
@@ -421,6 +446,19 @@ mod tests {
         // The quick filter in front of the parser lets it through.
         let p = unhex(ALTGARD_MAP);
         assert!(p[1..5].windows(2).any(|w| w == [0x01, 0x91]));
+    }
+
+    /// Altgard map, 21:29:52 the same day: a dead record with the extra byte.
+    /// 111008 and 111011-111024 matched against a screenshot of the map.
+    const ALTGARD_MAP_2: &str = "AB03019100005604000018019EE30600D004C7005A204700207E462FC98FFD02A10100000199E30691939BC7645092C700ECDD4600C6F102A1010000019AE306325C15C89ED7DCC700F90947C20DF702A1010000019BE306544326C84E308AC600F4BC4614D1F002A101000000AAE3069A2A8103A1010000019CE3061DBC2FC8D56A96C50002C5466791E502A101000000B0E306C5675E03A101000000A0E30663995703A1010000019DE306DA1467C51152204700FC64460D93B11603A1010000009FE306B9325103A101000001A1E30600A57447800A0DC800F0DB45FCD6C902A101000001A2E306000C7E47005230C80058BD4524D7F702A101000000ABE3060CC15C04A101000000A3E30604EA4103A101000000A4E3061592E803A101000000A5E3068DDDE203A101000000A6E3060C41F44603A101000000A7E3066EFBDB03A101000001A8E306B38D3048612DE54700EC5546EF303403A101000001A9E306E0D4D34713801D4800C8D1459D10E002A101000000ACE3061D2F7F04A101000000ADE306AC057704A101000000AEE30625F69804A101000000AFE306EC066903A10100000000";
+
+    #[test]
+    fn reads_dead_records_with_an_extra_byte() {
+        let (map, bosses) = parse_map_bosses(&unhex(ALTGARD_MAP_2)).unwrap();
+        assert_eq!((map, bosses.len()), (1110, 24));
+        let at = |id| bosses.iter().find(|b| b.spawn_id == id).unwrap().at_ms / 1000;
+        assert_eq!(at(111020), 1791076806, "Shylak, So 03:20:06");
+        assert_eq!(at(111011), 1791056013, "Linx, Sa 21:33:33");
     }
 
     #[test]
