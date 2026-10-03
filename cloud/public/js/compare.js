@@ -13,8 +13,9 @@ const gearText = (m) =>
 // Pro Kampf gibt es je Spieler nur einen Wert – Ø und Bestwert fallen zusammen.
 const METRICS = { avgDps: "DPS", peakDps: "Peak (10 s)", avgShare: "Anteil" };
 
-export async function loadCompare() {
-  view.innerHTML = loading("Vergleich");
+/** `quiet`: alte Ansicht stehen lassen, bis die neue fertig ist (kein Sprung nach oben) */
+export async function loadCompare({ quiet = false } = {}) {
+  if (!quiet) view.innerHTML = loading("Vergleich");
   try {
     await Promise.all([loadMembers(), loadBosses()]);
     const qs = new URLSearchParams({ days: String(ui.days), tz: tz(), bucket: "fight" });
@@ -122,6 +123,6 @@ function render(d) {
 }
 
 function bind() {
-  $("#cBoss", view)?.addEventListener("change", (e) => ((ui.boss = e.target.value), loadCompare()));
-  $("#cDays", view)?.addEventListener("change", (e) => ((ui.days = Number(e.target.value)), loadCompare()));
+  $("#cBoss", view)?.addEventListener("change", (e) => ((ui.boss = e.target.value), loadCompare({ quiet: true })));
+  $("#cDays", view)?.addEventListener("change", (e) => ((ui.days = Number(e.target.value)), loadCompare({ quiet: true })));
 }

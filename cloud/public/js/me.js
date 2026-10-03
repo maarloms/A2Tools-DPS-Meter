@@ -17,8 +17,9 @@ function gearTrend(points, key, fmt) {
   return diff ? `${diff > 0 ? "+" : "−"}${fmt(Math.abs(diff))} seit ${d}.${m}.` : `unverändert seit ${d}.${m}.`;
 }
 
-export async function loadMe(who) {
-  view.innerHTML = loading("Mein Bereich");
+/** `quiet`: alte Ansicht stehen lassen, bis die neue fertig ist (kein Sprung nach oben) */
+export async function loadMe(who, { quiet = false } = {}) {
+  if (!quiet) view.innerHTML = loading("Mein Bereich");
   try {
     await Promise.all([loadMembers(), loadBosses()]);
     const members = activeMembers();

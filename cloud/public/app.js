@@ -114,12 +114,13 @@ function connect() {
       state.pingTimer = setInterval(() => ws.readyState === 1 && ws.send("ping"), 25000);
     } else if (m.t === "group") {
       state.group = m;
-      if (route === "live") renderLive();
-      if (route === "overview") refreshOverviewLive();
+      if (route === "live") keepScroll(renderLive);
+      if (route === "overview") keepScroll(refreshOverviewLive);
     } else if (m.t === "fight" || m.t === "fightDeleted") {
       state.bosses = null;
-      state.fights = null;
-      if (route === "fights") loadFights();
+      // Liste im Hintergrund nachladen: die alte bleibt stehen, kein Sprung nach oben
+      if (route === "fights") keepScroll(() => loadFights(false, { quiet: true }));
+      else state.fights = null;
     } else if (m.t === "error" && (m.code === "hello_timeout" || m.code === "replaced")) {
       ws.close();
     }
@@ -139,7 +140,8 @@ function connect() {
 
 // ---------- Routing ----------
 
-async function route() {
+/** `quiet`: Neuzeichnen derselben Seite – ohne Ladeanzeige und ohne nach oben zu springen */
+async function route({ quiet = false } = {}) {
   // Einladungslink im angemeldeten Zustand: Raum wechseln
   const join = /^#\/join\/([a-z0-9][a-z0-9-]{2,31})\/(.{16,256})$/i.exec(location.hash);
   if (join) {
@@ -156,17 +158,21 @@ async function route() {
   toggleSheet(false);
   const r = currentRoute();
   markNav(r.name);
+  let done;
   if (r.name === "start") renderStart();
-  else if (r.name === "overview") loadOverview();
-  else if (r.name === "me") loadMe(r.who);
-  else if (r.name === "compare") loadCompare();
-  else if (r.name === "fights") loadFights();
-  else if (r.name === "fight") loadFight(r.id);
+  else if (r.name === "overview") done = loadOverview();
+  else if (r.name === "me") done = loadMe(r.who, { quiet });
+  else if (r.name === "compare") done = loadCompare({ quiet });
+  else if (r.name === "fights") done = loadFights();
+  else if (r.name === "fight") done = loadFight(r.id);
   else if (r.name === "live") renderLive();
-  else if (r.name === "timer") loadTimer();
-  else if (r.name === "members") loadMembersPage();
-  window.scrollTo(0, 0);
-  view.focus({ preventScroll: true });
+  else if (r.name === "timer") done = loadTimer();
+  else if (r.name === "members") done = loadMembersPage();
+  if (!quiet) {
+    window.scrollTo(0, 0);
+    view.focus({ preventScroll: true });
+  }
+  return done;
 }
 
 async function logout() {
@@ -188,13 +194,26 @@ async function start() {
   route();
 }
 
+/** Hintergrund-Aktualisierung ohne Sprung: Scrollposition danach wiederherstellen. */
+async function keepScroll(fn) {
+  const y = window.scrollY;
+  await fn();
+  if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
+}
+
+// Nur echte Breitenänderungen (Drehen, Fenster) zeichnen neu. Auf dem Handy
+// ändert das Ein-/Ausblenden der Adressleiste beim Scrollen nur die Höhe –
+// das löste früher ein komplettes Neuladen samt Sprung nach oben aus.
 let resizeTimer;
+let lastWidth = window.innerWidth;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
+    if (window.innerWidth === lastWidth) return;
+    lastWidth = window.innerWidth;
     const n = currentRoute().name;
     if (n === "fight" && state.detail) drawCharts();
-    if (n === "me" || n === "compare") route();
+    if (n === "me" || n === "compare") keepScroll(() => route({ quiet: true }));
   }, 200);
 });
 window.addEventListener("hashchange", route);
@@ -202,6 +221,6 @@ document.addEventListener("me-changed", renderWho);
 document.addEventListener("keydown", (e) => e.key === "Escape" && toggleSheet(false));
 $("#logout").addEventListener("click", logout);
 // „vor 2 min“ aktuell halten
-setInterval(() => currentRoute().name === "live" && state.group && renderLive(), 5000);
+setInterval(() => currentRoute().name === "live" && state.group && keepScroll(renderLive), 5000);
 
 start();

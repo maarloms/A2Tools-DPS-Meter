@@ -14,9 +14,9 @@ function frontRate(p) {
 
 // ================= Liste =================
 
-export async function loadFights(more = false) {
-  if (!more && state.fights) renderFights();
-  else if (!more) view.innerHTML = loading("Kämpfe");
+export async function loadFights(more = false, { quiet = false } = {}) {
+  if (!more && state.fights && !quiet) renderFights();
+  else if (!more && !quiet) view.innerHTML = loading("Kämpfe");
   try {
     const qs = new URLSearchParams({ limit: "40" });
     if (state.train) qs.set("train", "1");
