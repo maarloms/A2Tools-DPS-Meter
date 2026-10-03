@@ -9,7 +9,9 @@ import {
   UploadDetail,
   mergeEncounter,
   obscureNickname,
+  frontRateOf,
   packJson,
+  peakDps,
   shortHash,
   unpackJson,
 } from "./fights";
@@ -136,23 +138,25 @@ async function remerge(db: D1Database, room: string, encounterId: string, known:
   const s = d.summary;
 
   const knownLc = new Set([...known, ...s.uploaders].map((n) => n.toLowerCase()));
+  const peaks = peaksOf(d);
   const statRows = d.players.filter((p, i) => p.dmg > 0 && (i < LIMITS.statsTopPlayers || knownLc.has(p.name.toLowerCase())));
 
   const stmts: D1PreparedStatement[] = [
     db
       .prepare(
         `INSERT INTO encounters (id, room, mob_code, target_id, boss, dungeon_id, start_ms, duration_ms, total_damage, max_hp,
-           is_train, actor_count, uploaders, top, detail, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+           is_train, actor_count, uploaders, top, detail, updated_at, killed)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
          ON CONFLICT(id) DO UPDATE SET mob_code = excluded.mob_code, target_id = excluded.target_id, boss = excluded.boss,
            dungeon_id = excluded.dungeon_id, start_ms = excluded.start_ms, duration_ms = excluded.duration_ms,
            total_damage = excluded.total_damage, max_hp = excluded.max_hp, is_train = excluded.is_train,
            actor_count = excluded.actor_count, uploaders = excluded.uploaders, top = excluded.top,
-           detail = excluded.detail, updated_at = excluded.updated_at`,
+           detail = excluded.detail, updated_at = excluded.updated_at, killed = excluded.killed`,
       )
       .bind(
         encounterId, room, s.mobCode, s.targetId, s.boss, s.dungeonId, s.startMs, s.durationMs, s.totalDamage, s.maxHp,
         s.isTrain ? 1 : 0, s.actorCount, JSON.stringify(s.uploaders), JSON.stringify(s.top), await packJson(d), now,
+        s.killed ? 1 : 0,
       ),
     db.prepare("DELETE FROM player_stats WHERE encounter_id = ?1").bind(encounterId),
   ];
@@ -161,17 +165,64 @@ async function remerge(db: D1Database, room: string, encounterId: string, known:
       db
         .prepare(
           `INSERT OR REPLACE INTO player_stats (encounter_id, room, player, player_lc, job, job_id, source, self_report, dps, dmg, share,
-             crit_rate, back_rate, hits, heal, cp, mob_code, boss, dungeon_id, start_ms, duration_ms, is_train)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)`,
+             crit_rate, back_rate, hits, heal, cp, mob_code, boss, dungeon_id, start_ms, duration_ms, is_train, peak_dps, front_rate, killed)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)`,
         )
         .bind(
           encounterId, room, p.name, p.name.toLowerCase(), p.job, p.jobId, p.source, p.selfReport ? 1 : 0, p.dps, p.dmg, p.share,
           p.critRate, p.backRate, p.hits, p.heal, p.cp, s.mobCode, s.boss, s.dungeonId, s.startMs, s.durationMs, s.isTrain ? 1 : 0,
+          peaks.get(p.name.toLowerCase()) ?? p.dps,
+          frontRateOf(p),
+          s.killed ? 1 : 0,
         ),
     );
   }
   await db.batch(stmts); // atomar
   return d;
+}
+
+/** Peak-DPS je Spieler (klein geschrieben) aus dem Zeitverlauf; ohne Verlauf oder bei kurzen Kämpfen fehlt er. */
+function peaksOf(d: EncounterDetail): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const s of d.timeline?.series ?? []) {
+    const peak = peakDps(s.dmg, s.bucketMs);
+    if (peak !== null) out.set(s.name.toLowerCase(), peak);
+  }
+  return out;
+}
+
+const MISSING = "(peak_dps IS NULL OR front_rate IS NULL)";
+
+/**
+ * Peak-DPS und Frontal-Quote für Kämpfe von vor ihrer Einführung nachtragen (aus dem gespeicherten
+ * Detail, ohne neu zusammenzuführen). Höchstens `limit` Kämpfe pro Aufruf; liefert, wie viele noch fehlen.
+ */
+export async function backfillStats(db: D1Database, room: string, limit = 100): Promise<{ updated: number; remaining: number }> {
+  const ids = (
+    await db
+      .prepare(`SELECT DISTINCT encounter_id AS id FROM player_stats WHERE room = ?1 AND ${MISSING} LIMIT ?2`)
+      .bind(room, limit)
+      .all<{ id: string }>()
+  ).results.map((r) => r.id);
+  for (const id of ids) {
+    const row = await db.prepare("SELECT detail FROM encounters WHERE id = ?1").bind(id).first<{ detail: string }>();
+    const d = row ? await unpackJson<EncounterDetail>(row.detail) : null;
+    const peaks = d ? peaksOf(d) : new Map<string, number>();
+    const set = "UPDATE player_stats SET peak_dps = COALESCE(peak_dps, ?1), front_rate = COALESCE(front_rate, ?2) WHERE encounter_id = ?3 AND player_lc = ?4";
+    const stmts = (d?.players ?? []).map((p) =>
+      db.prepare(set).bind(peaks.get(p.name.toLowerCase()) ?? null, frontRateOf(p), id, p.name.toLowerCase()),
+    );
+    // Rest (kurze Kämpfe, kein Verlauf, Spieler nicht im Detail): Peak = Kampfschnitt, Frontal unbekannt = 0
+    stmts.push(
+      db.prepare("UPDATE player_stats SET peak_dps = COALESCE(peak_dps, dps), front_rate = COALESCE(front_rate, 0) WHERE encounter_id = ?1").bind(id),
+    );
+    await db.batch(stmts);
+  }
+  const left = await db
+    .prepare(`SELECT COUNT(DISTINCT encounter_id) AS n FROM player_stats WHERE room = ?1 AND ${MISSING}`)
+    .bind(room)
+    .first<{ n: number }>();
+  return { updated: ids.length, remaining: left?.n ?? 0 };
 }
 
 /** Aelteste Kaempfe ueber dem Limit loeschen. Liefert geloeschte Upload-IDs (fuer Rohdaten im DO). */

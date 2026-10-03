@@ -1,14 +1,13 @@
 // Vergleich: die Mitglieder direkt gegeneinander – Kennzahlen, Verlauf, Anteile, pro Boss.
 
 import {
-  $, apiJson, avatar, bossSelect, currentRoute, empty, esc, failed, fmtNum, fmtPct, fmtShort, job, loadBosses, loadMembers,
-  loading, memberColor, pageHead, periodSelect, seriesLines, tz, view,
+  $, apiJson, avatar, bossSelect, currentRoute, dungeonName, empty, esc, failed, fmtNum, fmtPct, fmtShort, job, loadBosses, loading, loadMembers, memberColor, pageHead, periodSelect, seriesLines, tz, view,
 } from "./core.js";
 import { drawTrend } from "./me.js";
 
 const ui = { days: 30, boss: "", metric: "avgDps", hidden: new Set() };
 // Pro Kampf gibt es je Spieler nur einen Wert – Ø und Bestwert fallen zusammen.
-const METRICS = { avgDps: "DPS", avgShare: "Anteil" };
+const METRICS = { avgDps: "DPS", peakDps: "Peak (10 s)", avgShare: "Anteil" };
 
 export async function loadCompare() {
   view.innerHTML = loading("Vergleich");
@@ -59,7 +58,7 @@ function render(d) {
   const matrix = bosses
     .map((b) => {
       const best = Math.max(...b.players.map((p) => p.bestDps));
-      return `<tr><td><b>${esc(b.boss)}</b><div class="muted small">${b.dungeonId ? `Instanz ${b.dungeonId} · ` : ""}${b.fights} Kämpfe</div></td>${names
+      return `<tr><td><b>${esc(b.boss)}</b><div class="muted small">${b.dungeonId ? `${esc(dungeonName(b.dungeonId))} · ` : ""}${b.fights} Kämpfe</div></td>${names
         .map((n) => {
           const p = b.players.find((x) => x.name.toLowerCase() === n.toLowerCase());
           if (!p) return `<td class="num muted">–</td>`;
@@ -74,10 +73,12 @@ function render(d) {
     <div class="cmp-heads">${heads}</div>
     <section class="card">
       ${barRow("Ø DPS", ms, (m) => m.avgDps, fmtShort)}
-      ${barRow("Bestwert", ms, (m) => m.bestDps, fmtShort)}
+      ${barRow("Bester Schnitt", ms, (m) => m.bestDps, fmtShort, "ganzer Kampf")}
+      ${barRow("Peak (10 s)", ms, (m) => m.bestPeak, fmtShort, "bester Burst")}
       ${barRow("Ø Anteil am Bossschaden", ms, (m) => m.avgShare, fmtPct)}
       ${barRow("Krit-Quote", ms, (m) => m.avgCrit, fmtPct)}
       ${barRow("Rücken-Quote", ms, (m) => m.avgBack, fmtPct)}
+      ${barRow("Frontal-Quote", ms, (m) => m.avgFront, fmtPct)}
       ${barRow("Platz 1 in gemeinsamen Kämpfen", ms, (m) => m.firsts, (v) => fmtNum(v), "")}
     </section>
     <section class="card"><div class="card-head"><div><h2>Über die Zeit</h2><p class="muted small">Ein Punkt pro Bosskampf, die letzten 60 im Zeitraum.</p></div>

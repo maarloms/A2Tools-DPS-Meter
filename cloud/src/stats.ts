@@ -5,6 +5,7 @@
 
 import { Env } from "./auth";
 import { activeMembers, fixedMembers, listMembers, setHidden } from "./members";
+import { backfillStats } from "./store";
 
 const DAY = 86_400_000;
 
@@ -48,13 +49,14 @@ async function series(db: D1Database, room: string, ml: string, from: number, ur
       await db
         .prepare(
           `WITH f AS (
-             SELECT ps.player AS player, ps.boss AS boss, ps.dps AS dps, ps.share AS share,
+             SELECT ps.player AS player, ps.boss AS boss, ps.dps AS dps, ps.share AS share, ps.peak_dps AS peak,
                MIN(ps.start_ms) OVER (PARTITION BY ps.encounter_id) AS t0
              FROM player_stats ps
              WHERE ps.room = ?3 AND ps.start_ms >= ?4 AND ps.is_train = 0 AND ${BOSS} AND ${IS_MEMBER}
                AND (?5 IS NULL OR ps.player_lc = ?5)),
            last AS (SELECT DISTINCT t0 FROM f ORDER BY t0 DESC LIMIT ?1)
-           SELECT player, printf('%013d', t0) AS period, boss, dps AS avgDps, dps AS bestDps, 1 AS fights, share AS avgShare
+           SELECT player, printf('%013d', t0) AS period, boss, dps AS avgDps, dps AS bestDps, peak AS peakDps, 1 AS fights,
+             share AS avgShare
            FROM f WHERE t0 IN (SELECT t0 FROM last) ORDER BY t0`,
         )
         .bind(FIGHT_POINTS, null, room, from, player, null, boss?.mob ?? null, boss?.dungeon ?? null, ml)
@@ -116,7 +118,7 @@ export async function handleStats(
           .prepare(
             `SELECT e.id, e.boss, e.mob_code AS mobCode, e.dungeon_id AS dungeonId, e.start_ms AS startMs,
                e.duration_ms AS durationMs, e.total_damage AS totalDamage, e.max_hp AS maxHp, e.is_train AS isTrain,
-               e.actor_count AS actorCount, e.uploaders
+               e.actor_count AS actorCount, e.uploaders, e.killed
              FROM encounters e
              WHERE e.room = ?1 AND e.start_ms < ?2 AND (?3 = 1 OR e.is_train = 0)
                AND (?7 IS NULL OR (e.mob_code = ?7 AND e.dungeon_id = ?8))
@@ -132,6 +134,7 @@ export async function handleStats(
       const fights = page.map((r) => ({
         ...r,
         isTrain: !!r.isTrain,
+        killed: !!r.killed,
         uploaders: (JSON.parse(r.uploaders) as string[]).filter((u) => mset.has(u.toLowerCase())),
         top: tops.get(r.id) ?? [],
       }));
@@ -203,8 +206,8 @@ export async function handleStats(
       const span = Date.now() - from;
       const kpi = await db
         .prepare(
-          `SELECT COUNT(*) AS fights, AVG(ps.dps) AS avgDps, MAX(ps.dps) AS bestDps, AVG(ps.share) AS avgShare,
-             AVG(ps.crit_rate) AS avgCrit, AVG(ps.back_rate) AS avgBack, SUM(ps.dmg) AS totalDmg
+          `SELECT COUNT(*) AS fights, AVG(ps.dps) AS avgDps, MAX(ps.dps) AS bestDps, MAX(ps.peak_dps) AS bestPeak, AVG(ps.share) AS avgShare,
+             AVG(ps.crit_rate) AS avgCrit, AVG(ps.back_rate) AS avgBack, AVG(ps.front_rate) AS avgFront, SUM(ps.dmg) AS totalDmg
            FROM player_stats ps WHERE ps.room = ?1 AND ps.player_lc = ?2 AND ps.start_ms >= ?3 AND ps.is_train = 0`,
         )
         .bind(room, name, from)
@@ -221,9 +224,9 @@ export async function handleStats(
       const records = (
         await db
           .prepare(
-            `SELECT mob_code AS mobCode, dungeon_id AS dungeonId, boss, MAX(dps) AS bestDps, share AS bestShare,
+            `SELECT mob_code AS mobCode, dungeon_id AS dungeonId, boss, MAX(dps) AS bestDps, MAX(peak_dps) AS bestPeak, MIN(CASE WHEN killed = 1 THEN duration_ms END) AS fastestKill, share AS bestShare,
                start_ms AS bestMs, encounter_id AS bestFightId, COUNT(*) AS fights, AVG(dps) AS avgDps,
-               AVG(share) AS avgShare, AVG(crit_rate) AS avgCrit, AVG(back_rate) AS avgBack
+               AVG(share) AS avgShare, AVG(crit_rate) AS avgCrit, AVG(back_rate) AS avgBack, AVG(front_rate) AS avgFront
              FROM player_stats WHERE room = ?1 AND player_lc = ?2 AND start_ms >= ?3 AND is_train = 0
              GROUP BY mob_code, dungeon_id ORDER BY fights DESC, bestDps DESC LIMIT 100`,
           )
@@ -253,6 +256,10 @@ export async function handleStats(
       };
     }
 
+    // ---------- Wartung: Peak-DPS und Frontal-Quote alter Kämpfe nachtragen ----------
+    case "/maintenance/backfill":
+      return req.method === "POST" ? backfillStats(db, room) : null;
+
     // ---------- Vergleich ----------
     case "/stats/compare": {
       const from = since(url, 30);
@@ -261,7 +268,7 @@ export async function handleStats(
         await db
           .prepare(
             `SELECT ps.player_lc AS lc, COUNT(*) AS fights, AVG(ps.dps) AS avgDps, MAX(ps.dps) AS bestDps,
-               AVG(ps.share) AS avgShare, AVG(ps.crit_rate) AS avgCrit, AVG(ps.back_rate) AS avgBack, SUM(ps.dmg) AS totalDmg
+               MAX(ps.peak_dps) AS bestPeak, AVG(ps.share) AS avgShare, AVG(ps.crit_rate) AS avgCrit, AVG(ps.back_rate) AS avgBack, AVG(ps.front_rate) AS avgFront, SUM(ps.dmg) AS totalDmg
              FROM player_stats ps WHERE ps.room = ?1 AND ps.start_ms >= ?2 AND ps.is_train = 0 AND ${BOSS} AND ${IS_MEMBER}
              GROUP BY ps.player_lc`,
           )

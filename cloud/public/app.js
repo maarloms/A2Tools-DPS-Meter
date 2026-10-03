@@ -2,7 +2,7 @@
 // Dieses Skript wird nur mit gültiger Session ausgeliefert (Cookie, siehe src/session.ts).
 // Einstieg: Session, Navigation, WebSocket (Live), Routing.
 
-import { $, currentRoute, esc, getMe, loadMembers, state, view } from "./js/core.js";
+import { $, currentRoute, esc, getMe, loadDungeons, loadMembers, state, view } from "./js/core.js";
 import { renderStart } from "./js/start.js";
 import { loadOverview, refreshOverviewLive } from "./js/overview.js";
 import { loadMe } from "./js/me.js";
@@ -180,6 +180,7 @@ async function start() {
   state.room = (await r.json()).room;
   $("#roomChip").textContent = `Raum ${state.room}`;
   renderNav();
+  await loadDungeons();
   loadMembers()
     .then(renderWho)
     .catch(() => null);

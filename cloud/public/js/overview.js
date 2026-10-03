@@ -1,7 +1,9 @@
 // Übersicht der Gruppe: Mitglieder-Karten, gemeinsame Kennzahlen, wer führt pro Boss,
 // letzte Kämpfe, kompaktes Live-Panel.
 
-import { avatar, apiJson, currentRoute, empty, esc, failed, fmtDate, fmtNum, fmtPct, fmtShort, fmtTime, job, kpi, loadMembers, loading, pageHead, trend, view } from "./core.js";
+import {
+  apiJson, avatar, currentRoute, dungeonName, empty, esc, failed, fmtDate, fmtNum, fmtPct, fmtShort, fmtTime, job, kpi, loading, loadMembers, pageHead, trend, view,
+} from "./core.js";
 import { livePanel } from "./live.js";
 
 let last = null;
@@ -63,7 +65,7 @@ function renderOverview(d) {
           return `<td class="${lead ? "lead" : ""}">${lead ? '<span class="crown" aria-label="führt">★</span> ' : ""}${fmtShort(p.bestDps)}</td>`;
         })
         .join("");
-      return `<tr><td><b>${esc(b.boss)}</b><div class="muted small">${b.dungeonId ? `Instanz ${b.dungeonId} · ` : ""}${b.fights} Kämpfe</div></td>${cells}</tr>`;
+      return `<tr><td><b>${esc(b.boss)}</b><div class="muted small">${b.dungeonId ? `${esc(dungeonName(b.dungeonId))} · ` : ""}${b.fights} Kämpfe</div></td>${cells}</tr>`;
     })
     .join("");
 

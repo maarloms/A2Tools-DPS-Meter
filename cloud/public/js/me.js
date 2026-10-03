@@ -3,8 +3,7 @@
 
 import { lineChart } from "./chart.js";
 import {
-  $, $$, activeMembers, apiJson, avatar, bossSelect, currentRoute, empty, esc, failed, fmtDay, fmtNum, fmtPct, fmtShort, fmtTime,
-  getMe, job, kpi, loadBosses, loadMembers, loading, pageHead, periodLabel, periodSelect, seriesLines, setMe, trend, tz, view,
+  $, $$, activeMembers, apiJson, avatar, bossSelect, currentRoute, dungeonName, empty, esc, failed, fmtDay, fmtNum, fmtPct, fmtShort, fmtTime, getMe, job, kpi, loadBosses, loading, loadMembers, pageHead, periodLabel, periodSelect, seriesLines, setMe, trend, tz, view,
 } from "./core.js";
 
 const ui = { days: 30, boss: "", hidden: new Set() };
@@ -53,8 +52,8 @@ async function renderMe(name) {
   const fav = k.favorite;
   const records = d.records
     .map(
-      (r) => `<tr><td><b>${esc(r.boss)}</b>${r.dungeonId ? `<div class="muted small">Instanz ${r.dungeonId}</div>` : ""}</td>
-        <td class="num strong">${fmtShort(r.bestDps)}</td><td class="num">${fmtShort(r.avgDps)}</td><td class="num">${fmtPct(r.avgShare)}</td>
+      (r) => `<tr><td><b>${esc(r.boss)}</b>${r.dungeonId ? `<div class="muted small">${esc(dungeonName(r.dungeonId))}</div>` : ""}</td>
+        <td class="num strong">${fmtShort(r.bestDps)}</td><td class="num">${r.bestPeak ? fmtShort(r.bestPeak) : "–"}</td><td class="num">${r.fastestKill ? fmtTime(r.fastestKill) : "–"}</td><td class="num">${fmtShort(r.avgDps)}</td><td class="num">${fmtPct(r.avgShare)}</td>
         <td class="num">${fmtNum(r.fights)}</td><td class="num"><a href="#/fight/${esc(r.bestFightId)}">${fmtDay(r.bestMs)}</a></td></tr>`,
     )
     .join("");
@@ -74,7 +73,8 @@ async function renderMe(name) {
         ? empty("Noch keine Kämpfe in diesem Zeitraum", `Sobald ${isMe ? "du" : esc(name)} einen Boss legst, steht hier, wie es läuft. Zeitraum „Gesamt“ zeigt alles.`)
         : `<div class="kpis">
       ${kpi("Ø DPS", fmtShort(k.avgDps), `${trend(k.avgDps, k.prevAvgDps, "der Zeitraum davor")} ${periodTxt}`)}
-      ${kpi("Bestwert", fmtShort(k.bestDps), "höchster DPS")}
+      ${kpi("Bester Schnitt", fmtShort(k.bestDps), "über einen ganzen Kampf")}
+      ${kpi("Peak (10 s)", k.bestPeak ? fmtShort(k.bestPeak) : "–", "bester 10-Sekunden-Burst")}
       ${kpi("Ø Anteil", fmtPct(k.avgShare), "am Bossschaden")}
       ${kpi("Kämpfe", fmtNum(k.fights), periodTxt)}
       ${kpi("Lieblingsboss", fav ? esc(fav.boss) : "–", fav ? `${fmtNum(fav.fights)} Kämpfe` : "", "text")}
@@ -84,7 +84,7 @@ async function renderMe(name) {
       <div class="chart" id="meChart"></div></section>
     <div class="grid-2">
       <section class="card"><h2>Rekorde pro Boss</h2>
-        <div class="table-wrap"><table class="tbl"><thead><tr><th>Boss</th><th class="num">Best</th><th class="num">Ø DPS</th><th class="num">Ø Anteil</th><th class="num">Kämpfe</th><th class="num">Datum</th></tr></thead><tbody>${records}</tbody></table></div></section>
+        <div class="table-wrap"><table class="tbl"><thead><tr><th>Boss</th><th class="num">Best</th><th class="num">Peak</th><th class="num" title="Kürzester Kampf, in dem der Boss starb">Schnellster Kill</th><th class="num">Ø DPS</th><th class="num">Ø Anteil</th><th class="num">Kämpfe</th><th class="num">Datum</th></tr></thead><tbody>${records}</tbody></table></div></section>
       <section class="card"><h2>Letzte Kämpfe</h2><div class="flist">${recent}</div></section>
     </div>`
     }</div>`;

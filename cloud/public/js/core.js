@@ -89,7 +89,15 @@ export const jobTag = (j, id) => {
   return `<span class="job" title="${esc(x.name)}">${esc(x.short)}</span>`;
 };
 export const MODES = { bossTargets: "Boss", allTargets: "Alle Ziele", groupTargets: "Gruppe", train: "Trainingspuppe" };
-export const bossLabel = (b) => `${b.boss}${b.dungeonId ? ` · Instanz ${b.dungeonId}` : ""}`;
+/** Dungeon-Namen (shared/dungeons.json, aus den Spieldaten des Meters); unbekannte als „Instanz <id>“ */
+let dungeons = {};
+export const loadDungeons = () =>
+  fetch("shared/dungeons.json")
+    .then((r) => (r.ok ? r.json() : {}))
+    .then((d) => (dungeons = d || {}))
+    .catch(() => null);
+export const dungeonName = (id) => dungeons[String(id)]?.name || `Instanz ${id}`;
+export const bossLabel = (b) => `${b.boss}${b.dungeonId ? ` · ${dungeonName(b.dungeonId)}` : ""}`;
 
 // Kategorische Palette für dunkle Flächen, geprüft gegen #0e1222 (CVD + Kontrast).
 export const SERIES_COLORS = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"];

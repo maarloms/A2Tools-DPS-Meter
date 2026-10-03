@@ -2,9 +2,15 @@
 
 import { lineChart } from "./chart.js";
 import {
-  $, $$, SERIES_COLORS, api, apiJson, avatar, bossSelect, currentRoute, empty, esc, failed, fmtDate, fmtNum, fmtPct, fmtShort,
-  fmtTime, job, kpi, loadBosses, loadMembers, loading, memberColor, pageHead, state, trunc, view,
+  $, $$, api, apiJson, avatar, bossSelect, currentRoute, dungeonName, empty, esc, failed, fmtDate, fmtNum, fmtPct, fmtShort, fmtTime, job, kpi, loadBosses, loading, loadMembers, memberColor, pageHead, SERIES_COLORS, state, trunc, view,
 } from "./core.js";
+
+/** Frontal-Quote eines Spielers; ältere Kämpfe haben sie nur in den Skills (frontal je Skill). */
+function frontRate(p) {
+  if (typeof p.frontRate === "number") return p.frontRate;
+  const hits = (p.skills ?? []).reduce((a, k) => a + (k.hits || 0), 0);
+  return hits ? ((p.skills ?? []).reduce((a, k) => a + (k.frontal || 0), 0) / hits) * 100 : 0;
+}
 
 // ================= Liste =================
 
@@ -40,7 +46,7 @@ export function renderFights() {
       const more = rest.length - Math.min(rest.length, 3);
       return `<a class="fight" href="#/fight/${f.id}">
         <div class="fight-main"><div class="fight-boss">${esc(f.boss)}${f.isTrain ? ' <span class="badge">Training</span>' : ""}</div>
-          <div class="muted small">${fmtDate(f.startMs)} · ${fmtTime(f.durationMs)}${f.dungeonId ? ` · Instanz ${f.dungeonId}` : ""}</div></div>
+          <div class="muted small">${fmtDate(f.startMs)} · ${fmtTime(f.durationMs)}${f.dungeonId ? ` · ${esc(dungeonName(f.dungeonId))}` : ""}${f.killed ? ' · <span class="kill">besiegt</span>' : ""}</div></div>
         <div class="fight-people">${shown
           .map((p) => `<span class="mini${p.member ? "" : " other"}">${avatar(p.name, p.job, p.jobId)}<span>${esc(p.name)}</span><b>${fmtShort(p.dps)}</b></span>`)
           .join("")}${more > 0 ? `<span class="mini other">+${more}</span>` : ""}</div>
@@ -121,14 +127,14 @@ export function renderFight() {
         <td class="muted">${i + 1}</td><td>${avatar(p.name, p.job, p.jobId)} <b>${esc(p.name)}</b></td>
         <td class="bar"><span class="fill" style="width:${((p.dmg / maxDmg) * 100).toFixed(1)}%"></span><span>${fmtShort(p.dps)}</span></td>
         <td class="num">${fmtShort(p.dmg)}</td><td class="num strong">${fmtPct(p.share)}</td><td class="num">${fmtPct(p.critRate)}</td>
-        <td class="num">${fmtPct(p.backRate)}</td><td class="num hide-s">${p.heal ? fmtShort(p.heal) : "–"}</td><td class="num hide-s muted">${p.selfReport ? "eigene" : esc(p.source)}</td></tr>`,
+        <td class="num">${fmtPct(p.backRate)}</td><td class="num">${fmtPct(frontRate(p))}</td><td class="num hide-s">${p.heal ? fmtShort(p.heal) : "–"}</td><td class="num hide-s muted">${p.selfReport ? "eigene" : esc(p.source)}</td></tr>`,
     )
     .join("");
   const othersRow =
     o && o.count > 0
       ? `<tr class="others"><td></td><td class="muted">Andere (${fmtNum(o.count)})</td>
         <td class="bar"><span class="fill grey" style="width:${((o.dmg / maxDmg) * 100).toFixed(1)}%"></span><span class="muted">–</span></td>
-        <td class="num muted">${fmtShort(o.dmg)}</td><td class="num muted">${fmtPct(o.share)}</td><td colspan="4" class="hide-s"></td></tr>`
+        <td class="num muted">${fmtShort(o.dmg)}</td><td class="num muted">${fmtPct(o.share)}</td><td colspan="5" class="hide-s"></td></tr>`
       : "";
   const uploads = d.uploads
     .map(
@@ -139,7 +145,7 @@ export function renderFight() {
 
   view.innerHTML = `<div class="page">
     <p><a class="link" href="#/fights">← Alle Kämpfe</a></p>
-    ${pageHead(s.boss, `${fmtDate(s.startMs)}${s.dungeonId ? ` · Instanz ${s.dungeonId}` : ""}${s.isTrain ? " · Training" : ""}`,
+    ${pageHead(s.boss, `${fmtDate(s.startMs)}${s.dungeonId ? ` · ${esc(dungeonName(s.dungeonId))}` : ""}${s.killed ? " · besiegt" : ""}${s.isTrain ? " · Training" : ""}`,
       `<button class="btn danger" id="del" type="button">Löschen</button>`)}
     <div class="kpis">
       ${kpi("Kampfzeit", fmtTime(s.durationMs))}
@@ -150,7 +156,7 @@ export function renderFight() {
     <section class="card"><h2>Spieler</h2>
       <p class="muted small">Alle Spieler im Kampf, unsere Gruppe hervorgehoben. Zeile antippen für die Skill-Analyse. Anteil = Anteil am gesamten Bossschaden.</p>
       <div class="table-wrap"><table class="tbl players">
-        <thead><tr><th>#</th><th>Name</th><th>DPS</th><th class="num">Schaden</th><th class="num">Anteil</th><th class="num">Krit</th><th class="num">Rücken</th><th class="num hide-s">Heilung</th><th class="num hide-s">Messung</th></tr></thead>
+        <thead><tr><th>#</th><th>Name</th><th>DPS</th><th class="num">Schaden</th><th class="num">Anteil</th><th class="num">Krit</th><th class="num">Rücken</th><th class="num">Frontal</th><th class="num hide-s">Heilung</th><th class="num hide-s">Messung</th></tr></thead>
         <tbody>${rows}${othersRow}</tbody></table></div></section>
     ${d.timeline.series.length ? `<section class="card">
       <div class="card-head"><h2>DPS-Verlauf</h2>
@@ -283,7 +289,7 @@ function renderSkills() {
       (k) => `<tr><td>${esc(k.name || k.code)}${k.dot ? ' <span class="badge">DoT</span>' : ""}</td>
         <td class="bar"><span class="fill" style="width:${((k.dmg / topDmg) * 100).toFixed(1)}%"></span><span>${fmtShort(k.dmg)}</span></td>
         <td class="num">${p.dmg ? fmtPct((k.dmg / p.dmg) * 100) : "–"}</td><td class="num">${fmtNum(k.hits)}</td>
-        <td class="num">${pct(k.crit, k.hits)}</td><td class="num">${pct(k.back, k.hits)}</td>
+        <td class="num">${pct(k.crit, k.hits)}</td><td class="num">${pct(k.back, k.hits)}</td><td class="num">${pct(k.frontal ?? 0, k.hits)}</td>
         <td class="num hide-s">${pct(k.perfect, k.hits)}</td><td class="num hide-s">${pct(k.double, k.hits)}</td>
         <td class="num hide-s">${k.hits ? fmtShort(k.dmg / k.hits) : "–"}</td><td class="num hide-s">${fmtShort(k.max)}</td></tr>`,
     )
@@ -299,13 +305,13 @@ function renderSkills() {
     <div class="kpis compact">
       ${kpi(job(p.job, p.jobId).name, esc(trunc(p.name, 16)), p.selfReport ? "eigene Messung" : `gemessen von ${esc(p.source)}`)}
       ${kpi("DPS", fmtShort(p.dps))}
-      ${kpi("Krit · Rücken", `${fmtPct(p.critRate)} · ${fmtPct(p.backRate)}`)}
+      ${kpi("Krit · Rücken · Frontal", `${fmtPct(p.critRate)} · ${fmtPct(p.backRate)} · ${fmtPct(frontRate(p))}`)}
       ${kpi("Perfekt · Doppel", `${fmtPct(p.perfectRate)} · ${fmtPct(p.doubleRate)}`)}
     </div>
     <div class="table-wrap"><table class="tbl">
-      <thead><tr><th>Skill</th><th>Schaden</th><th class="num">Anteil</th><th class="num">Treffer</th><th class="num">Krit</th><th class="num">Rücken</th>
+      <thead><tr><th>Skill</th><th>Schaden</th><th class="num">Anteil</th><th class="num">Treffer</th><th class="num">Krit</th><th class="num">Rücken</th><th class="num">Frontal</th>
         <th class="num hide-s">Perfekt</th><th class="num hide-s">Doppel</th><th class="num hide-s">Ø</th><th class="num hide-s">Max</th></tr></thead>
-      <tbody>${skillRows || '<tr><td colspan="10" class="muted">Keine Skill-Daten</td></tr>'}</tbody></table></div>
+      <tbody>${skillRows || '<tr><td colspan="11" class="muted">Keine Skill-Daten</td></tr>'}</tbody></table></div>
     ${heals}
     ${lane ? `<h3>Skill-Zeitleiste</h3><p class="muted small">Treffer je ${Math.round(lane.bucketMs / 1000)} s – je kräftiger, desto mehr.</p><div class="lanes" id="lanes"></div>` : ""}`;
   $$(".chip", card).forEach((b) =>

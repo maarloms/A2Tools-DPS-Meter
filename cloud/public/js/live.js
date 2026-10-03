@@ -1,7 +1,9 @@
 // Live-Gruppenmeter (Daten per WebSocket, siehe app.js). Nur Mitglieder;
 // alle anderen erscheinen als eine Sammelzeile „Andere“.
 
-import { MODES, ago, avatar, empty, esc, fmtShort, fmtTime, nf1, pageHead, state, view } from "./core.js";
+import {
+  ago, avatar, dungeonName, empty, esc, fmtShort, fmtTime, MODES, nf1, pageHead, state, view,
+} from "./core.js";
 
 export function renderLive() {
   const g = state.group;
@@ -76,7 +78,7 @@ export const hpBar = (e) => {
 function encounterHtml(e, primary) {
   const groupDps = e.players.reduce((s, p) => s + p.dps, 0);
   const groupShare = e.players.reduce((s, p) => s + p.share, 0);
-  const meta = [MODES[e.target.mode] || e.target.mode, e.dungeonId ? `Instanz ${e.dungeonId}` : "", `gemeldet von ${e.reporters.join(", ")}`]
+  const meta = [MODES[e.target.mode] || e.target.mode, e.dungeonId ? dungeonName(e.dungeonId) : "", `gemeldet von ${e.reporters.join(", ")}`]
     .filter(Boolean)
     .map(esc)
     .join('<span class="sep">·</span>');

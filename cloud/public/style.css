@@ -142,6 +142,7 @@ main { min-width: 0; }
 .job { font-size: 11px; font-weight: 700; color: var(--title); border: 1px solid var(--hair); border-radius: 4px; padding: 1px 5px; }
 .badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--hair); color: var(--muted); vertical-align: middle; }
 .badge.live { color: #10141f; background: var(--good); border-color: transparent; }
+.kill { color: var(--good); font-weight: 600; }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;

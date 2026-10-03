@@ -102,6 +102,7 @@ export class Room extends DurableObject<Env> {
 
     try {
       if (rest === "/ws") return this.acceptSocket(req, room);
+      if (rest === "/bosses" && req.method === "GET") return json({ timers: this.bossTimers() });
       if (rest === "/live" && req.method === "GET") {
         await this.refreshMembers();
         return json(this.groupView());

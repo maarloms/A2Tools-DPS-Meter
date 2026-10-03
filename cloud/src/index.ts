@@ -46,10 +46,12 @@ function withHeaders(resp: Response, extra: Record<string, string>): Response {
 /** Wohin geht eine Anfrage unterhalb von /api/rooms/:code? */
 function routeOf(method: string, rest: string): "do" | "d1" | null {
   if (rest === "/live") return method === "GET" ? "do" : null;
+  if (rest === "/bosses") return method === "GET" ? "do" : null;
   if (rest === "/fights") return method === "POST" ? "do" : method === "GET" ? "d1" : null;
   if (/^\/fights\/[0-9a-f]{16}$/.test(rest)) return method === "GET" || method === "DELETE" ? "do" : null;
   if (/^\/uploads\/[0-9a-f]{16}\/raw$/.test(rest)) return method === "GET" ? "do" : null;
   if (rest === "/members") return method === "GET" || method === "PATCH" ? "d1" : null;
+  if (rest === "/maintenance/backfill") return method === "POST" ? "d1" : null;
   if (/^\/stats\/(overview|bosses|leaderboard|player|compare|trends)$/.test(rest)) return method === "GET" ? "d1" : null;
   return null;
 }

@@ -107,7 +107,7 @@ function fakeRecord({ id, uploader, start, targetId = 4242, party = PARTY, durat
   });
   const total = skills.reduce((s, x) => s + x.dmg, 0);
   return {
-    id, bossName: "Testboss Kelpina", targetId, startTimeMs: start, durationMs, totalDamage: total,
+    id, bossName: "Testboss Kelpina", targetId, startTimeMs: start, durationMs, totalDamage: total, killed: true,
     jobs: [], jobIds: [], details: { targetId, maxHp: 5000000, totalTargetDamage: total, battleTime: durationMs, startTime: 0, skills,
       pingHistory: Array.from({ length: 20 }, (_, i) => ({ tsMs: start + i * 3000, pingMs: 40 + i })), healSkills: [] },
     actors, isTrain: false, appVersion: "2.0.41", mobCode: 4242, dungeonId: 600072,
@@ -271,12 +271,21 @@ async function main() {
     JSON.stringify(ov.group));
   const cmp = await getj("/stats/compare?days=30");
   check("Vergleich: Mitglieder, pro Boss, Verlauf", cmp.members?.length >= 3 && cmp.matrix?.length >= 1 && cmp.members.some((m) => m.firsts >= 1) && cmp.series?.points?.length > 0);
+  const bf = await (await fetch(`${BASE}/api/rooms/${ROOM}/maintenance/backfill`, { method: "POST", headers: auth })).json();
+  check("Peak-DPS und Frontal-Quote alter Kämpfe nachgetragen", bf.remaining === 0, JSON.stringify(bf));
+  const mPeak = (await getj("/stats/compare?days=30")).members.find((m) => m.name === "Marlon");
+  check("Frontal-Quote im Vergleich", mPeak?.avgFront > 0, String(mPeak?.avgFront));
+  check("Peak (10 s) da und mindestens der Kampfschnitt", mPeak?.bestPeak >= mPeak?.bestDps * 0.95, `${mPeak?.bestPeak} / ${mPeak?.bestDps}`);
+  const fl = await getj("/fights?limit=5");
+  check("Kampfliste: besiegt-Flag", fl.fights?.some((f) => f.killed === true));
+  const meK = await getj(`/stats/player?name=Marlon&days=30`);
+  check("Mein Bereich: schnellster Kill je Boss", meK.records?.[0]?.fastestKill > 0, String(meK.records?.[0]?.fastestKill));
   const cmpF = await getj("/stats/compare?days=30&bucket=fight");
   const fp = cmpF.series?.points ?? [];
   const fPeriods = [...new Set(fp.map((p) => p.period))];
   check("Vergleich: Verlauf pro Kampf (ein Punkt je Spieler und Kampf, mit Boss)",
     cmpF.series?.bucket === "fight" && fPeriods.length >= 2 && fp.every((p) => p.boss && /^\d{13}$/.test(p.period)) &&
-      fp.filter((p) => p.player === "Marlon").length === fPeriods.length && fPeriods.join() === [...fPeriods].sort().join(),
+      fp.filter((p) => p.player === "Marlon").length === fPeriods.length && fp.every((p) => p.peakDps > 0) && fPeriods.join() === [...fPeriods].sort().join(),
     `${fPeriods.length} Kämpfe, ${fp.length} Punkte`);
   const tr = await getj(`/stats/trends?days=30&tz=${-new Date().getTimezoneOffset()}&boss=4242:600072`);
   check("Trends: Punkte pro Spieler und Tag", tr.points?.some((p) => p.player === "Marlon" && p.fights >= 2), JSON.stringify(tr.points?.[0]));
@@ -410,6 +419,8 @@ async function main() {
     await late.opened;
     await sleep(500);
     const first = late.msgs.find((m) => m.t === "bosses");
+    const viaHttp = await getj("/bosses");
+    check("Dashboard liest Boss-Timer per GET /bosses", viaHttp.timers?.some((x) => x.code === 2400800 && x.killedAt === t0));
     check("neue App bekommt gespeicherte Boss-Timer", first?.timers?.some((x) => x.code === 2400800 && x.killedAt === t0 && x.intervalMin === 120));
     late.ws.close(1000);
   }

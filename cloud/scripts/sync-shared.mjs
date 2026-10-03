@@ -10,4 +10,6 @@ const src = join(root, "..", "public", "fork");
 const dst = join(root, "public", "shared");
 mkdirSync(dst, { recursive: true });
 for (const f of ["events.json", "schedule.js"]) copyFileSync(join(src, f), join(dst, f));
-console.log("sync-shared: events.json + schedule.js aus app/public/fork kopiert");
+// Dungeon-Namen aus den Spieldaten des Meters (statt „Instanz 600072“)
+copyFileSync(join(root, "..", "src", "data", "i18n", "dungeons", "en.json"), join(dst, "dungeons.json"));
+console.log("sync-shared: events.json, schedule.js, dungeons.json kopiert");

@@ -74,6 +74,8 @@ export interface PlayerDetail {
   hits: number;
   critRate: number;
   backRate: number;
+  /** Anteil Frontal-Treffer; fehlt in Uploads von vor 2026-10-03 (dann frontRateOf) */
+  frontRate?: number;
   perfectRate: number;
   doubleRate: number;
   skills: SkillRow[];
@@ -96,6 +98,8 @@ export interface UploadDetail {
   totalDamage: number;
   maxHp: number;
   isTrain: boolean;
+  /** Boss besiegt (App ab 3.0.4; ältere Uploads: fehlt = unbekannt) */
+  killed?: boolean;
   appVersion: string;
   actorCount: number;
   players: PlayerDetail[];
@@ -127,6 +131,8 @@ export interface EncounterSummary {
   totalDamage: number;
   maxHp: number;
   isTrain: boolean;
+  /** Boss besiegt (App ab 3.0.4; ältere Uploads: fehlt = unbekannt) */
+  killed?: boolean;
   actorCount: number;
   uploaders: string[];
   top: TopEntry[];
@@ -170,6 +176,33 @@ const i32 = (v: unknown) => num(v, -2147483648, 2147483647);
 
 export class RecordError extends Error {}
 
+/** Frontal-Quote; ältere Uploads ohne frontRate rechnen sie aus den (gekürzten) Skills nach. */
+export function frontRateOf(p: { frontRate?: number; hits: number; skills: { hits: number; frontal?: number }[] }): number {
+  if (typeof p.frontRate === "number") return p.frontRate;
+  const hits = p.skills.reduce((a, k) => a + k.hits, 0);
+  return hits > 0 ? r1((p.skills.reduce((a, k) => a + (k.frontal ?? 0), 0) / hits) * 100) : 0;
+}
+
+/** Fenster für den Peak-DPS (Burst) */
+export const PEAK_WINDOW_MS = 10_000;
+
+/**
+ * Höchster Schnitt über PEAK_WINDOW_MS aus dem Schadensverlauf (Buckets à bucketMs).
+ * null, wenn der Kampf kürzer als das Fenster ist – dann ist der Peak der Kampfschnitt.
+ */
+export function peakDps(dmg: number[], bucketMs: number): number | null {
+  const k = Math.max(1, Math.round(PEAK_WINDOW_MS / Math.max(1, bucketMs)));
+  if (dmg.length <= k) return null;
+  let sum = 0;
+  for (let i = 0; i < k; i++) sum += dmg[i];
+  let best = sum;
+  for (let i = k; i < dmg.length; i++) {
+    sum += dmg[i] - dmg[i - k];
+    if (sum > best) best = sum;
+  }
+  return r1(best / ((k * bucketMs) / 1000));
+}
+
 /** Prueft die Mindeststruktur eines FightRecord. */
 export function assertRecord(r: any): void {
   if (!r || typeof r !== "object") throw new RecordError("Kein JSON-Objekt");
@@ -189,11 +222,11 @@ export function buildUpload(r: any, uploader: string, known: string[]): UploadDe
   const unmask = unmasker([...known, uploader]);
   const knownLc = new Set([...known, uploader].map((n) => n.toLowerCase()));
 
-  type Agg = { dmg: number; hits: number; crit: number; back: number; perfect: number; double: number; skills: SkillRow[]; heal: number; heals: HealRow[] };
+  type Agg = { dmg: number; hits: number; crit: number; back: number; frontal: number; perfect: number; double: number; skills: SkillRow[]; heal: number; heals: HealRow[] };
   const agg = new Map<number, Agg>();
   const get = (id: number) => {
     let a = agg.get(id);
-    if (!a) agg.set(id, (a = { dmg: 0, hits: 0, crit: 0, back: 0, perfect: 0, double: 0, skills: [], heal: 0, heals: [] }));
+    if (!a) agg.set(id, (a = { dmg: 0, hits: 0, crit: 0, back: 0, frontal: 0, perfect: 0, double: 0, skills: [], heal: 0, heals: [] }));
     return a;
   };
   for (const s of r.details.skills as any[]) {
@@ -222,6 +255,7 @@ export function buildUpload(r: any, uploader: string, known: string[]): UploadDe
     a.hits += row.hits;
     a.crit += row.crit;
     a.back += row.back;
+    a.frontal += row.frontal;
     a.perfect += row.perfect;
     a.double += row.double;
     a.skills.push(row);
@@ -258,6 +292,7 @@ export function buildUpload(r: any, uploader: string, known: string[]): UploadDe
         hits: a.hits,
         critRate: pct(a.crit),
         backRate: pct(a.back),
+        frontRate: pct(a.frontal),
         perfectRate: pct(a.perfect),
         doubleRate: pct(a.double),
         skills: a.skills.sort((x, y) => y.dmg - x.dmg).slice(0, MAX_SKILLS_PER_PLAYER),
@@ -342,6 +377,7 @@ export function buildUpload(r: any, uploader: string, known: string[]): UploadDe
     totalDamage,
     maxHp: num(r.details?.maxHp, 0, 1e15),
     isTrain: r.isTrain === true,
+    killed: r.killed === true,
     appVersion: cleanName(r.appVersion, 32),
     actorCount: all.length,
     players,
@@ -466,6 +502,7 @@ export function mergeEncounter(id: string, uploads: StoredUpload[], known: strin
     totalDamage,
     maxHp: Math.max(...uploads.map((u) => u.detail.maxHp)),
     isTrain: uploads.every((u) => u.detail.isTrain),
+    killed: uploads.some((u) => u.detail.killed === true),
     actorCount,
     uploaders: [...new Set(uploads.map((u) => u.uploader))],
     top: players

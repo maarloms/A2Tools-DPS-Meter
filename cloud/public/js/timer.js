@@ -2,8 +2,8 @@
 // events.json und schedule.js werden beim Build unverändert aus app/public/fork
 // kopiert (scripts/sync-shared.mjs); hier wird nur importiert, nichts nachgebaut.
 
-import { countdown, eventState } from "../shared/schedule.js";
-import { $, $$, currentRoute, empty, esc, pageHead, view } from "./core.js";
+import { countdown, eventState, respawnState } from "../shared/schedule.js";
+import { $, $$, apiJson, currentRoute, empty, esc, pageHead, view } from "./core.js";
 
 const KEY = "a2dps.timer";
 const time = new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit" });
@@ -20,6 +20,38 @@ let prefs = null;
 let tick = null;
 let signature = "";
 let showFilter = false;
+/** Feldboss-Timer des Raums (Kills/Karten-Zeiten aus den Apps), nach Mob-Code */
+const bosses = new Map();
+let bossesAt = 0;
+
+async function loadBossTimers() {
+  bossesAt = Date.now(); // auch bei Fehlern erst in 30 s wieder
+  try {
+    const d = await apiJson("/bosses");
+    bosses.clear();
+    for (const t of d.timers || []) bosses.set(t.code, t);
+    signature = "";
+  } catch {
+    /* ohne Raum-Daten bleiben die Feldbosse leer */
+  }
+}
+
+const stateOf = (event, now) =>
+  event.kind === "respawn"
+    ? respawnState(event, event.mobCodes.map((c) => bosses.get(c)).filter(Boolean).sort((a, b) => b.updated - a.updated)[0], now)
+    : eventState(event, now, prefs.offset);
+
+/** [Countdown, Zeile darunter] für einen Feldboss – wie im Overlay der App */
+function bossText(event, st, now) {
+  const by = st.by ? ` · ${st.by}` : "";
+  switch (st.status) {
+    case "alive": return ["da", `Gesichtet ${when(st.seen, now)}${by}`];
+    case "due": return ["fällig", `Respawn seit ${when(st.respawn, now)}${by}`];
+    case "waiting": return [countdown(st.remaining), `Respawn ${st.estimated ? "~" : ""}${when(st.respawn, now)}${by}`];
+    case "killed": return [`+${countdown(now - st.killed)}`, `Getötet ${when(st.killed, now)} · Takt noch offen${by}`];
+    default: return ["—", `${event.zone} · noch keine Meldung`];
+  }
+}
 
 function loadPrefs() {
   let saved = null;
@@ -45,14 +77,18 @@ export async function loadTimer() {
       const r = await fetch("shared/events.json", { cache: "no-cache" });
       if (!r.ok) throw new Error("events.json fehlt");
       data = await r.json();
-      // Feldbosse haben keinen Zeitplan; ihre Timer kennt nur die App.
-      data.events = data.events.filter((e) => e.kind !== "respawn");
     }
+    await loadBossTimers();
     if (!prefs) loadPrefs();
     signature = "";
     renderShell();
     clearInterval(tick);
-    tick = setInterval(() => (currentRoute().name === "timer" ? renderRows() : clearInterval(tick)), 1000);
+    tick = setInterval(() => {
+      if (currentRoute().name !== "timer") return clearInterval(tick);
+      // Feldboss-Meldungen der Gruppe alle 30 s nachladen
+      if (Date.now() - bossesAt > 30_000) loadBossTimers().then(renderRows);
+      renderRows();
+    }, 1000);
   } catch {
     view.innerHTML = `<div class="page">${empty("Timer nicht verfügbar", "Der Event-Plan (shared/events.json) fehlt – beim Build wird er aus app/public/fork kopiert.")}</div>`;
   }
@@ -66,7 +102,7 @@ function renderShell() {
         .filter((e) => e.category === c)
         .map(
           (e) => `<label class="check"><input type="checkbox" data-id="${esc(e.id)}" ${prefs.enabled.includes(e.id) ? "checked" : ""}>
-            ${esc(e.name)}${e.confirmed ? "" : ' <span class="meta">(unbestätigt)</span>'}</label>`,
+            ${esc(e.name)}${e.kind === "respawn" ? ` <span class="meta">(${esc(e.zone)})</span>` : e.confirmed ? "" : ' <span class="meta">(unbestätigt)</span>'}</label>`,
         )
         .join("")}</fieldset>`,
     )
@@ -108,10 +144,10 @@ function renderRows() {
   if (!host) return;
   const now = Date.now();
   $("#tClock").textContent = clock.format(now);
-  const selected = data.events.filter((e) => prefs.enabled.includes(e.id)).map((event) => ({ event, st: eventState(event, now, prefs.offset) }));
+  const selected = data.events.filter((e) => prefs.enabled.includes(e.id)).map((event) => ({ event, st: stateOf(event, now) }));
   const cats = [...new Set(data.events.map((e) => e.category))];
   const rows = cats.flatMap((c) => selected.filter((x) => x.event.category === c).sort((a, b) => a.st.remaining - b.st.remaining));
-  const sig = JSON.stringify(rows.map((x) => [x.event.id, x.st.active, x.st.remaining <= 300000]));
+  const sig = JSON.stringify(rows.map((x) => [x.event.id, x.st.active, x.st.remaining <= 300000, x.st.status]));
   if (sig !== signature) {
     signature = sig;
     let cat = null;
@@ -130,6 +166,12 @@ function renderRows() {
   for (const { event, st } of rows) {
     const row = host.querySelector(`[data-id="${CSS.escape(event.id)}"]`);
     if (!row) continue;
+    if (event.kind === "respawn") {
+      const [count, meta] = bossText(event, st, now);
+      row.querySelector(".countdown").textContent = count;
+      row.querySelector(".tmeta").textContent = meta;
+      continue;
+    }
     row.querySelector(".countdown").textContent = countdown(st.remaining);
     row.querySelector(".tmeta").textContent =
       (st.active ? (event.activeText || "Läuft bis") + " " + time.format(st.end) : "Start " + when(st.start, now)) + (event.confirmed ? "" : " · unbestätigt");

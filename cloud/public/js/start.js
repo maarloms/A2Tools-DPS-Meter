@@ -37,7 +37,7 @@ const FEATURES = [
   ["Overlay-Meter", "Schlankes DPS-Fenster über dem Spiel, immer im Vordergrund, auf Wunsch durchklickbar."],
   ["TARGET & GROUP", "TARGET zeigt den Schaden auf dein aktuelles Ziel, GROUP alles, was du und deine Gruppe gerade bekämpft."],
   ["Event-Timer mit Alarm", "Raumzeit-Risse, Belagerungen, Weltbosse – frei filterbar, mit Hinweiston kurz vorher."],
-  ["Kampf-Historie", "Jeder Bosskampf wird gespeichert: Skills, Krit- und Rücken-Quoten, DPS-Verlauf."],
+  ["Kampf-Historie", "Jeder Bosskampf wird gespeichert: Skills, Krit-, Rücken- und Frontal-Quoten, DPS-Verlauf."],
   ["Gruppen-Dashboard", "Live sehen, was die anderen machen, dazu Bestwerte, Vergleiche und Trends für uns drei."],
 ];
 
