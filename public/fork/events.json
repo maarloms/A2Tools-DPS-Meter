@@ -359,7 +359,7 @@
       "enabled": true,
       "confirmed": false,
       "id": "fb-gartua-altgard",
-      "category": "Feldbosse",
+      "category": "Feldbosse Altgard",
       "name": "Unsterblicher Gartua",
       "zone": "Altgard · Unsterbliche Insel",
       "mobCodes": [
@@ -376,7 +376,7 @@
       "enabled": true,
       "confirmed": false,
       "id": "fb-lagta-altgard",
-      "category": "Feldbosse",
+      "category": "Feldbosse Altgard",
       "name": "Legat Lagta",
       "zone": "Altgard",
       "mobCodes": [
@@ -390,7 +390,7 @@
       "enabled": true,
       "confirmed": false,
       "id": "fb-kashapa-altgard",
-      "category": "Feldbosse",
+      "category": "Feldbosse Altgard",
       "name": "Seelenherrscher Kashapa",
       "zone": "Altgard",
       "mobCodes": [
@@ -407,7 +407,7 @@
       "enabled": true,
       "confirmed": false,
       "id": "fb-dartan-altgard",
-      "category": "Feldbosse",
+      "category": "Feldbosse Altgard",
       "name": "Schweigender Dartan",
       "zone": "Altgard",
       "mobCodes": [
@@ -421,7 +421,7 @@
       "enabled": false,
       "confirmed": false,
       "id": "fb-gartua-verteron",
-      "category": "Feldbosse",
+      "category": "Feldbosse Verteron",
       "name": "Ewiger Gartua",
       "zone": "Verteron",
       "mobCodes": [
@@ -435,7 +435,7 @@
       "enabled": false,
       "confirmed": false,
       "id": "fb-lagta-verteron",
-      "category": "Feldbosse",
+      "category": "Feldbosse Verteron",
       "name": "Legat Lagta",
       "zone": "Verteron",
       "mobCodes": [
@@ -449,7 +449,7 @@
       "enabled": false,
       "confirmed": false,
       "id": "fb-kashapa-verteron",
-      "category": "Feldbosse",
+      "category": "Feldbosse Verteron",
       "name": "Seelenherrscher Kashapa",
       "zone": "Verteron",
       "mobCodes": [
@@ -463,7 +463,7 @@
       "enabled": false,
       "confirmed": false,
       "id": "fb-dartan-verteron",
-      "category": "Feldbosse",
+      "category": "Feldbosse Verteron",
       "name": "Schweigender Dartan",
       "zone": "Verteron",
       "mobCodes": [
