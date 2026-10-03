@@ -44,6 +44,26 @@ export function fmtShort(n) {
   return nf0.format(Math.round(n));
 }
 export const fmtPct = (n) => nf1.format(n || 0) + " %";
+
+/** Neuer Bestwert als kurzer Text: „DPS 34,2k (vorher 30,1k)“ */
+export const recordText = (r) => `${r.kind === "peak" ? "Peak" : "DPS"} ${fmtShort(r.value)} (vorher ${fmtShort(r.prev)})`;
+
+/** Kurze Einblendung unten rechts, verschwindet nach `ms` oder per Klick */
+export function notify(html, ms = 9000) {
+  let el = document.getElementById("toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    el.className = "toast";
+    el.setAttribute("role", "status");
+    el.addEventListener("click", () => el.classList.remove("on"));
+    document.body.appendChild(el);
+  }
+  el.innerHTML = html;
+  el.classList.add("on");
+  clearTimeout(notify.timer);
+  notify.timer = setTimeout(() => el.classList.remove("on"), ms);
+}
 export function fmtTime(ms) {
   const s = Math.max(0, Math.round((ms || 0) / 1000));
   const h = Math.floor(s / 3600);

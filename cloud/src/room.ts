@@ -29,6 +29,7 @@ import {
 } from "./fights";
 import { deleteEncounter, loadEncounter, registerMember, saveUpload } from "./store";
 import { activeMembers, isAllowed } from "./members";
+import { recordsOf } from "./stats";
 
 interface Attachment {
   role: Role | "pending";
@@ -49,6 +50,7 @@ interface RateState {
 }
 
 const CHUNK = 1_500_000; // SQLite-Zeile max. 2 MB
+const RECORD_FRESH_MS = 3 * 3_600_000; // ältere Kämpfe (nachgeladen) melden keine Rekorde mehr
 const dec = new TextDecoder();
 
 function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {
@@ -539,6 +541,13 @@ export class Room extends DurableObject<Env> {
     });
 
     this.broadcast(JSON.stringify({ t: "fight", fight: res.detail.summary, replaced: res.replaced }), false);
+    // Neue Bestwerte an alle Meter und Dashboards, nur für frische Kämpfe (nicht beim Nachladen alter)
+    const s = res.detail.summary;
+    if (res.records.length && now - s.startMs < RECORD_FRESH_MS)
+      this.broadcast(
+        JSON.stringify({ t: "record", fightId: res.encounterId, boss: s.boss, mobCode: s.mobCode, dungeonId: s.dungeonId, records: res.records }),
+        false,
+      );
     return json(
       {
         ok: true,
@@ -548,6 +557,7 @@ export class Room extends DurableObject<Env> {
         perspectives: res.perspectives,
         url: `/#/fight/${res.encounterId}`,
         rawBytes: gz.length,
+        records: res.records,
       },
       res.replaced ? 200 : 201,
     );
@@ -581,6 +591,7 @@ export class Room extends DurableObject<Env> {
         lanes: d.timeline.lanes.map((x) => ({ ...x, member: member(x.name) })),
       },
       uploads: d.uploads.map((u) => ({ ...u, raw: haveRaw.has(u.id) })),
+      records: (await recordsOf(this.env.DB, [id])).get(id) ?? [],
     });
   }
 

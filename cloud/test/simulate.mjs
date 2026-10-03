@@ -242,6 +242,38 @@ async function main() {
   const up4j = await (await post("Marlon", recLater)).json();
   check("anderer Pull → neuer Kampf", up4j.fightId && up4j.fightId !== up1j.fightId, JSON.stringify(up4j));
 
+  // ---------- Neue Bestwerte ----------
+  check("erster Kampf gegen den Boss ist kein Rekord", Array.isArray(up1j.records) && up1j.records.length === 0, JSON.stringify(up1j.records));
+  const STRONG = PARTY.map((p) => (p.name === "Marlon" ? { ...p, rate: 15000 } : p));
+  const tRec = t0f + 1_200_000;
+  const recBest = fakeRecord({ id: `auto_4244_${tRec}`, uploader: "Marlon", start: tRec, targetId: 4244, party: STRONG });
+  const seenBefore = viewer.msgs.length;
+  const up5j = await (await post("Marlon", recBest)).json();
+  const mRec = up5j.records?.find((r) => r.name === "Marlon" && r.kind === "dps");
+  check("Rekord: höherer Schnitt wird erkannt, mit altem Bestwert", mRec && mRec.value > mRec.prev && mRec.prev > 0, JSON.stringify(up5j.records));
+  check("Rekord: nur wer besser war", !up5j.records?.some((r) => r.name === "Freund1" && r.kind === "dps"));
+  await sleep(300);
+  const recMsgs = viewer.msgs.slice(seenBefore).filter((m) => m.t === "record");
+  check("Rekord geht an Dashboard und Apps", recMsgs.length === 1 && recMsgs[0].fightId === up5j.fightId && recMsgs[0].boss === "Testboss Kelpina" &&
+    apps[0].msgs.some((m) => m.t === "record" && m.fightId === up5j.fightId), JSON.stringify(recMsgs));
+  const recBest2 = fakeRecord({ id: `auto_4244_${tRec + 1500}`, uploader: "Freund2", start: tRec + 1500, targetId: 4244, party: STRONG });
+  const up6j = await (await post("Freund2", recBest2)).json();
+  await sleep(300);
+  check("Rekord: zweite Perspektive meldet ihn nicht nochmal", up6j.fightId === up5j.fightId && !up6j.records?.some((r) => r.name === "Marlon") &&
+    viewer.msgs.filter((m) => m.t === "record").length === 1, JSON.stringify(up6j.records));
+  const recOld = fakeRecord({ id: `auto_4245_${tRec - 86_400_000}`, uploader: "Marlon", start: tRec - 86_400_000, targetId: 4245,
+    party: PARTY.map((p) => (p.name === "Marlon" ? { ...p, rate: 20000 } : p)) });
+  const up7j = await (await post("Marlon", recOld)).json();
+  await sleep(300);
+  check("Rekord aus nachgeladenem altem Kampf: gespeichert, nicht gemeldet", up7j.records?.some((r) => r.name === "Marlon") &&
+    viewer.msgs.filter((m) => m.t === "record").length === 1, JSON.stringify(up7j.records));
+  const recList = await fetch(`${BASE}/api/rooms/${ROOM}/fights?limit=50`, { headers: auth }).then((r) => r.json());
+  check("Kampfliste: Rekorde je Kampf", recList.fights?.find((f) => f.id === up5j.fightId)?.records?.some((r) => r.name === "Marlon" && r.kind === "dps"));
+  const recDet = await fetch(`${BASE}/api/rooms/${ROOM}/fights/${up5j.fightId}`, { headers: auth }).then((r) => r.json());
+  check("Kampfdetail: Rekorde", recDet.records?.some((r) => r.name === "Marlon" && r.prev > 0));
+  const recOv = await fetch(`${BASE}/api/rooms/${ROOM}/stats/overview`, { headers: auth }).then((r) => r.json());
+  check("Übersicht: neue Bestwerte", recOv.records?.some((r) => r.fightId === up5j.fightId && r.name === "Marlon" && r.boss === "Testboss Kelpina"));
+
   const list = await fetch(`${BASE}/api/rooms/${ROOM}/fights`, { headers: auth }).then((r) => r.json());
   const lf = list.fights?.find((f) => f.id === up1j.fightId);
   check("Liste: zusammengeführter Kampf mit 2 Uploadern", lf && lf.uploaders.length === 2, JSON.stringify(lf?.uploaders));

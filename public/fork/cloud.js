@@ -101,6 +101,8 @@
         tauri.core.invoke("get_field_bosses").then(sendBosses).catch(() => {});
       } else if (msg.t === "bosses") {
         tauri.core.invoke("merge_field_bosses", { timers: msg.timers || [] }).catch((e) => console.error("Field bosses:", e));
+      } else if (msg.t === "record") {
+        showRecord(msg);
       } else if (msg.t === "error" && ["hello_timeout", "replaced"].includes(msg.code)) {
         socket.close();
       }
@@ -120,6 +122,46 @@
       }
     };
   }
+
+  // New personal bests in the room (the worker spots them on upload), as a
+  // banner at the bottom of the meter for a few seconds.
+  const short = (v) => {
+    const n = Number(v) || 0;
+    const txt = n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(Math.round(n));
+    return german() ? txt.replace(".", ",") : txt;
+  };
+  let toastTimer = null;
+  function showRecord(msg) {
+    const me = String(characterName() || "").trim().toLowerCase();
+    const byName = new Map();
+    for (const r of msg.records || []) {
+      const e = byName.get(r.name) || {};
+      e[r.kind] = r;
+      byName.set(r.name, e);
+    }
+    if (!byName.size) return;
+    const lines = [...byName.entries()].map(([name, r]) => {
+      const who = name.toLowerCase() === me ? t("Du", "You") : name;
+      const main = r.dps
+        ? `${short(r.dps.value)} DPS <small>(${t("vorher", "was")} ${short(r.dps.prev)})</small>`
+        : `Peak ${short(r.peak.value)} <small>(${t("vorher", "was")} ${short(r.peak.prev)})</small>`;
+      const extra = r.dps && r.peak ? ` · Peak ${short(r.peak.value)}` : "";
+      return `<div><b>${esc(who)}</b> ${main}${extra}</div>`;
+    });
+    let el = document.querySelector(".forkToast");
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "forkToast";
+      el.setAttribute("role", "status");
+      el.addEventListener("click", () => el.classList.remove("on"));
+      document.body.appendChild(el);
+    }
+    el.innerHTML = `<div class="forkToastHead">🏆 ${t("Neuer Rekord", "New record")} · ${esc(msg.boss || "")}</div>${lines.join("")}`;
+    el.classList.add("on");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("on"), 8000);
+  }
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
   function sendSnap(d) {
     if (!ws || ws.readyState !== 1 || !d?.map || !Object.keys(d.map).length) return;

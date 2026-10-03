@@ -3,6 +3,7 @@
 
 import {
   apiJson, avatar, currentRoute, dungeonName, empty, esc, failed, fmtDate, fmtNum, fmtPct, fmtShort, fmtTime, job, kpi, loading, loadMembers, pageHead, trend, view,
+  recordText,
 } from "./core.js";
 import { livePanel } from "./live.js";
 
@@ -57,6 +58,29 @@ function weekCard(w, members) {
     <div class="table-wrap"><table class="tbl"><thead><tr><th>Wer</th><th class="num">Kämpfe</th><th class="num">Kills</th><th class="num">Bester DPS</th>
       <th class="num" title="Ø DPS je Boss gegen die Vorwoche, nur Bosse aus beiden Wochen">Fortschritt</th></tr></thead><tbody>${rows}</tbody></table></div>
   </section>`;
+}
+
+/** Neue Bestwerte der letzten 14 Tage, je Kampf und Spieler eine Zeile */
+function recordsCard(records, members) {
+  if (!records?.length) return "";
+  const jobOf = (name) => members.find((m) => m.name.toLowerCase() === name.toLowerCase()) ?? {};
+  const rows = new Map();
+  for (const r of records) {
+    const k = `${r.fightId}|${r.name}`;
+    if (!rows.has(k)) rows.set(k, { ...r, list: [] });
+    rows.get(k).list.push(r);
+  }
+  const items = [...rows.values()]
+    .map((r) => {
+      const j = jobOf(r.name);
+      return `<a class="frow" href="#/fight/${esc(r.fightId)}"><div>${avatar(r.name, j.job, j.jobId)} <b>${esc(r.name)}</b>
+        <div class="muted small">${esc(r.boss)}${r.dungeonId ? ` · ${esc(dungeonName(r.dungeonId))}` : ""} · ${fmtDate(r.startMs)}</div></div>
+        <div class="rec-vals">${r.list.map((x) => `<span>${esc(recordText(x))}</span>`).join("")}</div></a>`;
+    })
+    .join("");
+  return `<section class="card"><div class="card-head"><div><h2>🏆 Neue Bestwerte</h2>
+    <p class="muted small">Letzte 14 Tage · besser als jeder frühere Kampf gegen denselben Boss</p></div></div>
+    <div class="flist">${items}</div></section>`;
 }
 
 function renderOverview(d) {
@@ -118,6 +142,7 @@ function renderOverview(d) {
     <div id="livePanel">${livePanel()}</div>
     <div class="mcards">${cards}</div>
     ${weekCard(d.week, d.members)}
+    ${recordsCard(d.records, d.members)}
     <div class="kpis">
       ${kpi("Kämpfe zusammen", fmtNum(g.together), `von ${fmtNum(g.fights)} Bosskämpfen`)}
       ${kpi("Diese Woche", fmtNum(g.fights7), "Bosskämpfe")}

@@ -2,7 +2,7 @@
 // Dieses Skript wird nur mit gültiger Session ausgeliefert (Cookie, siehe src/session.ts).
 // Einstieg: Session, Navigation, WebSocket (Live), Routing.
 
-import { $, currentRoute, esc, getMe, loadDungeons, loadMembers, state, view } from "./js/core.js";
+import { $, currentRoute, esc, getMe, loadDungeons, loadMembers, notify, recordText, state, view } from "./js/core.js";
 import { renderStart } from "./js/start.js";
 import { loadOverview, refreshOverviewLive } from "./js/overview.js";
 import { loadMe } from "./js/me.js";
@@ -122,6 +122,10 @@ function connect() {
       // Liste im Hintergrund nachladen: die alte bleibt stehen, kein Sprung nach oben
       if (route === "fights") keepScroll(() => loadFights(false, { quiet: true }));
       else state.fights = null;
+    } else if (m.t === "record") {
+      notify(`<b>🏆 Neuer Rekord · ${esc(m.boss)}</b>${(m.records || [])
+        .map((r) => `<div>${esc(r.name)}: ${esc(recordText(r))}</div>`)
+        .join("")}<a class="link" href="#/fight/${esc(m.fightId)}">Zum Kampf →</a>`);
     } else if (m.t === "error" && (m.code === "hello_timeout" || m.code === "replaced")) {
       ws.close();
     }

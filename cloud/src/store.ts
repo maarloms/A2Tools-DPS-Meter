@@ -94,7 +94,19 @@ export interface SaveResult {
   perspectives: number;
   detail: EncounterDetail;
   removedUploads: string[];
+  /** Neue Bestwerte dieses Kampfs, die vorher noch nicht gemeldet waren */
+  records: RecordHit[];
 }
+
+export interface RecordHit {
+  name: string;
+  kind: "dps" | "peak";
+  value: number;
+  prev: number;
+}
+
+/** Kürzere Kämpfe zählen nicht: ein paar Sekunden Burst ergäben sonst Fantasie-Schnitte. */
+export const RECORD_MIN_MS = 20_000;
 
 /** Speichert einen Upload, fuehrt den Kampf neu zusammen und aktualisiert player_stats. */
 export async function saveUpload(
@@ -120,8 +132,9 @@ export async function saveUpload(
     .run();
 
   const merged = await remerge(db, room, encounterId, known, now);
+  const records = await newRecords(db, room, encounterId, merged, known);
   const removedUploads = await enforceRetention(db, room);
-  return { uploadId, encounterId, replaced: !!existing, perspectives: merged.uploads.length, detail: merged, removedUploads };
+  return { uploadId, encounterId, replaced: !!existing, perspectives: merged.uploads.length, detail: merged, removedUploads, records };
 }
 
 /** Liest alle Uploads eines Kampfs, fuehrt zusammen und schreibt encounters + player_stats. */
@@ -180,6 +193,49 @@ async function remerge(db: D1Database, room: string, encounterId: string, known:
   }
   await db.batch(stmts); // atomar
   return d;
+}
+
+/**
+ * Neue Bestwerte unserer Mitglieder in diesem Kampf: Schnitt und Peak gegen alle anderen Kämpfe
+ * desselben Bosses in derselben Instanz (ohne Training, ab RECORD_MIN_MS). Der erste Kampf gegen
+ * einen Boss ist kein Rekord. Jeder Rekord wird einmal gespeichert; geliefert werden nur die
+ * neu gespeicherten, damit ein zweiter Upload desselben Kampfs ihn nicht nochmal meldet.
+ */
+async function newRecords(db: D1Database, room: string, encounterId: string, d: EncounterDetail, known: string[]): Promise<RecordHit[]> {
+  const s = d.summary;
+  if (s.isTrain || s.durationMs < RECORD_MIN_MS) return [];
+  const knownLc = new Set(known.map((n) => n.toLowerCase()));
+  const peaks = peaksOf(d);
+  const out: RecordHit[] = [];
+  for (const p of d.players) {
+    const lc = p.name.toLowerCase();
+    if (!knownLc.has(lc) || p.dmg <= 0) continue;
+    const before = await db
+      .prepare(
+        `SELECT COUNT(*) AS n, MAX(dps) AS dps, MAX(peak_dps) AS peak FROM player_stats
+         WHERE room = ?1 AND player_lc = ?2 AND mob_code = ?3 AND dungeon_id = ?4 AND is_train = 0
+           AND duration_ms >= ?5 AND encounter_id != ?6`,
+      )
+      .bind(room, lc, s.mobCode, s.dungeonId, RECORD_MIN_MS, encounterId)
+      .first<{ n: number; dps: number | null; peak: number | null }>();
+    if (!before?.n) continue;
+    const candidates: [RecordHit["kind"], number | null, number | null][] = [
+      ["dps", p.dps, before.dps],
+      ["peak", peaks.get(lc) ?? null, before.peak],
+    ];
+    for (const [kind, value, prev] of candidates) {
+      if (value === null || prev === null || !(value > prev)) continue;
+      const res = await db
+        .prepare(
+          `INSERT INTO records (encounter_id, room, player, player_lc, kind, value, prev, mob_code, boss, dungeon_id, start_ms)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) ON CONFLICT DO NOTHING`,
+        )
+        .bind(encounterId, room, p.name, lc, kind, value, prev, s.mobCode, s.boss, s.dungeonId, s.startMs)
+        .run();
+      if (res.meta.changes) out.push({ name: p.name, kind, value, prev });
+    }
+  }
+  return out;
 }
 
 /** Peak-DPS je Spieler (klein geschrieben) aus dem Zeitverlauf; ohne Verlauf oder bei kurzen Kämpfen fehlt er. */
@@ -247,6 +303,7 @@ export async function deleteEncounter(db: D1Database, encounterId: string): Prom
   const ups = (await db.prepare("SELECT id FROM uploads WHERE encounter_id = ?1").bind(encounterId).all<{ id: string }>()).results;
   await db.batch([
     db.prepare("DELETE FROM player_stats WHERE encounter_id = ?1").bind(encounterId),
+    db.prepare("DELETE FROM records WHERE encounter_id = ?1").bind(encounterId),
     db.prepare("DELETE FROM uploads WHERE encounter_id = ?1").bind(encounterId),
     db.prepare("DELETE FROM encounters WHERE id = ?1").bind(encounterId),
   ]);

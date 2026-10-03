@@ -131,6 +131,11 @@ anderer Apps. Nur an Apps.
 
 **fight** – ein Kampf wurde hochgeladen/aktualisiert: `{ "t": "fight", "fight": <Kampf-Zusammenfassung>, "replaced": false }`
 **fightDeleted** – `{ "t": "fightDeleted", "id": "<fightId>" }`
+**record** – neue Bestwerte aus einem gerade hochgeladenen Kampf, an Apps und Dashboards, einmal je Kampf und Spieler:
+`{ "t": "record", "fightId": "…", "boss": "…", "mobCode": 2400017, "dungeonId": 0, "records": [ { "name": "Zhou", "kind": "dps", "value": 34210.5, "prev": 30122.1 } ] }`.
+`kind`: `dps` (Kampfschnitt) oder `peak` (bestes 10-s-Fenster). Ein Rekord ist besser als jeder andere Kampf desselben Mitglieds gegen
+denselben Boss (`mobCode` + `dungeonId`), ohne Training und ab 20 s Kampfzeit; der erste Kampf gegen einen Boss ist keiner.
+Kämpfe, die älter als 3 h hochgeladen werden, melden nichts (gespeichert werden sie trotzdem).
 **error** – `{ "t": "error", "code": "rate_limited", "message": "…" }`. Bei `hello_timeout` oder `replaced` selbst schließen.
 
 ### 2.3 Close-Codes
@@ -165,12 +170,13 @@ jeder Speicherung hochladen; Fehlschläge in eine Warteschlange und mit Backoff 
 Antwort `201` (neu) / `200` (ersetzt):
 ```json
 { "ok": true, "fightId": "6a319c11c0880f2b", "uploadId": "5d4c57c87fadd9b6", "replaced": false,
-  "perspectives": 2, "url": "/#/fight/6a319c11c0880f2b", "rawBytes": 1130 }
+  "perspectives": 2, "url": "/#/fight/6a319c11c0880f2b", "rawBytes": 1130, "records": [] }
 ```
 - **Zusammenführung:** Laden mehrere Mitglieder denselben Kampf hoch (gleicher Boss `mobCode` + `dungeonId`, Start ≤ 45 s
   auseinander oder gleiche `targetId` ≤ 10 min), wird daraus **ein** Kampf mit mehreren Perspektiven. Pro Spieler zählt
   seine eigene Messung, sonst der höchste Schaden. `perspectives` = Anzahl Uploads in diesem Kampf.
 - Link fürs Dashboard: `<basis-url>` + `url`.
+- `records`: neue Bestwerte, die erst dieser Upload ergeben hat (Format wie bei der Nachricht **record**).
 - Fehler: `400 bad_record` (Struktur), `400 bad_request` (uploader fehlt/leerer Body), `401`, `413 too_large`, `429 rate_limited`.
 
 Rust-Skizze (reqwest + flate2 sind schon Abhängigkeiten, `share::gzip` existiert):

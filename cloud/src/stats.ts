@@ -137,12 +137,14 @@ export async function handleStats(
       const page = rows.slice(0, limit);
       // Der Kämpfe-Tab zeigt alle Spieler, `member` markiert die Gruppe.
       const tops = await membersOf(db, page.map((r) => r.id), ml, true);
+      const recs = await recordsOf(db, page.map((r) => r.id));
       const fights = page.map((r) => ({
         ...r,
         isTrain: !!r.isTrain,
         killed: !!r.killed,
         uploaders: (JSON.parse(r.uploaders) as string[]).filter((u) => mset.has(u.toLowerCase())),
         top: tops.get(r.id) ?? [],
+        records: recs.get(r.id) ?? [],
       }));
       return { fights, next: rows.length > limit ? rows[limit - 1].startMs : null };
     }
@@ -201,6 +203,7 @@ export async function handleStats(
         matrix,
         recent: recentRows.map((r) => ({ ...r, members: tops.get(r.id) ?? [] })),
         week: await weekRecap(db, room, ml),
+        records: await recentRecords(db, room, ml, now - 14 * DAY),
       };
     }
 
@@ -374,6 +377,41 @@ async function membersOf(db: D1Database, ids: string[], ml: string, everyone = f
     out.get(id)!.push(p);
   }
   return out;
+}
+
+/** Neue Bestwerte je Kampf (siehe store.newRecords) */
+export async function recordsOf(db: D1Database, ids: string[]) {
+  const out = new Map<string, { name: string; kind: string; value: number; prev: number }[]>();
+  if (!ids.length) return out;
+  const rows = (
+    await db
+      .prepare(
+        `SELECT encounter_id AS id, player AS name, kind, value, prev FROM records
+         WHERE encounter_id IN (SELECT value FROM json_each(?1)) ORDER BY kind, value DESC`,
+      )
+      .bind(JSON.stringify(ids))
+      .all<{ id: string; name: string; kind: string; value: number; prev: number }>()
+  ).results;
+  for (const { id, ...r } of rows) {
+    if (!out.has(id)) out.set(id, []);
+    out.get(id)!.push(r);
+  }
+  return out;
+}
+
+/** Die letzten neuen Bestwerte aktiver Mitglieder, neueste zuerst */
+async function recentRecords(db: D1Database, room: string, ml: string, from: number) {
+  return (
+    await db
+      .prepare(
+        `SELECT r.encounter_id AS fightId, r.player AS name, r.kind, r.value, r.prev, r.boss, r.mob_code AS mobCode,
+           r.dungeon_id AS dungeonId, r.start_ms AS startMs
+         FROM records r WHERE r.room = ?1 AND r.start_ms >= ?2 AND r.player_lc IN (SELECT value FROM json_each(?3))
+         ORDER BY r.start_ms DESC, r.kind LIMIT 12`,
+      )
+      .bind(room, from, ml)
+      .all()
+  ).results;
 }
 
 /** Zuletzt gespielte Klasse je Mitglied */

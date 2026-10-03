@@ -2,7 +2,7 @@
 
 import { lineChart } from "./chart.js";
 import {
-  $, $$, api, apiJson, avatar, bossSelect, currentRoute, dungeonName, empty, esc, failed, fmtDate, fmtNum, fmtPct, fmtShort, fmtTime, getMe, job, kpi, loadBosses, loading, loadMembers, memberColor, pageHead, SERIES_COLORS, state, trunc, view,
+  $, $$, api, apiJson, avatar, bossSelect, currentRoute, dungeonName, empty, esc, failed, fmtDate, fmtNum, fmtPct, fmtShort, fmtTime, getMe, job, kpi, loadBosses, loading, loadMembers, memberColor, pageHead, recordText, SERIES_COLORS, state, trunc, view,
 } from "./core.js";
 
 /** Frontal-Quote eines Spielers; ältere Kämpfe haben sie nur in den Skills (frontal je Skill). */
@@ -60,7 +60,9 @@ export function renderFights() {
       const more = rest.length - Math.min(rest.length, 3);
       return `<a class="fight" href="#/fight/${f.id}">
         <div class="fight-main"><div class="fight-boss">${esc(f.boss)}${f.isTrain ? ' <span class="badge">Training</span>' : ""}</div>
-          <div class="muted small">${fmtDate(f.startMs)} · ${fmtTime(f.durationMs)}${f.dungeonId ? ` · ${esc(dungeonName(f.dungeonId))}` : ""}${f.killed ? ' · <span class="kill">besiegt</span>' : ""}</div></div>
+          <div class="muted small">${fmtDate(f.startMs)} · ${fmtTime(f.durationMs)}${f.dungeonId ? ` · ${esc(dungeonName(f.dungeonId))}` : ""}${f.killed ? ' · <span class="kill">besiegt</span>' : ""}${
+            f.records?.length ? ` · <span class="rec" title="${esc(f.records.map((r) => `${r.name}: ${recordText(r)}`).join(", "))}">🏆 Rekord</span>` : ""
+          }</div></div>
         <div class="fight-people">${shown
           .map((p) => `<span class="mini${p.member ? "" : " other"}">${avatar(p.name, p.job, p.jobId)}<span>${esc(p.name)}</span><b>${fmtShort(p.dps)}</b></span>`)
           .join("")}${more > 0 ? `<span class="mini other">+${more}</span>` : ""}</div>
@@ -149,7 +151,7 @@ export function renderFight() {
   const rows = d.players
     .map(
       (p, i) => `<tr class="p ${p.name === ui.player ? "sel" : ""}${p.member === false ? " other" : ""}" data-name="${esc(p.name)}" tabindex="0">
-        <td class="muted">${i + 1}</td><td>${avatar(p.name, p.job, p.jobId)} <b>${esc(p.name)}</b></td>
+        <td class="muted">${i + 1}</td><td>${avatar(p.name, p.job, p.jobId)} <b>${esc(p.name)}</b>${recBadge(d, p.name)}</td>
         <td class="bar"><span class="fill" style="width:${((p.dmg / maxDmg) * 100).toFixed(1)}%"></span><span>${fmtShort(p.dps)}</span></td>
         <td class="num">${fmtShort(p.dmg)}</td><td class="num strong">${fmtPct(p.share)}</td><td class="num">${fmtPct(p.critRate)}</td>
         <td class="num">${fmtPct(p.backRate)}</td><td class="num">${fmtPct(frontRate(p))}</td><td class="num hide-s">${p.heal ? fmtShort(p.heal) : "–"}</td><td class="num hide-s muted">${p.selfReport ? "eigene" : esc(p.source)}</td></tr>`,
@@ -222,6 +224,12 @@ export function renderFight() {
   $("details.more", view).addEventListener("toggle", () => drawCharts());
   renderSkills();
   drawCharts();
+}
+
+/** 🏆 hinter dem Namen, wenn der Spieler in diesem Kampf einen neuen Bestwert gesetzt hat */
+function recBadge(d, name) {
+  const mine = (d.records ?? []).filter((r) => r.name === name);
+  return mine.length ? ` <span class="rec" title="Neuer Bestwert: ${esc(mine.map(recordText).join(", "))}">🏆</span>` : "";
 }
 
 /** Andere Kämpfe desselben Bosses (gleiche Instanz) zur Auswahl für den Vergleich */
