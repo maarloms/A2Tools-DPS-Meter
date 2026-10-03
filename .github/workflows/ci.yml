@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # fork: the fork's work happens on fork/main.
+    branches: [main, fork/main]
   pull_request:
   # By hand, for a branch: gh workflow run ci.yml --ref <branch>
   workflow_dispatch:
@@ -85,6 +86,26 @@ jobs:
             printf "ci" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
             cargo test --no-default-features --features desktop --lib secret -- --nocapture
           '
+
+  # fork: the group dashboard (Cloudflare Worker): types, and the simulation
+  # of apps and dashboard against a local worker with a fresh database.
+  cloud:
+    name: Dashboard worker
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloud
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloud/package-lock.json
+      - run: npm ci
+      - run: npm run sync-shared
+      - run: npm run typecheck
+      - run: npm test
 
   parser-wasm:
     name: Parser compiles to wasm32

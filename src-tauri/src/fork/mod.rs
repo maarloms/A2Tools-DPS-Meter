@@ -222,33 +222,9 @@ fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()>
 
 /// Only one meter at a time: two capture the same packets, fight over the
 /// hotkeys and upload every fight twice (seen 2026-10-03 with three running).
-/// A second start brings the running meter forward and exits. It waits a few
-/// seconds first, because a restart (Npcap install, update) starts the new
-/// process before the old one has quit.
-#[cfg(windows)]
+/// A second start brings the running meter forward and exits.
 pub fn ensure_single_instance() -> bool {
-    use windows::core::w;
-    use windows::Win32::Foundation::{WAIT_ABANDONED, WAIT_OBJECT_0};
-    use windows::Win32::System::Threading::{CreateMutexW, WaitForSingleObject};
-    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow};
-
-    let Ok(mutex) = (unsafe { CreateMutexW(None, false, w!(r"Local\de.maarloms.aion2-dps-meter")) }) else {
-        return true; // no mutex, no guard; better two meters than none
-    };
-    let wait = unsafe { WaitForSingleObject(mutex, 4_000) };
-    if wait == WAIT_OBJECT_0 || wait == WAIT_ABANDONED {
-        // The handle stays open (HANDLE has no Drop): held until this process exits.
-        return true;
-    }
-    if let Ok(window) = unsafe { FindWindowW(None, w!("A2Tools DPS Meter")) } {
-        let _ = unsafe { SetForegroundWindow(window) };
-    }
-    false
-}
-
-#[cfg(not(windows))]
-pub fn ensure_single_instance() -> bool {
-    true
+    crate::platform::process::ensure_single_instance(r"Local\de.maarloms.aion2-dps-meter", "A2Tools DPS Meter", 4_000)
 }
 
 static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();

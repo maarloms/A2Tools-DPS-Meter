@@ -9,7 +9,8 @@
     "db:migrate:local": "wrangler d1 migrations apply a2dps --local",
     "db:migrate:remote": "wrangler d1 migrations apply a2dps --remote",
     "typecheck": "tsc --noEmit",
-    "test": "node test/simulate.mjs",
+    "test": "node test/run.mjs",
+    "test:simulate": "node test/simulate.mjs",
     "sync-shared": "node scripts/sync-shared.mjs",
     "deploy": "wrangler deploy"
   },

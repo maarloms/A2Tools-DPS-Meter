@@ -1,5 +1,8 @@
 // Simuliert 3 App-Clients + 1 Dashboard gegen `npx wrangler dev`.
 //
+//   npm test                              (startet alles selbst, frische Datenbank: test/run.mjs)
+//
+// Oder von Hand gegen einen laufenden Worker:
 //   npx wrangler dev                      (Terminal 1)
 //   node test/simulate.mjs                (Terminal 2)
 //   node test/simulate.mjs --record <pfad/zu/history/auto_x.json>   (zusaetzlich echten Kampf hochladen)
@@ -356,7 +359,9 @@ async function main() {
   check("mit Cookie: Dashboard + Dateien", (await (await fetch(`${BASE}/`, { headers: { ...ck, accept: "text/html" } })).text()).includes("app.js") && (await fetch(`${BASE}/app.js`, { headers: ck })).status === 200);
   check("mit Cookie: API ohne Secret", (await fetch(`${BASE}/api/rooms/${ROOM}/stats/overview`, { headers: ck })).status === 200);
   check("Cookie gilt nicht für fremden Raum", (await fetch(`${BASE}/api/rooms/anderer-raum/fights`, { headers: ck })).status === 401);
-  const forged = cookie.replace(/.$/, (c) => (c === "A" ? "B" : "A"));
+  // Ein Zeichen mitten in der Signatur: das letzte Base64-Zeichen trägt Füllbits, A↔B dort ändert nichts.
+  const at = cookie.length - 8;
+  const forged = cookie.slice(0, at) + (cookie[at] === "A" ? "Q" : "A") + cookie.slice(at + 1);
   check("manipuliertes Cookie → 401", (await fetch(`${BASE}/api/rooms/${ROOM}/fights`, { headers: { cookie: forged } })).status === 401);
   check("GET /api/session", (await (await fetch(`${BASE}/api/session`, { headers: ck })).json()).room === ROOM);
   const lo = await fetch(`${BASE}/api/session`, { method: "DELETE", headers: ck });

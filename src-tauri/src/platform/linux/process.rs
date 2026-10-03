@@ -20,3 +20,8 @@ pub fn prepare() -> Option<String> {
     unsafe { std::env::set_var(DMABUF, "1") };
     Some(format!("{DMABUF}=1 (set by the meter; set it to 0 to use WebKit's GPU renderer)"))
 }
+
+/// fork: whether this is the only meter running. Not guarded here.
+pub fn ensure_single_instance(_mutex_name: &str, _window_title: &str, _wait_ms: u32) -> bool {
+    true
+}
