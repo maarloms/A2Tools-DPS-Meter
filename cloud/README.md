@@ -93,6 +93,8 @@ als 500 statt 413 zurück.
 
 ## Deployment (macht Marlon)
 
+**Kurzweg:** `npx wrangler login`, dann `.\deploy.ps1 -Room marlon-crew`. Legt D1 an, trägt die ID ein, migriert, deployt, setzt `ROOMS`/`SESSION_KEY` einmalig und schreibt Passwort + Einladungslink nach `zugang.txt` im Projektordner (außerhalb des Repos).
+
 1. `cd app/cloud && npm install`
 2. `npx wrangler login` (Cloudflare-Konto, Free Plan reicht)
 3. `npx wrangler d1 create a2dps` → `database_id` in `wrangler.jsonc` eintragen
