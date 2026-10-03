@@ -11,7 +11,7 @@ function when(ms, now) {
   const t = time.format(ms);
   return dayKey.format(ms) === dayKey.format(now) ? t : weekday.format(ms).replace(".", "") + " " + t;
 }
-const defaultPreferences = { enabled:[], offset:0, opacity:88, alarm:0 };
+const defaultPreferences = { enabled:[], offset:0, opacity:88, alarm:0, layout:"portrait" };
 const alarmed = new Set();
 let alarmsPrimed = false;
 function message(text) { $("error").textContent = text; $("error").hidden = false; }
@@ -52,6 +52,19 @@ function checkAlarms(rows) {
   }
   alarmsPrimed = true;
   if (ring) chime();
+}
+// Landscape: one flat strip of events. The window keeps a size per layout;
+// the first switch sizes the strip to the selected events.
+function applyLayout() {
+  $("timer").classList.toggle("landscape", preferences.layout === "landscape");
+}
+async function setLayout(landscape) {
+  preferences.layout = landscape ? "landscape" : "portrait";
+  applyLayout(); signature = ""; render();
+  const count = Math.max(1, preferences.enabled.length);
+  const size = landscape ? { width: Math.min(1400, Math.max(320, 60 + 132 * count)), height: 78 } : { width: 320, height: 260 };
+  if (native) await native.core.invoke("set_timer_layout", { landscape, ...size }).catch(e => console.error("Timer layout:", e));
+  await save();
 }
 function applyAppearance(settings) {
   document.documentElement.dataset.theme = settings["dpsMeter.theme"] || "aion2";
@@ -136,6 +149,7 @@ function settingsTab(id, focus = false) {
 }function filterPanel(show) {
   if (native) native.core.invoke("resize_timer_settings", {open:show}).catch(e => console.error("Timer settings size:", e));
   $("settings").hidden = !show; $("events").hidden = show;
+  $("timer").classList.toggle("settingsOpen", show);
   $("filters").setAttribute("aria-expanded", String(show));
 }
 function render() {
@@ -212,10 +226,14 @@ async function boot() {
     preferences.offset = Math.max(-180, Math.min(180, Number(preferences.offset) || 0));
     preferences.opacity = Math.max(35, Math.min(100, Number(preferences.opacity) || 88));
     preferences.alarm = [0, 1, 3, 5, 10].includes(Number(preferences.alarm)) ? Number(preferences.alarm) : 0;
+    preferences.layout = preferences.layout === "landscape" ? "landscape" : "portrait";
+    applyLayout();
     applyAppearance(settings); buildFilters();
     $("offset").value = preferences.offset; $("opacity").value = preferences.opacity;
     $("opacity-value").value = preferences.opacity + " %";
     $("alarm").value = String(preferences.alarm);
+    $("landscape").checked = preferences.layout === "landscape";
+    $("landscape").addEventListener("change", e => setLayout(e.target.checked));
     $("alarm").addEventListener("change", async e => {
       preferences.alarm = Number(e.target.value) || 0;
       alarmed.clear(); alarmsPrimed = false; render(); await save();

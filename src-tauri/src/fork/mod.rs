@@ -6,6 +6,47 @@ use crate::platform::hotkeys::HotkeyManager;
 use tauri::{Manager, WindowEvent};
 
 const VISIBLE: &str = "fork.timer.visible";
+const LAYOUT: &str = "fork.timer.layout";
+
+fn is_landscape(state: &AppState) -> bool {
+    state.settings.get(LAYOUT).as_deref() == Some("landscape")
+}
+
+/// Portrait and landscape remember their own window size.
+fn size_key(state: &AppState) -> &'static str {
+    if is_landscape(state) { "fork.timer.size.landscape" } else { "fork.timer.size" }
+}
+
+/// Minimum size and saved (or default) size for the current layout. With the
+/// settings panel open the window is temporarily enlarged, so the target
+/// becomes the size it returns to on close.
+fn apply_layout(window: &tauri::WebviewWindow, state: &AppState, default: Option<(f64, f64)>) -> Result<(), String> {
+    let landscape = is_landscape(state);
+    let (min_w, min_h) = if landscape { (240.0, 56.0) } else { (280.0, 180.0) };
+    window.set_min_size(Some(tauri::LogicalSize::new(min_w, min_h))).map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let saved = state.settings.get(size_key(state))
+        .and_then(|v| serde_json::from_str::<[u32; 2]>(&v).ok())
+        .filter(|s| (200..=4000).contains(&s[0]) && (50..=1600).contains(&s[1]))
+        .map(|s| tauri::PhysicalSize::new(s[0], s[1]));
+    let target = saved.or_else(|| default.map(|(w, h)| tauri::LogicalSize::new(w, h).to_physical(scale)));
+    let Some(target) = target else { return Ok(()) };
+    let mut compact = TIMER_COMPACT_SIZE.lock().map_err(|e| e.to_string())?;
+    if compact.is_some() {
+        *compact = Some(target);
+    } else {
+        window.set_size(target).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_timer_layout(app: tauri::AppHandle, landscape: bool, width: f64, height: f64) -> Result<(), String> {
+    let window = app.get_webview_window("timer").ok_or("Timer window is not open")?;
+    let state = app.state::<AppState>();
+    state.settings.set(LAYOUT, if landscape { "landscape" } else { "portrait" });
+    apply_layout(&window, &state, Some((width, height)))
+}
 
 static TIMER_COMPACT_SIZE: std::sync::Mutex<Option<tauri::PhysicalSize<u32>>> =
     std::sync::Mutex::new(None);
@@ -76,13 +117,7 @@ pub fn toggle(app: &tauri::AppHandle) -> Result<(), String> {
             }
         }
     }
-    if let Some(saved) = state.settings.get("fork.timer.size") {
-        if let Ok(size) = serde_json::from_str::<[u32; 2]>(&saved) {
-            if (280..=1200).contains(&size[0]) && (180..=1600).contains(&size[1]) {
-                let _ = window.set_size(tauri::PhysicalSize::new(size[0], size[1]));
-            }
-        }
-    }
+    let _ = apply_layout(&window, &state, None);
     let handle = app.clone();
     window.on_window_event(move |event| {
         let state = handle.state::<AppState>();
@@ -91,8 +126,10 @@ pub fn toggle(app: &tauri::AppHandle) -> Result<(), String> {
                 state.settings.set("fork.timer.position", &format!("[{},{}]", p.x, p.y));
             }
             WindowEvent::Resized(s) => {
-                if s.width > 0 && s.height > 0 {
-                    state.settings.set("fork.timer.size", &format!("[{},{}]", s.width, s.height));
+                // Not while the settings panel holds the window enlarged.
+                let enlarged = TIMER_COMPACT_SIZE.lock().map(|c| c.is_some()).unwrap_or(false);
+                if s.width > 0 && s.height > 0 && !enlarged {
+                    state.settings.set(size_key(&state), &format!("[{},{}]", s.width, s.height));
                 }
             }
             WindowEvent::CloseRequested { api, .. } => {

@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="/fork/timer.css">
 </head>
 <body>
-<main class="timer">
+<main class="timer" id="timer">
   <header id="drag"><div class="heading"><span class="crest" aria-hidden="true">◇</span><h1>Event-Timer</h1></div>
     <nav aria-label="Timer-Fenster">
       <button id="filters" title="Events und Darstellung" aria-label="Filter öffnen" aria-expanded="false">⚙</button>
@@ -35,6 +35,12 @@
         <p class="settingsNote">Minispiele und Invasionsgegner wechseln. Der Timer zeigt den Start ihrer gemeinsamen Aktivität.</p>
       </div>
       <div id="appearance-panel" role="tabpanel" aria-labelledby="appearance-tab" hidden>
+        <div class="appearanceSetting">
+          <label class="eventChoice layoutChoice">
+            <span class="choiceName"><b>Querformat</b><br>Events nebeneinander als flache Leiste, z. B. am oberen Bildschirmrand.</span>
+            <span class="toggle"><input id="landscape" type="checkbox"><span class="toggleTrack" aria-hidden="true"></span></span>
+          </label>
+        </div>
         <div class="appearanceSetting">
           <div class="settingHeading"><label for="opacity">Deckkraft</label><output id="opacity-value" for="opacity">88 %</output></div>
           <input id="opacity" type="range" min="35" max="100" value="88">

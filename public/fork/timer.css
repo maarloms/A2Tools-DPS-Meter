@@ -88,3 +88,34 @@ footer { padding:7px 13px; font-size:10px; color:#9cacc8; border-top:1px solid v
   background:rgba(0,0,0,.32); border:1px solid var(--panel-border,rgba(140,180,255,.22)); }
 .alarmRow select option { background:#141a2a; color:#e6edfa; }
 .testButton { border:1px solid var(--panel-border,rgba(140,180,255,.22)); font-size:12px; padding:5px 10px; }
+
+/* Landscape: a flat strip. Header becomes a narrow button column on the
+   left, events sit side by side; the settings panel keeps the portrait
+   layout (the window is enlarged while it is open). */
+.landscape:not(.settingsOpen) { flex-direction:row; }
+.landscape:not(.settingsOpen) header { flex-direction:column; justify-content:center; gap:2px; padding:4px 3px; border-bottom:0;
+  border-right:1px solid var(--hud-hairline,rgba(140,180,255,.15)); }
+.landscape:not(.settingsOpen) .heading,
+.landscape:not(.settingsOpen) .clockline,
+.landscape:not(.settingsOpen) footer,
+.landscape:not(.settingsOpen) .group { display:none; }
+.landscape:not(.settingsOpen) nav { flex-direction:column; gap:0; }
+.landscape:not(.settingsOpen) nav button { font-size:14px; min-width:22px; line-height:18px; padding:2px 4px; }
+.landscape:not(.settingsOpen) nav button svg { width:13px; height:13px; }
+.landscape:not(.settingsOpen) #events { display:flex; flex-direction:row; align-items:stretch; overflow-x:auto; overflow-y:hidden; padding:0; scrollbar-width:none; }
+.landscape:not(.settingsOpen) #events::-webkit-scrollbar { display:none; }
+.landscape:not(.settingsOpen) .event { display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-areas:"dot name" "cd cd" "meta meta";
+  align-content:center; column-gap:6px; row-gap:1px; padding:5px 12px; min-width:124px; flex:none;
+  border-left:1px solid var(--hud-hairline,rgba(140,180,255,.12)); }
+.landscape:not(.settingsOpen) .event:first-of-type { border-left:0; }
+.landscape:not(.settingsOpen) .event.soon,
+.landscape:not(.settingsOpen) .event.live { background-image:linear-gradient(180deg,rgba(255,207,110,.12),transparent); }
+.landscape:not(.settingsOpen) .event.live { background-image:linear-gradient(180deg,rgba(121,220,186,.15),transparent); }
+.landscape:not(.settingsOpen) .info { display:contents; }
+.landscape:not(.settingsOpen) .dot { grid-area:dot; align-self:center; }
+.landscape:not(.settingsOpen) .name { grid-area:name; font-size:11px; }
+.landscape:not(.settingsOpen) .countdown { grid-area:cd; font-size:19px; line-height:1.1; }
+.landscape:not(.settingsOpen) .meta { grid-area:meta; margin:0; white-space:nowrap; }
+.landscape:not(.settingsOpen) .empty { margin:auto 12px; }
+.layoutChoice .choiceName { font-size:10px; color:#9cacc8; }
+.layoutChoice .choiceName b { font-size:11px; color:#dbe5f6; font-weight:600; }
