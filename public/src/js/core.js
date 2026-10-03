@@ -1069,6 +1069,7 @@ class DpsApp {
       this.elBossName.classList.toggle("isAllTargets", targetMode === "allTargets");
     }
     this.updateBossHpBar(targetMaxHp, targetTotalDamage, targetCurrentHp);
+    window.ForkMeter?.payload?.(this, { battleTimeMs, targetMaxHp, targetTotalDamage, targetCurrentHp }); // fork
     if (
       nextTargetLabel !== this._lastRenderedTargetLabel ||
       previousTargetName !== targetName ||
@@ -1868,7 +1869,7 @@ class DpsApp {
       this._setOverlayLocked(!this._overlayLocked);
     });
     this.targetModeBtn?.addEventListener("click", () => {
-      const modes = ["lastHitByMe", "bossTargets", "trainTargets", "allTargets"];
+      const modes = ["lastHitByMe", "groupTargets", "bossTargets", "trainTargets", "allTargets"]; // fork
       const currentIndex = modes.indexOf(this.targetSelection);
       const nextMode = modes[(currentIndex + 1) % modes.length];
       console.log("[Target Mode Toggle]", {
@@ -2099,7 +2100,7 @@ class DpsApp {
     if (mainPlayerDpsBoldSetting === null || mainPlayerDpsBoldSetting === undefined || mainPlayerDpsBoldSetting === "") {
       this.safeSetSetting(this.storageKeys.mainPlayerDpsBold, "true");
     }
-    const validModes = ["bossTargets", "lastHitByMe", "allTargets", "trainTargets"];
+    const validModes = ["bossTargets", "lastHitByMe", "allTargets", "trainTargets", "groupTargets"]; // fork
     const normalizedDefaultMode = validModes.includes(storedDefaultMeterMode)
       ? storedDefaultMeterMode : "lastHitByMe"; // fork
     this.settingsSelections.defaultMeterMode = normalizedDefaultMode;
@@ -2797,6 +2798,7 @@ class DpsApp {
 
     const defaultMeterModeOptions = [
       { value: "lastHitByMe", label: "TARGET" },
+      { value: "groupTargets", label: "GROUP" }, // fork
       { value: "bossTargets", label: "BOSS" },
       { value: "allTargets", label: "ALL" },
       { value: "trainTargets", label: "TRAIN" },
@@ -3944,7 +3946,7 @@ class DpsApp {
 
   setTargetSelection(mode, { persist = false, syncBackend = false, reason = "update" } = {}) {
     const previousSelection = this.targetSelection;
-    this.targetSelection = ["bossTargets", "lastHitByMe", "allTargets", "trainTargets"].includes(mode)
+    this.targetSelection = ["bossTargets", "lastHitByMe", "allTargets", "trainTargets", "groupTargets"].includes(mode) // fork
       ? mode
        : "lastHitByMe";
     if (persist) {
@@ -4184,6 +4186,7 @@ class DpsApp {
   }
 
   updateMeterTotalBar(rows) {
+    window.ForkMeter?.rows?.(this, rows); // fork
     if (!this.meterTotalBar) return;
     if (!this.showTotalDps || !Array.isArray(rows) || rows.length <= 1) {
       this.meterTotalBar.style.display = "none";
@@ -4284,7 +4287,7 @@ class DpsApp {
         ? numericLastTargetId
         : null;
     return {
-      defaultTargetAll: fallbackAllTargets || shouldDefaultAllTrainTargets || (!hasConcreteTarget && this.lastTargetMode === "allTargets"),
+      defaultTargetAll: fallbackAllTargets || shouldDefaultAllTrainTargets || (!hasConcreteTarget && (this.lastTargetMode === "allTargets" || this.lastTargetMode === "groupTargets")), // fork
       defaultTargetId,
     };
   }
@@ -4596,6 +4599,12 @@ class DpsApp {
     if (targetMode === "allTargets") {
       return this.i18n?.t("target.all", "All Targets") ?? "All Targets";
     }
+    if (targetMode === "groupTargets") { // fork
+      if (!this.isLocalUserIdentified()) {
+        return this.i18n?.t("target.identifying", "Identifying you...") ?? "Identifying you...";
+      }
+      return this.i18n?.t("target.group", "Group Targets") ?? "Group Targets";
+    }
     if (targetMode === "trainTargets") {
       if (!this.isLocalUserIdentified()) {
         return this.i18n?.t("target.identifying", "Identifying you...") ?? "Identifying you...";
@@ -4616,7 +4625,7 @@ class DpsApp {
     if (targetMode === "trainTargets" && !this.isLocalUserIdentified()) {
       return this.i18n?.t("target.identifying", "Identifying you...") ?? "Identifying you...";
     }
-    if (targetMode === "allTargets" || targetMode === "trainTargets") {
+    if (targetMode === "allTargets" || targetMode === "trainTargets" || targetMode === "groupTargets") { // fork
       return this.getDefaultTargetLabel(targetMode);
     }
     if (targetMode === "bossTargets" && (!Number(targetId) || Number(targetId) <= 0) && !targetName) {
@@ -4648,16 +4657,20 @@ class DpsApp {
     const isBossTargets = this.targetSelection === "bossTargets";
     const isAllTargets = this.targetSelection === "allTargets";
     const isTrainTargets = this.targetSelection === "trainTargets";
+    const isGroupTargets = this.targetSelection === "groupTargets"; // fork
     this.targetModeBtn.classList.toggle("isAllTargets", isAllTargets);
     this.targetModeBtn.classList.toggle("isTrainTargets", isTrainTargets);
-    this.targetModeBtn.textContent = isBossTargets ? "BOSS" : isAllTargets ? "ALL" : isTrainTargets ? "TRAIN" : "TARGET";
+    this.targetModeBtn.classList.toggle("isGroupTargets", isGroupTargets); // fork
+    this.targetModeBtn.textContent = isBossTargets ? "BOSS" : isAllTargets ? "ALL" : isTrainTargets ? "TRAIN" : isGroupTargets ? "GROUP" : "TARGET"; // fork
     const ariaLabel = isBossTargets
       ? "Boss targets mode"
       : isAllTargets
         ? "All targets mode"
         : isTrainTargets
           ? "Train targets mode"
-          : "Target mode";
+          : isGroupTargets
+            ? "Group targets mode"
+            : "Target mode";
     this.targetModeBtn.setAttribute("aria-label", ariaLabel);
   }
 

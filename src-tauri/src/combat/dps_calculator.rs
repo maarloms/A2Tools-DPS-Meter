@@ -24,6 +24,8 @@ pub enum TargetSelectionMode {
     LastHitByMe,
     AllTargets,
     TrainTargets,
+    // fork: every mob you or your party hit, strangers left out.
+    GroupTargets,
 }
 
 impl TargetSelectionMode {
@@ -35,6 +37,7 @@ impl TargetSelectionMode {
             "lastHitByMe" => Self::LastHitByMe,
             "allTargets" => Self::AllTargets,
             "trainTargets" => Self::TrainTargets,
+            "groupTargets" => Self::GroupTargets, // fork
             _ => Self::LastHitByMe,
         }
     }
@@ -47,6 +50,7 @@ impl TargetSelectionMode {
             Self::LastHitByMe => "lastHitByMe",
             Self::AllTargets => "allTargets",
             Self::TrainTargets => "trainTargets",
+            Self::GroupTargets => "groupTargets", // fork
         }
     }
 }
@@ -198,7 +202,15 @@ impl DpsCalculator {
         }
 
         // Calculate battle time
-        let battle_time = if self.current_target != 0 {
+        let group_mode = self.target_selection_mode == TargetSelectionMode::GroupTargets; // fork
+        let battle_time = if group_mode {
+            // fork: packs die one after another, so the longest single mob
+            // would overstate DPS; time the whole stretch instead.
+            let spans = target_ids.iter().filter_map(|tid| combat_data.get(tid));
+            let first = spans.clone().map(|td| td.first_damage_time).min();
+            let last = spans.map(|td| td.last_damage_time).max();
+            first.zip(last).map(|(f, l)| (l - f).max(0)).unwrap_or(0)
+        } else if self.current_target != 0 {
             combat_data.get(&self.current_target)
                 .map(|td| (td.last_damage_time - td.first_damage_time).max(0))
                 .unwrap_or(0)
@@ -382,6 +394,17 @@ impl DpsCalculator {
         // Filter and compute DPS
         let local_ids = self.resolve_local_ids(&summon_data);
         let party_members = self.data_storage.get_party_members();
+        if group_mode {
+            // fork: strangers hitting the same mobs stay off the meter. Runs
+            // after the orphan merges so a party member's stray summon has
+            // already been folded into its owner.
+            let group = self.group_ids(&summon_data).unwrap_or_default();
+            // The share stays against everything dealt to these mobs,
+            // strangers included: it reads as your part of the kill.
+            dps_data.map.retain(|uid, data| {
+                group.contains(uid) || party_members.contains_key(data.nickname.trim())
+            });
+        }
         let bt = battle_time.max(1000);
         let mut to_remove = Vec::new();
         for (&uid, data) in &mut dps_data.map {
@@ -573,8 +596,27 @@ impl DpsCalculator {
                     .collect();
                 (trains, "Train".to_string(), 0)
             }
+            TargetSelectionMode::GroupTargets => {
+                // fork: every target someone in the group has hit.
+                let group = self.group_ids(summon_data).unwrap_or_default();
+                let hit: HashSet<i32> = combat_data.iter()
+                    .filter(|(_, td)| td.actors.keys()
+                        .any(|&a| group.contains(&summon_resolver::resolve(a, summon_data))))
+                    .map(|(&tid, _)| tid)
+                    .collect();
+                (hit, "Group".to_string(), 0)
+            }
             TargetSelectionMode::LastHitByMe => {
-                let local_ids = self.resolve_local_ids(summon_data);
+                // fork: until you are identified (self record on a zone load, or
+                // loot naming your configured name), follow what your party
+                // hits. Solo there is nothing to follow, and showing nothing
+                // beats upstream's fallback of whatever a stranger last hit.
+                let local_ids = self.resolve_local_ids(summon_data).or_else(|| {
+                    let party: HashSet<i32> = self.data_storage.get_party_members().keys()
+                        .filter_map(|name| self.data_storage.find_id_by_nickname(name))
+                        .collect();
+                    (!party.is_empty()).then_some(party)
+                });
                 if let Some(ref ids) = local_ids {
                     // Find the target most recently damaged by the local player
                     let mut best_target: Option<(i32, i64)> = None;
@@ -597,9 +639,6 @@ impl DpsCalculator {
                         None => (HashSet::new(), String::new(), 0),
                     }
                 } else {
-                    // fork: not identified yet — show nothing. Upstream fell back
-                    // to the most recently damaged target, which in a busy field
-                    // is whatever a stranger is hitting.
                     (HashSet::new(), String::new(), 0)
                 }
             }
@@ -627,6 +666,22 @@ impl DpsCalculator {
             }
         }
         Some(ids)
+    }
+
+    /// fork: you and your party, with their summons. None when neither is
+    /// known yet, which leaves the GROUP meter empty like TARGET.
+    fn group_ids(&self, summon_data: &HashMap<i32, i32>) -> Option<HashSet<i32>> {
+        let mut ids = self.resolve_local_ids(summon_data).unwrap_or_default();
+        let party: Vec<i32> = self.data_storage.get_party_members().keys()
+            .filter_map(|name| self.data_storage.find_id_by_nickname(name))
+            .collect();
+        for (&summon, &owner) in summon_data {
+            if party.contains(&summon_resolver::resolve(owner, summon_data)) {
+                ids.insert(summon);
+            }
+        }
+        ids.extend(party);
+        (!ids.is_empty()).then_some(ids)
     }
 
     fn cached_job(&self, nickname: &str) -> Option<String> {

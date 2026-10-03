@@ -99,6 +99,82 @@
   color: color-mix(in srgb, var(--title) 75%, transparent);
 }
 
+/* Damage · DPS · share (fork/meterstats.js). Damage is secondary, so it
+   sits smaller and dimmer in front of the DPS figure. */
+.list .item .dps .dpsTotal:empty { display: none; }
+:root.forkSkin .list .item .dps { gap: 8px; }
+:root.forkSkin .list .item .dps .dpsTotal {
+  font-size: 12.5px;
+  font-variation-settings: "wght" 600, "wdth" 80;
+  color: color-mix(in srgb, var(--hud-num, #fff) 72%, transparent);
+  min-width: 44px;
+  text-align: right;
+}
+:root.forkSkin .list .item .dps .dpsContribution { min-width: 38px; }
+:root.forkSkin .meter.slim .list .item .dps .dpsTotal { font-size: 10.5px; min-width: 36px; }
+
+/* ---------------- stats strip ---------------- */
+
+/* Replaces upstream's HP band and footer total while a fork theme is on. */
+:root.forkSkin .bossHpBar,
+:root.forkSkin .meterTotalBar { display: none !important; }
+.forkStats { display: none; }
+:root.forkSkin .forkStats:not([hidden]) {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 8px 10px 0;
+  border: 1px solid var(--fork-field-border);
+  border-radius: var(--rounded-sm);
+  background: var(--fork-field);
+  overflow: hidden;
+}
+:root.forkSkin .forkStat {
+  position: relative;
+  min-width: 0;
+  padding: 4px 8px 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+:root.forkSkin .forkStat + .forkStat { border-left: 1px solid var(--fork-field-border); }
+:root.forkSkin .forkStat b {
+  font-family: var(--hud-tech);
+  font-variant-numeric: tabular-nums;
+  font-variation-settings: "wght" 700, "wdth" 87.5;
+  font-size: 14px;
+  line-height: 1.1;
+  color: var(--hud-num, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:root.forkSkin .forkStat small {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--title) 70%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:root.forkSkin .forkStat[data-k="hp"].hasHp b { color: var(--title); }
+:root.forkSkin .forkStatHp {
+  display: none;
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 2px;
+  background: rgba(0, 0, 0, 0.45);
+}
+:root.forkSkin .forkStat.hasHp .forkStatHp { display: block; }
+:root.forkSkin .forkStatHp > i {
+  display: block;
+  height: 100%;
+  background: #4cc46a;
+  transition: width 0.4s ease;
+}
+:root.forkSkin .forkStat.isMid .forkStatHp > i { background: #e6a23c; }
+:root.forkSkin .forkStat.isLow .forkStatHp > i { background: #e0503c; }
+
 /* ---------------- footer ---------------- */
 
 :root.forkSkin .meterFooter {
@@ -631,3 +707,38 @@
   letter-spacing: 0.06em;
 }
 :root.forkSkin[data-theme="glass"].historyWindow .historyPanel { background-color: rgb(43, 54, 72); }
+
+/* ---------------- combat details: one scrolling page ---------------- */
+/* Upstream squeezes the sections into the window height and scrolls only the
+   skill list; with the fork's larger cards an expanded chart got squeezed to
+   nothing and the page itself could not scroll. Sections now take their
+   natural height and the body scrolls as a whole. */
+:root.forkSkin .detailsPanel .detailsBody {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+:root.forkSkin .detailsPanel .detailsSection,
+:root.forkSkin .detailsPanel .detailsSection.isExpanded {
+  flex: 0 0 auto;
+  min-height: auto;
+}
+:root.forkSkin .detailsPanel .detailsSection > .detailsSectionContent {
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow: visible;
+}
+:root.forkSkin .detailsPanel .detailsSkills {
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow-y: visible;
+}
+:root.forkSkin .detailsPanel .detailsSkills .skills {
+  flex: 0 0 auto;
+  overflow-y: visible;
+  scrollbar-gutter: auto;
+  contain: none;
+  max-width: none;
+}
+:root.forkSkin .detailsPanel .detailsSkills .skillHeader { padding-right: 14px; }
+:root.forkSkin .detailsPanel .dpsChartWrap { min-height: 180px; }
+:root.forkSkin .detailsPanel .timelineChart { flex: 0 0 auto; min-height: auto; }

@@ -83,6 +83,10 @@ const createMeterUI = ({
     const dpsContribution = document.createElement("p");
     dpsContribution.className = "dpsContribution";
 
+    // fork: total damage ahead of the DPS figure, filled only by the fork skin.
+    const dpsTotal = document.createElement("p");
+    dpsTotal.className = "dpsTotal";
+    dpsContainer.appendChild(dpsTotal);
     dpsContainer.appendChild(dpsNumber);
     dpsContainer.appendChild(dpsContribution);
 
@@ -108,6 +112,8 @@ const createMeterUI = ({
       classIconImg,
       dpsNumber,
       dpsContribution,
+      dpsTotal, // fork
+      lastTotalText: "", // fork
       fillEl,
       currentRow: null,
       lastSeenAt: 0,
@@ -322,7 +328,8 @@ const createMeterUI = ({
         view.lastCombatPowerText = combatPowerText;
       }
 
-      if (row.job && !!row.job) {
+      // fork: party placeholders carry job "Unknown", which has no icon file.
+      if (row.job && row.job !== "Unknown") {
         if (!classIconSrcByJob.has(row.job)) {
           classIconSrcByJob.set(row.job, `./assets/${row.job}.png`);
         }
@@ -365,13 +372,21 @@ const createMeterUI = ({
         view.prevContribClass = contributionClass;
       }
 
-      const metricText = metric.text;
+      // fork: the fork skin always shows damage, DPS and share of the mob.
+      const forkText = window.ForkMeter?.rowText?.(row) ?? null;
+      const totalText = forkText?.total ?? "";
+      if (view.lastTotalText !== totalText) {
+        view.dpsTotal.textContent = totalText;
+        view.lastTotalText = totalText;
+      }
+
+      const metricText = forkText?.dps ?? metric.text;
       if (view.lastMetricText !== metricText) {
         view.dpsNumber.textContent = metricText;
         view.lastMetricText = metricText;
       }
 
-      const contributionText = `${damageContribution.toFixed(1)}%`;
+      const contributionText = forkText?.share ?? `${damageContribution.toFixed(1)}%`; // fork
       if (view.lastContributionText !== contributionText) {
         view.dpsContribution.textContent = contributionText;
         view.lastContributionText = contributionText;
