@@ -271,6 +271,13 @@ async function main() {
     JSON.stringify(ov.group));
   const cmp = await getj("/stats/compare?days=30");
   check("Vergleich: Mitglieder, pro Boss, Verlauf", cmp.members?.length >= 3 && cmp.matrix?.length >= 1 && cmp.members.some((m) => m.firsts >= 1) && cmp.series?.points?.length > 0);
+  const cmpF = await getj("/stats/compare?days=30&bucket=fight");
+  const fp = cmpF.series?.points ?? [];
+  const fPeriods = [...new Set(fp.map((p) => p.period))];
+  check("Vergleich: Verlauf pro Kampf (ein Punkt je Spieler und Kampf, mit Boss)",
+    cmpF.series?.bucket === "fight" && fPeriods.length >= 2 && fp.every((p) => p.boss && /^\d{13}$/.test(p.period)) &&
+      fp.filter((p) => p.player === "Marlon").length === fPeriods.length && fPeriods.join() === [...fPeriods].sort().join(),
+    `${fPeriods.length} Kämpfe, ${fp.length} Punkte`);
   const tr = await getj(`/stats/trends?days=30&tz=${-new Date().getTimezoneOffset()}&boss=4242:600072`);
   check("Trends: Punkte pro Spieler und Tag", tr.points?.some((p) => p.player === "Marlon" && p.fights >= 2), JSON.stringify(tr.points?.[0]));
   const trw = await getj("/stats/trends?days=30&bucket=week");

@@ -103,7 +103,8 @@ async function renderMe(name) {
   }
 }
 
-export function drawTrend(host, periods, lines, bucket, hidden, yFmt = fmtShort) {
+/** `names`: optional period → Bossname (bucket "fight") für den Tooltip */
+export function drawTrend(host, periods, lines, bucket, hidden, yFmt = fmtShort, names = null) {
   if (!periods.length) {
     host.innerHTML = '<p class="muted small">Keine Daten im Zeitraum.</p>';
     return;
@@ -115,7 +116,10 @@ export function drawTrend(host, periods, lines, bucket, hidden, yFmt = fmtShort)
     xMin: 0,
     xMax: Math.max(1, periods.length - 1),
     xTicks: periods.map((p, i) => ({ x: i, label: periodLabel(p, bucket) })).filter((_, i) => i % step === 0),
-    xFmt: (v) => periodLabel(periods[Math.round(v)] ?? periods[0], bucket),
+    xFmt: (v) => {
+      const p = periods[Math.round(v)] ?? periods[0];
+      return periodLabel(p, bucket) + (names?.get(p) ? ` · ${names.get(p)}` : "");
+    },
     yFmt,
     hidden,
     legend: hidden ? host.nextElementSibling : undefined,

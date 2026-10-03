@@ -204,6 +204,11 @@ export function bossSelect(id, value, allLabel = "Alle Bosse") {
 
 /** Bucket-Label "2026-09-29" / "2026-W39" */
 export function periodLabel(p, bucket) {
+  if (bucket === "fight") {
+    const d = new Date(Number(p));
+    const two = (n) => String(n).padStart(2, "0");
+    return `${two(d.getDate())}.${two(d.getMonth() + 1)}. ${two(d.getHours())}:${two(d.getMinutes())}`;
+  }
   if (bucket === "week") return `KW ${Number(p.split("-W")[1])}`;
   const [, m, d] = p.split("-");
   return `${d}.${m}.`;

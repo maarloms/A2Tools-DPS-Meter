@@ -34,11 +34,34 @@ const BOSS = "(?7 IS NULL OR (ps.mob_code = ?7 AND ps.dungeon_id = ?8))";
 
 type Boss = { mob: number; dungeon: number } | null;
 
-/** Zeitreihe je Mitglied: Ø/Best-DPS und Ø-Anteil pro Tag oder Woche */
+/** Verlauf pro Kampf: so viele der letzten Kämpfe */
+const FIGHT_POINTS = 60;
+
+/** Zeitreihe je Mitglied: Ø/Best-DPS und Ø-Anteil pro Tag, Woche oder Bosskampf (bucket=fight) */
 async function series(db: D1Database, room: string, ml: string, from: number, url: URL, player: string | null) {
   const boss = bossFilter(url);
   const week = url.searchParams.get("bucket") === "week";
   const tz = int(url.searchParams.get("tz"), 0, -840, 840); // Minuten Versatz zu UTC (Browser)
+  if (url.searchParams.get("bucket") === "fight") {
+    // Ein Punkt pro Kampf; period = Kampfstart (ms, 13-stellig → sortierbar)
+    const points = (
+      await db
+        .prepare(
+          `WITH f AS (
+             SELECT ps.player AS player, ps.boss AS boss, ps.dps AS dps, ps.share AS share,
+               MIN(ps.start_ms) OVER (PARTITION BY ps.encounter_id) AS t0
+             FROM player_stats ps
+             WHERE ps.room = ?3 AND ps.start_ms >= ?4 AND ps.is_train = 0 AND ${BOSS} AND ${IS_MEMBER}
+               AND (?5 IS NULL OR ps.player_lc = ?5)),
+           last AS (SELECT DISTINCT t0 FROM f ORDER BY t0 DESC LIMIT ?1)
+           SELECT player, printf('%013d', t0) AS period, boss, dps AS avgDps, dps AS bestDps, 1 AS fights, share AS avgShare
+           FROM f WHERE t0 IN (SELECT t0 FROM last) ORDER BY t0`,
+        )
+        .bind(FIGHT_POINTS, null, room, from, player, null, boss?.mob ?? null, boss?.dungeon ?? null, ml)
+        .all()
+    ).results;
+    return { bucket: "fight", points };
+  }
   return {
     bucket: week ? "week" : "day",
     points: (

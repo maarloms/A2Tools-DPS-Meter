@@ -7,13 +7,14 @@ import {
 import { drawTrend } from "./me.js";
 
 const ui = { days: 30, boss: "", metric: "avgDps", hidden: new Set() };
-const METRICS = { avgDps: "Ø DPS", bestDps: "Best-DPS", avgShare: "Ø Anteil" };
+// Pro Kampf gibt es je Spieler nur einen Wert – Ø und Bestwert fallen zusammen.
+const METRICS = { avgDps: "DPS", avgShare: "Anteil" };
 
 export async function loadCompare() {
   view.innerHTML = loading("Vergleich");
   try {
     await Promise.all([loadMembers(), loadBosses()]);
-    const qs = new URLSearchParams({ days: String(ui.days), tz: tz(), bucket: ui.days > 60 || ui.days === 0 ? "week" : "day" });
+    const qs = new URLSearchParams({ days: String(ui.days), tz: tz(), bucket: "fight" });
     if (ui.boss) qs.set("boss", ui.boss);
     const d = await apiJson(`/stats/compare?${qs}`);
     if (currentRoute().name === "compare") render(d);
@@ -79,7 +80,7 @@ function render(d) {
       ${barRow("Rücken-Quote", ms, (m) => m.avgBack, fmtPct)}
       ${barRow("Platz 1 in gemeinsamen Kämpfen", ms, (m) => m.firsts, (v) => fmtNum(v), "")}
     </section>
-    <section class="card"><div class="card-head"><h2>Über die Zeit</h2>
+    <section class="card"><div class="card-head"><div><h2>Über die Zeit</h2><p class="muted small">Ein Punkt pro Bosskampf, die letzten 60 im Zeitraum.</p></div>
       <div class="seg" role="group" aria-label="Kennzahl">${Object.entries(METRICS)
         .map(([k, l]) => `<button type="button" data-metric="${k}" class="${ui.metric === k ? "on" : ""}">${l}</button>`)
         .join("")}</div></div>
@@ -90,7 +91,8 @@ function render(d) {
   bind();
   const { periods, lines } = seriesLines(d.series.points, ui.metric);
   const host = $("#cChart");
-  drawTrend(host, periods, lines, d.series.bucket, ui.hidden, ui.metric === "avgShare" ? fmtPct : fmtShort);
+  const bossAt = new Map(d.series.points.map((p) => [p.period, p.boss]));
+  drawTrend(host, periods, lines, d.series.bucket, ui.hidden, ui.metric === "avgShare" ? fmtPct : fmtShort, bossAt);
   view.querySelectorAll("[data-metric]").forEach((b) =>
     b.addEventListener("click", () => {
       ui.metric = b.dataset.metric;
