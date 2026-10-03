@@ -91,4 +91,20 @@ test("Global activities share hourly slots rather than independent minigame time
   assert.equal(eventState(festa,now).next,at("2026-10-02T23:00:00+02:00"));
   assert.equal(eventState(invasion,now).next,at("2026-10-02T22:30:00+02:00"));
   assert.equal(data.events.filter(e=>["track","nyerk","beritra"].includes(e.id)).length,0);
+});test("field bosses count down from a kill or the map's countdown",async()=>{
+  const {respawnState}=await import("../public/fork/schedule.js");
+  const gartua=data.events.find(e=>e.id==="fb-gartua-altgard");
+  assert.equal(gartua.kind,"respawn"); assert.deepEqual(gartua.mobCodes,[2400800]);
+  const min=60000, t0=at("2026-10-03T14:00:00+02:00");
+  assert.equal(respawnState(gartua,undefined,t0).status,"unknown");
+  const killed={code:2400800,killedAt:t0,updated:t0};
+  const k=respawnState(gartua,killed,t0+5*min);
+  assert.equal(k.status,"killed"); assert.equal(k.remaining,Infinity);
+  const learnt={...killed,intervalMin:120};
+  const w=respawnState(gartua,learnt,t0+100*min);
+  assert.equal(w.status,"waiting"); assert.equal(w.estimated,true); assert.equal(countdown(w.remaining),"20:00");
+  assert.equal(respawnState(gartua,learnt,t0+121*min).status,"due");
+  const map={...killed,respawnAt:t0+30*min};
+  assert.equal(respawnState(gartua,map,t0+20*min).estimated,false);
+  assert.equal(respawnState(gartua,{...map,seenAt:t0+31*min},t0+32*min).status,"alive");
 });

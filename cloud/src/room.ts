@@ -11,6 +11,7 @@ import {
   Role,
   Snap,
   cleanName,
+  normalizeBoss,
   normalizeSnap,
 } from "./protocol";
 import { buildGroupView } from "./merge";
@@ -81,6 +82,7 @@ export class Room extends DurableObject<Env> {
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS live (client_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS raw_index (upload_id TEXT PRIMARY KEY, uploaded_at INTEGER NOT NULL, bytes INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS bosses (code INTEGER PRIMARY KEY, data TEXT NOT NULL, updated INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS raw_chunks (upload_id TEXT NOT NULL, idx INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (upload_id, idx));
       DROP TABLE IF EXISTS fights; DROP TABLE IF EXISTS fight_chunks; DROP TABLE IF EXISTS names;
     `);
@@ -179,6 +181,9 @@ export class Room extends DurableObject<Env> {
         this.sql.exec("DELETE FROM live WHERE client_id = ?", att.clientId);
         this.scheduleBroadcast();
         return;
+      case "bosses":
+        if (att.role !== "app") return;
+        return this.onBosses(ws, msg);
       case "get":
         if (!this.allowRate(att.clientId || `v:${att.at}`, Date.now())) return;
         ws.send(JSON.stringify(this.groupView()));
@@ -246,7 +251,10 @@ export class Room extends DurableObject<Env> {
       }),
     );
     if (att.group) ws.send(JSON.stringify(this.groupView()));
-    if (role === "app") this.scheduleBroadcast(); // Mitgliederliste hat sich geaendert
+    if (role === "app") {
+      this.scheduleBroadcast(); // Mitgliederliste hat sich geaendert
+      ws.send(JSON.stringify({ t: "bosses", timers: this.bossTimers() }));
+    }
   }
 
   private onSnap(ws: WebSocket, att: Attachment, msg: any): void {
@@ -264,6 +272,38 @@ export class Room extends DurableObject<Env> {
     this.snaps.set(att.clientId, normalizeSnap(msg, att.clientId, att.name, now));
     this.dirty.add(att.clientId);
     this.scheduleBroadcast();
+  }
+
+  // ================= Feldboss-Timer =================
+  // Kills/Respawns der Feldbosse (App: src-tauri/src/fork/bosses.rs). Pro Boss
+  // gewinnt die neueste Meldung; neue gehen an alle anderen Apps im Raum.
+
+  private bossTimers(): unknown[] {
+    return this.sql.exec("SELECT data FROM bosses ORDER BY code").toArray().map((r) => JSON.parse(String(r.data)));
+  }
+
+  private onBosses(from: WebSocket, msg: any): void {
+    const now = Date.now();
+    const list: unknown[] = Array.isArray(msg.timers) ? msg.timers.slice(0, LIMITS.maxBossTimers) : [];
+    const accepted = [];
+    for (const raw of list) {
+      const t = normalizeBoss(raw, now);
+      if (!t) continue;
+      const row = this.sql.exec("SELECT updated FROM bosses WHERE code = ?", t.code).toArray()[0];
+      if (row && Number(row.updated) >= t.updated) continue;
+      this.sql.exec(
+        "INSERT INTO bosses (code, data, updated) VALUES (?, ?, ?) ON CONFLICT(code) DO UPDATE SET data = excluded.data, updated = excluded.updated",
+        t.code, JSON.stringify(t), t.updated,
+      );
+      accepted.push(t);
+    }
+    if (!accepted.length) return;
+    const payload = JSON.stringify({ t: "bosses", timers: accepted });
+    for (const [ws, att] of this.authedSockets()) {
+      if (ws !== from && att.role === "app") {
+        try { ws.send(payload); } catch { /* Socket gerade zu */ }
+      }
+    }
   }
 
   /** true = annehmen. Zaehlt verworfene Nachrichten pro 10-s-Fenster. */

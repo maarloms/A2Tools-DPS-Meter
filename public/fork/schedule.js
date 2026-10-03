@@ -58,3 +58,24 @@ export function countdown(ms) {
   return h ? h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0")
     : String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
 }
+// Field bosses respawn a while after they die. `timer` is what the meter
+// knows (src-tauri/src/fork/bosses.rs). Status: "alive" (seen since the
+// kill), "due" (respawn time passed), "waiting" (counting down), "killed"
+// (interval still unknown) or "unknown".
+export function respawnState(event, timer, now = Date.now()) {
+  const killed = timer?.killedAt ?? null;
+  const seen = timer?.seenAt ?? null;
+  const interval = timer?.intervalMin ?? event.respawnMinutes ?? null;
+  const respawn = timer?.respawnAt ?? (killed != null && interval ? killed + interval * 60000 : null);
+  const base = { killed, seen, interval, respawn, by: timer?.by || "", next: respawn,
+    end: null, estimated: timer?.respawnAt == null && respawn != null };
+  if (seen != null && (killed == null || seen > killed))
+    return { ...base, status: "alive", active: true, start: seen, remaining: 0 };
+  if (respawn != null && now >= respawn)
+    return { ...base, status: "due", active: true, start: respawn, remaining: 0 };
+  if (respawn != null)
+    return { ...base, status: "waiting", active: false, start: respawn, remaining: respawn - now };
+  if (killed != null)
+    return { ...base, status: "killed", active: false, start: killed, remaining: Infinity };
+  return { ...base, status: "unknown", active: false, start: null, remaining: Infinity };
+}

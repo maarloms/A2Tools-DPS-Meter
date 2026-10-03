@@ -31,10 +31,27 @@ für Europa `Europe/Berlin`; Resets auf 16:00 koreanischer Zeit.
 - Nach der Zeitumstellung am 25.10. bleibt der Riss auf 02/05/… deutscher
   Zeit (Regionsuhr). Ebenfalls ingame gegenprüfen.
 - Nur KR/TW, nicht im Global-Client: Abyss-Riss-Zone, Raumzeit-Riss-Herrschaft.
-- Feldbosse (Verteron/Altgard) respawnen nach Kill, kein fester Zeitplan.
+- Feldbosse (Verteron/Altgard) respawnen nach Kill, kein fester Zeitplan,
+  siehe „Feldbosse“ unten.
 - Neue Events mit `enabled: true` werden bei bestehenden Auswahlen einmalig
   dazugeschaltet (`preferences.known`).
 - Eine Zeitkorrektur verschiebt alle Ereignisse gemeinsam.
+## Feldbosse
+
+Gruppe „Feldbosse“: Gartua, Lagta, Kashapa, Dartan je für Altgard (an) und
+Verteron (aus), `kind: "respawn"` mit `mobCodes` in events.json.
+
+- Stirbt ein gewählter Boss in Sichtweite, speichert die App den Kill
+  (`src-tauri/src/fork/bosses.rs`, Hook `MOB_LIFE_HOOK` im Parser).
+  Ein Spawn in Sichtweite zählt als „gesichtet“, die ersten 10 Minuten
+  nach dem Kill nicht (Leiche).
+- Klick auf die Zeile: „Getötet“ oder Countdown von der Ingame-Karte
+  („Spawnt in 10:45“). Kill + Countdown ergeben den Respawn-Takt; ab dann
+  rechnet jeder Kill den Respawn selbst aus (Anzeige mit „~“).
+- Mit „Gruppe teilen“ gehen Kills, Countdowns und Takt an den Raum
+  (Nachricht `bosses`, app/cloud/PROTOCOL.md); die neueste Meldung gewinnt.
+- Gespeichert in settings.json unter `fork.bosses`.
+
 ## Einstellungen
 
 Kompakte Schalter, einklappbare Eventgruppen und Auswahlzähler im Reiter

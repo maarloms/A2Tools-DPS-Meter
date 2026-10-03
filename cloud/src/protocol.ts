@@ -41,6 +41,10 @@ export const LIMITS = {
   sameFightWindowMs: 45_000,
   /** ... oder gleiche Ziel-Entity innerhalb dieses Fensters */
   sameTargetWindowMs: 10 * 60_000,
+  /** Feldboss-Timer pro Nachricht */
+  maxBossTimers: 32,
+  /** So weit darf die Uhr einer App vorgehen */
+  bossFutureSlackMs: 10 * 60_000,
   /** Zeilen pro Kampf in player_stats: Mitglieder + Top N */
   statsTopPlayers: 20,
 } as const;
@@ -141,5 +145,35 @@ export function normalizeSnap(msg: any, clientId: string, name: string, now: num
       dealt: int(t.dealt, 0, 1e15),
     },
     players,
+  };
+}
+
+/** Feldboss-Timer, wie die App ihn meldet (src-tauri/src/fork/bosses.rs). */
+export interface BossTimer {
+  code: number;
+  killedAt: number | null;
+  respawnAt: number | null;
+  seenAt: number | null;
+  intervalMin: number | null;
+  by: string;
+  updated: number;
+}
+
+/** null = verwerfen (kein Mob-Code, keine Zeit oder Zeit zu weit in der Zukunft). */
+export function normalizeBoss(raw: any, now: number): BossTimer | null {
+  if (!raw || typeof raw !== "object") return null;
+  const code = int(raw.code, 0, 99_999_999);
+  const updated = int(raw.updated);
+  if (!code || !updated || updated > now + LIMITS.bossFutureSlackMs) return null;
+  const time = (v: unknown) => (v === null || v === undefined ? null : int(v) || null);
+  const interval = raw.intervalMin === null || raw.intervalMin === undefined ? null : int(raw.intervalMin, 1, 48 * 60);
+  return {
+    code,
+    killedAt: time(raw.killedAt),
+    respawnAt: time(raw.respawnAt),
+    seenAt: time(raw.seenAt),
+    intervalMin: interval,
+    by: cleanName(raw.by),
+    updated,
   };
 }

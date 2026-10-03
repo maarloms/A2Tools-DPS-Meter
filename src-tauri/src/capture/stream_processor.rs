@@ -7,6 +7,9 @@ use crate::entity::damage_packet::ParsedDamagePacket;
 use crate::entity::special_damage::SpecialDamage;
 use crate::i18n::lookup::{NpcLookup, SkillLookup};
 
+/// Fork: sees every decoded packet (field boss map timers, src/fork/bosses.rs).
+pub static FORK_PACKET_HOOK: std::sync::OnceLock<fn(&[u8])> = std::sync::OnceLock::new();
+
 /// VarInt decode result.
 #[derive(Debug, Clone, Copy)]
 pub struct VarIntResult {
@@ -198,6 +201,7 @@ impl StreamProcessor {
         if packet.len() < 3 {
             return false;
         }
+        if let Some(hook) = FORK_PACKET_HOOK.get() { hook(packet); } // fork
 
         let parsed_damage = self.parsing_damage(packet, true, false);
         let parsed_ownership = self.parse_summon_ownership_packet(packet);

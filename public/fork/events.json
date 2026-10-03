@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "displayTimeZone": "Europe/Berlin",
   "sources": [
     "https://aion2.gaming.tools/de/event-calendar",
@@ -353,6 +353,124 @@
         3
       ],
       "note": "Mittwoch 16:00 koreanischer Zeit. Wochenquests, Arena-Belohnungen, Abyss-Nutzungszeit, Aszensusritus, Dungeon-Rotation."
+    },
+    {
+      "kind": "respawn",
+      "enabled": true,
+      "confirmed": false,
+      "id": "fb-gartua-altgard",
+      "category": "Feldbosse",
+      "name": "Unsterblicher Gartua",
+      "zone": "Altgard · Unsterbliche Insel",
+      "mobCodes": [
+        2400800
+      ],
+      "respawnMinutes": null,
+      "note": "Stufe 51, Altgard · Unsterbliche Insel. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown.",
+      "spawnIds": [
+        111021
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": true,
+      "confirmed": false,
+      "id": "fb-lagta-altgard",
+      "category": "Feldbosse",
+      "name": "Legat Lagta",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400853
+      ],
+      "respawnMinutes": null,
+      "note": "Stufe 45, Altgard. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown."
+    },
+    {
+      "kind": "respawn",
+      "enabled": true,
+      "confirmed": false,
+      "id": "fb-kashapa-altgard",
+      "category": "Feldbosse",
+      "name": "Seelenherrscher Kashapa",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400854
+      ],
+      "respawnMinutes": null,
+      "note": "Stufe 45, Altgard. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown.",
+      "spawnIds": [
+        111023
+      ]
+    },
+    {
+      "kind": "respawn",
+      "enabled": true,
+      "confirmed": false,
+      "id": "fb-dartan-altgard",
+      "category": "Feldbosse",
+      "name": "Schweigender Dartan",
+      "zone": "Altgard",
+      "mobCodes": [
+        2400855
+      ],
+      "respawnMinutes": null,
+      "note": "Stufe 45, Altgard. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown."
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-gartua-verteron",
+      "category": "Feldbosse",
+      "name": "Ewiger Gartua",
+      "zone": "Verteron",
+      "mobCodes": [
+        2101074
+      ],
+      "respawnMinutes": null,
+      "note": "Stufe 51, Verteron. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown."
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-lagta-verteron",
+      "category": "Feldbosse",
+      "name": "Legat Lagta",
+      "zone": "Verteron",
+      "mobCodes": [
+        2101131
+      ],
+      "respawnMinutes": null,
+      "note": "Stufe 45, Verteron. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown."
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-kashapa-verteron",
+      "category": "Feldbosse",
+      "name": "Seelenherrscher Kashapa",
+      "zone": "Verteron",
+      "mobCodes": [
+        2101122
+      ],
+      "respawnMinutes": null,
+      "note": "Stufe 45, Verteron. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown."
+    },
+    {
+      "kind": "respawn",
+      "enabled": false,
+      "confirmed": false,
+      "id": "fb-dartan-verteron",
+      "category": "Feldbosse",
+      "name": "Schweigender Dartan",
+      "zone": "Verteron",
+      "mobCodes": [
+        2101120
+      ],
+      "respawnMinutes": null,
+      "note": "Stufe 45, Verteron. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown."
     }
   ]
 }

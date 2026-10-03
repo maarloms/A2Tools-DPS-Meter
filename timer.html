@@ -74,6 +74,16 @@
     </div>
   </section>
   <section id="events" aria-label="Nächste Events"></section>
+  <section id="boss-panel" class="bossPanel" hidden aria-label="Feldboss eintragen">
+    <div class="bossHead"><span id="boss-name"></span><span id="boss-interval" class="bossInterval"></span>
+      <button id="boss-close" type="button" aria-label="Schließen">×</button></div>
+    <div class="bossRow">
+      <button id="boss-kill" type="button" title="Jetzt getötet">Getötet</button>
+      <input id="boss-spawn" inputmode="numeric" autocomplete="off" placeholder="mm:ss" aria-label="Countdown von der Karte, z. B. 10:45">
+      <button id="boss-set" type="button" title="Countdown von der Ingame-Karte übernehmen">Spawnt in</button>
+      <button id="boss-clear" type="button" title="Kill und gelernten Takt löschen" aria-label="Zurücksetzen">↺</button>
+    </div>
+  </section>
   <p id="error" hidden role="alert"></p>
   <footer id="footer">Strg+Alt+T · Ein / Aus</footer>
 </main>

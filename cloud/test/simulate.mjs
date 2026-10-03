@@ -384,6 +384,29 @@ async function main() {
   check("danach 404", (await fetch(`${BASE}/api/rooms/${ROOM}/fights/${up1j.fightId}`, { headers: auth })).status === 404);
   check("Raw nach Löschen weg", (await fetch(`${BASE}/api/rooms/${ROOM}/uploads/${up1j.uploadId}/raw`, { headers: auth })).status === 404);
 
+  // ---------- Feldboss-Timer ----------
+  {
+    const [a, , b] = apps; // apps[1] ist oben schon getrennt
+    const t0 = Date.now();
+    const at = (c) => c.msgs.filter((m) => m.t === "bosses").length;
+    const before = at(b);
+    a.ws.send(JSON.stringify({ t: "bosses", timers: [{ code: 2400800, killedAt: t0, respawnAt: null, seenAt: null, intervalMin: 120, by: a.name, updated: t0 }] }));
+    await sleep(500);
+    const got = b.msgs.filter((m) => m.t === "bosses").at(-1);
+    check("Boss-Kill geht an die anderen Apps", at(b) === before + 1 && got?.timers?.[0]?.code === 2400800 && got.timers[0].by === a.name);
+    check("Boss-Kill nicht zurück an den Melder", !a.msgs.some((m) => m.t === "bosses" && m.timers?.[0]?.updated === t0));
+    const n = at(b);
+    a.ws.send(JSON.stringify({ t: "bosses", timers: [{ code: 2400800, killedAt: t0 - 5000, updated: t0 - 5000 }, { code: 2400853, updated: t0 + 3_600_000 }] }));
+    await sleep(400);
+    check("ältere und Zukunfts-Meldungen verworfen", at(b) === n);
+    const late = connect({ role: "app", name: "Spaetkommer", clientId: "spaet-client-1" });
+    await late.opened;
+    await sleep(500);
+    const first = late.msgs.find((m) => m.t === "bosses");
+    check("neue App bekommt gespeicherte Boss-Timer", first?.timers?.some((x) => x.code === 2400800 && x.killedAt === t0 && x.intervalMin === 120));
+    late.ws.close(1000);
+  }
+
   // ---------- Hello-Timeout ----------
   // Lokal (wrangler dev) kommt der Close-Frame eines von aussen geschlossenen
   // Sockets erst beim naechsten Verkehr an; die vorausgeschickte error-Nachricht

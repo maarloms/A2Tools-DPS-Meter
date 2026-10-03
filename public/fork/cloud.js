@@ -97,6 +97,10 @@
         setStatus("ok", t("Verbunden mit Raum ", "Connected to room ") + msg.room);
         clearInterval(pingTimer);
         pingTimer = setInterval(() => { if (socket.readyState === 1) socket.send("ping"); }, 25000);
+        // Kills from while we were offline; the room keeps the newest per boss.
+        tauri.core.invoke("get_field_bosses").then(sendBosses).catch(() => {});
+      } else if (msg.t === "bosses") {
+        tauri.core.invoke("merge_field_bosses", { timers: msg.timers || [] }).catch((e) => console.error("Field bosses:", e));
       } else if (msg.t === "error" && ["hello_timeout", "replaced"].includes(msg.code)) {
         socket.close();
       }
@@ -138,7 +142,17 @@
     }));
   }
 
+  // Field boss kills and respawns (src-tauri/src/fork/bosses.rs).
+  function sendBosses(timers) {
+    if (!ws || ws.readyState !== 1 || !timers?.length) return;
+    const by = characterName().slice(0, 24);
+    ws.send(JSON.stringify({ t: "bosses", timers: timers.slice(0, 32).map((x) => ({ ...x, by: x.by || by })) }));
+  }
+
   function startLive() {
+    tauri.event.listen("fork-boss-update", ({ payload }) => {
+      if (payload?.origin !== "cloud") sendBosses(payload?.timers);
+    });
     tauri.event.listen("dps-update", ({ payload }) => sendSnap(payload));
     tauri.event.listen("combat-reset", () => {
       lastKey = "";

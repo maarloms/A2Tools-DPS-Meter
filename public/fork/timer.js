@@ -1,7 +1,11 @@
-import { eventState, countdown } from "./schedule.js";
+import { eventState, respawnState, countdown } from "./schedule.js";
 const $ = id => document.getElementById(id);
 const native = window.__TAURI__;
 let data, preferences, locked = false, writeQueue = Promise.resolve(), signature = "";
+// Field boss timers by mob code (src-tauri/src/fork/bosses.rs) and the boss
+// whose entry panel is open.
+const bosses = new Map();
+let openBoss = null;
 const time = new Intl.DateTimeFormat("de-DE", { timeZone:"Europe/Berlin", hour:"2-digit", minute:"2-digit" });
 const clock = new Intl.DateTimeFormat("de-DE", { timeZone:"Europe/Berlin", hour:"2-digit", minute:"2-digit", second:"2-digit" });
 const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone:"Europe/Berlin" });
@@ -152,17 +156,61 @@ function settingsTab(id, focus = false) {
   $("timer").classList.toggle("settingsOpen", show);
   $("filters").setAttribute("aria-expanded", String(show));
 }
+function bossTimer(event) {
+  return event.mobCodes.map(code => bosses.get(code)).filter(Boolean)
+    .sort((a, b) => b.updated - a.updated)[0];
+}
+function stateOf(event, now) {
+  return event.kind === "respawn" ? respawnState(event, bossTimer(event), now)
+    : eventState(event, now, preferences.offset);
+}
+function bossText(event, state, now) {
+  const by = state.by ? " · " + state.by : "";
+  switch (state.status) {
+    case "alive": return ["da", "Gesichtet " + when(state.seen, now) + by];
+    case "due": return ["fällig", "Respawn seit " + when(state.respawn, now) + by];
+    case "waiting": return [countdown(state.remaining), "Respawn " + (state.estimated ? "~" : "") + when(state.respawn, now) + by];
+    case "killed": return ["+" + countdown(now - state.killed), "Getötet " + when(state.killed, now) + " · Takt noch offen" + by];
+    default: return ["—", event.zone + " · noch kein Kill"];
+  }
+}
+// "10:45" (mm:ss), "1:10:45" (h:mm:ss) or "45" (minutes), as on the map.
+function parseCountdown(text) {
+  const parts = String(text).trim().split(":").map(p => p.trim());
+  if (!parts.length || parts.length > 3 || parts.some(p => !/^\d{1,3}$/.test(p))) return null;
+  const n = parts.map(Number);
+  const seconds = n.length === 1 ? n[0] * 60 : n.length === 2 ? n[0] * 60 + n[1] : n[0] * 3600 + n[1] * 60 + n[2];
+  return seconds <= 48 * 3600 ? seconds * 1000 : null;
+}
+function showBossPanel(id) {
+  openBoss = id;
+  const event = data.events.find(e => e.id === id);
+  $("boss-panel").hidden = !event;
+  if (!event) return;
+  $("boss-name").textContent = event.name + " · " + event.zone;
+  $("boss-spawn").value = "";
+  const state = stateOf(event, Date.now());
+  $("boss-interval").textContent = state.interval ? "Takt " + Math.floor(state.interval / 60) + ":" + String(state.interval % 60).padStart(2, "0") + " h" : "Takt unbekannt";
+}
+async function bossAction(action, ms) {
+  const event = data.events.find(e => e.id === openBoss);
+  if (!event || !native) { message("Feldboss-Timer gehen nur in der Desktop-App."); return; }
+  try {
+    await native.core.invoke("set_field_boss", { code: event.mobCodes[0], action, ms: ms ?? null });
+    showBossPanel(null);
+  } catch (e) { message("Feldboss konnte nicht gespeichert werden: " + e); }
+}
 function render() {
   const now = Date.now();
   $("clock").textContent = clock.format(now);
   const selected = data.events.filter(e => preferences.enabled.includes(e.id))
-    .map(event => ({ event, state:eventState(event, now, preferences.offset) }));
+    .map(event => ({ event, state:stateOf(event, now) }));
   // Recreate rows only when order/state changes, not every second: the user
   // keeps their scroll position and screen readers aren't flooded.
   const groups = [...new Set(data.events.map(e => e.category))];
   const rows = groups.flatMap(category => selected.filter(x => x.event.category === category)
     .sort((a,b) => a.state.remaining - b.state.remaining));
-  const nextSignature = JSON.stringify(rows.map(x => [x.event.id,x.state.active,x.state.remaining <= 300000]));
+  const nextSignature = JSON.stringify(rows.map(x => [x.event.id,x.state.active,x.state.remaining <= 300000,x.state.status]));
   if (nextSignature !== signature) {
     signature = nextSignature; $("events").replaceChildren();
     if (!rows.length) {
@@ -178,6 +226,12 @@ function render() {
         $("events").append(title);
       }
       const row = document.createElement("div"); row.className = "event"; row.dataset.id = event.id; row.title = event.note;
+      if (event.kind === "respawn") {
+        row.classList.add("boss", state.status); row.tabIndex = 0;
+        row.title = event.note + "\nKlicken: getötet oder Countdown von der Karte eintragen.";
+        row.addEventListener("click", () => showBossPanel(openBoss === event.id ? null : event.id));
+        row.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); row.click(); } });
+      }
       if (state.active) row.classList.add("live");
       else if (state.remaining <= 300000) row.classList.add("soon");
       const dot = document.createElement("span"); dot.className = "dot"; dot.setAttribute("aria-hidden","true");
@@ -192,6 +246,12 @@ function render() {
   checkAlarms(rows);
   for (const {event,state} of rows) {
     const row = $("events").querySelector('[data-id="' + event.id + '"]');
+    if (event.kind === "respawn") {
+      const [count, meta] = bossText(event, state, now);
+      row.querySelector(".countdown").textContent = count;
+      row.querySelector(".meta").textContent = meta;
+      continue;
+    }
     row.querySelector(".countdown").textContent = countdown(state.remaining);
     row.querySelector(".meta").textContent = (state.active ? (event.activeText || "Läuft bis") + " " + time.format(state.end)
       : "Start " + when(state.start, now)) + (event.confirmed ? "" : " · unbestätigt");
@@ -274,7 +334,7 @@ async function boot() {
       if (!native) { message("Die Fenstersperre funktioniert in der Desktop-App."); return; }
       try {
         await native.core.invoke("set_timer_locked", {locked:!locked});
-        locked = !locked; filterPanel(false);
+        locked = !locked; filterPanel(false); showBossPanel(null);
         $("lock").setAttribute("aria-pressed", String(locked));
         $("footer").textContent = locked ? "Gesperrt · Strg+Alt+T zweimal zum Entsperren" : "Strg+Alt+T · Ein / Aus";
       } catch { message("Timer konnte nicht gesperrt werden."); }
@@ -285,6 +345,26 @@ async function boot() {
     });
     if (native) await native.event.listen("setting-changed", ({payload}) => {
       if (payload.key === "dpsMeter.theme") { settings[payload.key] = payload.value; applyAppearance(settings); }
+    });
+    if (native) {
+      for (const t of await native.core.invoke("get_field_bosses").catch(() => [])) bosses.set(t.code, t);
+      await native.event.listen("fork-boss-update", ({payload}) => {
+        for (const t of payload?.timers || []) bosses.set(t.code, t);
+        signature = ""; render();
+      });
+    }
+    $("boss-kill").addEventListener("click", () => bossAction("kill"));
+    $("boss-clear").addEventListener("click", () => bossAction("clear"));
+    $("boss-close").addEventListener("click", () => showBossPanel(null));
+    const submitSpawn = () => {
+      const ms = parseCountdown($("boss-spawn").value);
+      if (ms == null) { $("boss-spawn").focus(); $("boss-spawn").select(); return; }
+      bossAction("spawnIn", ms);
+    };
+    $("boss-set").addEventListener("click", submitSpawn);
+    $("boss-spawn").addEventListener("keydown", e => {
+      if (e.key === "Enter") submitSpawn();
+      else if (e.key === "Escape") showBossPanel(null);
     });
     render(); setInterval(render, 1000);
   } catch(e) { message("Timer konnte nicht geladen werden: " + e.message); }

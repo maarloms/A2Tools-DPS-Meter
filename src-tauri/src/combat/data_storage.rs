@@ -8,6 +8,11 @@ use crate::entity::job_class::JobClass;
 use crate::entity::special_damage::SpecialDamage;
 use crate::entity::summon_resolver;
 
+/// Fork: told the mob code when a mob spawns (`false`) or dies in combat
+/// (`true`). The desktop app sets it for field boss timers; the parser itself
+/// stays free of Tauri.
+pub static MOB_LIFE_HOOK: std::sync::OnceLock<fn(i32, bool)> = std::sync::OnceLock::new();
+
 /// Maximum idle gap before a fight is considered ended and a new one begins.
 const IDLE_RESET_MS: i64 = 30_000;
 
@@ -629,6 +634,7 @@ impl DataStorage {
     }
 
     pub fn append_mob(&self, mid: i32, code: i32) {
+        if let Some(hook) = MOB_LIFE_HOOK.get() { hook(code, false); } // fork
         let mut inner = self.inner.write();
         inner.mob_storage.insert(mid, code);
 
@@ -653,7 +659,12 @@ impl DataStorage {
     }
 
     pub fn mark_entity_dead(&self, entity_id: i32) {
-        self.inner.write().dead_entity_ids.insert(entity_id);
+        let code = {
+            let mut inner = self.inner.write();
+            inner.dead_entity_ids.insert(entity_id).then(|| inner.mob_storage.get(&entity_id).copied()).flatten()
+        };
+        // fork: field boss kill tracking
+        if let (Some(code), Some(hook)) = (code, MOB_LIFE_HOOK.get()) { hook(code, true); }
     }
 
     pub fn is_entity_dead(&self, entity_id: i32) -> bool {

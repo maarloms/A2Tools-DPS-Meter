@@ -203,6 +203,22 @@ fn main() -> ExitCode {
             }
         }
 
+        // Every decoded packet as `index|ms|hex`, for ad-hoc scripts.
+        "export" => {
+            let Some(out) = args.get(2) else {
+                eprintln!("export needs an output path");
+                return ExitCode::FAILURE;
+            };
+            let packets = load(&args[1]);
+            let text: String = packets.iter().map(|p| format!("{}|{}|{}
+", p.index, p.at_ms, hex(&p.bytes).replace(' ', ""))).collect();
+            if let Err(e) = std::fs::write(out, text) {
+                eprintln!("{e}");
+                return ExitCode::FAILURE;
+            }
+            println!("{} packets -> {out}", packets.len());
+        }
+
         "find" => {
             let packets = load(&args[1]);
             let needle: Vec<u8> = if let Some(v) = value_of("--u32") {

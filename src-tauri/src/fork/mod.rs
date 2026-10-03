@@ -1,3 +1,4 @@
+pub mod bosses;
 pub mod cloud;
 pub mod npcap;
 
@@ -162,6 +163,7 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri::plugin::Builder::new("fork")
         .on_event(|app, event| {
             if matches!(event, tauri::RunEvent::Ready) {
+                bosses::start(app);
                 let manager = HotkeyManager::new();
                 let handle = app.clone();
                 manager.start(0, 0, 3, 0x54, 0, 0, || {}, move || {

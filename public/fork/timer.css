@@ -119,3 +119,21 @@ footer { padding:7px 13px; font-size:10px; color:#9cacc8; border-top:1px solid v
 .landscape:not(.settingsOpen) .empty { margin:auto 12px; }
 .layoutChoice .choiceName { font-size:10px; color:#9cacc8; }
 .layoutChoice .choiceName b { font-size:11px; color:#dbe5f6; font-weight:600; }
+/* Field bosses: click a row to enter a kill or the map's countdown. */
+.timer { position:relative; }
+.event.boss { cursor:pointer; }
+.event.boss:hover { background-color:rgba(140,180,255,.07); }
+.event.boss.unknown .countdown,.event.boss.killed .countdown { color:#9cacc8; font-size:17px; }
+.bossPanel { position:absolute; left:6px; right:6px; bottom:6px; z-index:5; padding:7px 8px; border-radius:9px;
+  background:rgba(var(--hud-bg,12,22,40),.97); border:1px solid var(--panel-border,rgba(140,180,255,.3)); box-shadow:0 4px 14px rgba(0,0,0,.35); }
+.bossHead { display:flex; align-items:center; gap:8px; font-size:11px; margin-bottom:6px; }
+.bossHead #boss-name { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+.bossInterval { color:#9cacc8; flex:none; }
+.bossHead button { padding:0 6px; font-size:16px; line-height:18px; }
+.bossRow { display:flex; gap:5px; align-items:center; }
+.bossRow button { font-size:11px; padding:5px 8px; background:rgba(140,180,255,.12); white-space:nowrap; }
+.bossRow #boss-kill { background:rgba(121,220,186,.18); }
+.bossRow input { width:62px; min-width:0; flex:1; font:inherit; font-size:12px; padding:4px 6px; color:inherit; text-align:center;
+  background:rgba(0,0,0,.25); border:1px solid var(--hud-hairline,rgba(140,180,255,.2)); border-radius:5px; font-variant-numeric:tabular-nums; }
+.landscape:not(.settingsOpen) .bossPanel { top:4px; bottom:4px; display:flex; flex-direction:column; justify-content:center; padding:3px 8px; }
+.landscape:not(.settingsOpen) .bossHead { margin-bottom:3px; }

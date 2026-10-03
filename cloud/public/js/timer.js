@@ -45,6 +45,8 @@ export async function loadTimer() {
       const r = await fetch("shared/events.json", { cache: "no-cache" });
       if (!r.ok) throw new Error("events.json fehlt");
       data = await r.json();
+      // Feldbosse haben keinen Zeitplan; ihre Timer kennt nur die App.
+      data.events = data.events.filter((e) => e.kind !== "respawn");
     }
     if (!prefs) loadPrefs();
     signature = "";

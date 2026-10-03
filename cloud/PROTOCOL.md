@@ -87,6 +87,13 @@ listen("dps-update", ({ payload: d }) => {
 
 **get** – Gruppenansicht sofort anfordern (max. 1/s): `{ "t": "get" }`
 
+**bosses** – Feldboss-Timer (nur Apps), nach `welcome` alle eigenen, danach jede Änderung:
+```json
+{ "t": "bosses", "timers": [ { "code": 2400800, "killedAt": 1790987000000, "respawnAt": null, "seenAt": null,
+  "intervalMin": 120, "by": "marloms", "updated": 1790987000000 } ] }
+```
+Max. 32 pro Nachricht. Pro `code` gewinnt das höchste `updated`; ältere Meldungen werden still verworfen.
+
 **Heartbeat:** alle 25–30 s den Text `ping` senden (kein JSON). Antwort `pong` kommt vom Runtime, ohne das Durable Object
 aufzuwecken (kostenlos). 
 
@@ -118,6 +125,9 @@ aufzuwecken (kostenlos).
 - Kämpfe werden über `target.id + target.name` gruppiert. Pro Spieler zählt der höchste gemeldete Schaden (= aktuellster),
   bei Gleichstand die Eigenmeldung. `share` wird neu berechnet (Anteil am Gesamtschaden auf das Ziel).
 - Max. 4 Kämpfe (aktive zuerst), Kämpfe älter als 10 min fallen raus.
+
+**bosses** – gleiches Format wie oben: nach `welcome` alle gespeicherten Timer des Raums, danach neue Meldungen
+anderer Apps. Nur an Apps.
 
 **fight** – ein Kampf wurde hochgeladen/aktualisiert: `{ "t": "fight", "fight": <Kampf-Zusammenfassung>, "replaced": false }`
 **fightDeleted** – `{ "t": "fightDeleted", "id": "<fightId>" }`
