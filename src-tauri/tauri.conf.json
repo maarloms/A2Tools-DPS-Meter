@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "A2Tools DPS Meter",
-  "version": "2.0.41",
-  "identifier": "com.a2tools.dps-meter",
+  "productName": "AION 2 DPS Meter",
+  "version": "3.0.0",
+  "identifier": "de.maarloms.aion2-dps-meter",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -42,6 +42,9 @@
     ],
     "windows": {
       "allowDowngrades": true,
+      "wix": {
+        "upgradeCode": "59F36FCA-6916-4275-B32F-C3E99B33AB02"
+      },
       "webviewInstallMode": {
         "type": "skip"
       }

@@ -136,3 +136,41 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             }
         }).build()
 }
+/// The fork installs under its own identifier (tauri.conf.json), so its data
+/// lives in a new folder. On the first start copy settings, history and the
+/// WebView storage over from A2Tools' folders; the originals stay untouched.
+pub fn migrate_legacy_data() {
+    const OLD: &str = "com.a2tools.dps-meter";
+    const NEW: &str = "de.maarloms.aion2-dps-meter";
+    for var in ["APPDATA", "LOCALAPPDATA"] {
+        let Some(base) = std::env::var_os(var).map(std::path::PathBuf::from) else { continue };
+        let (old, new) = (base.join(OLD), base.join(NEW));
+        if !old.is_dir() || new.exists() {
+            continue;
+        }
+        match copy_dir(&old, &new) {
+            Ok(()) => tracing::info!("Copied A2Tools data from {} to {}", old.display(), new.display()),
+            Err(e) => tracing::warn!("Copying A2Tools data from {} failed: {e}", old.display()),
+        }
+    }
+}
+
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    // Logs, capture slices and browser caches are not worth carrying over.
+    const SKIP: [&str; 5] = ["debug.log", "slices", "Cache", "Code Cache", "GPUCache"];
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if SKIP.iter().any(|s| name == *s) {
+            continue;
+        }
+        let target = to.join(&name);
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}

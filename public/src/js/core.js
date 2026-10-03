@@ -483,9 +483,8 @@ class DpsApp {
     });
     // Settings, Details and History run this same bundle; only the overlay
     // checks, or every Settings open would ask again.
-    // fork: upstream's checker points at a2tools.app and would install the
-    // upstream MSI over the fork; the fork ships its own updater.
-    // if (window.A2_VIEW === "main") window.ReleaseChecker?.start?.();
+    // fork: checkRelease.js now reads the fork's own GitHub releases.
+    if (window.A2_VIEW === "main") window.ReleaseChecker?.start?.();
     this.setupConsoleDebugging();
     this.bindNativeHotkeyBridge();
 

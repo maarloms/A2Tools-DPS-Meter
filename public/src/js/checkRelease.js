@@ -1,5 +1,6 @@
 (() => {
-  const CDN_MANIFEST = "https://a2tools.app/latest-v2.json";
+  // fork: our own releases on GitHub (see fork-release.ps1), not upstream's CDN.
+  const CDN_MANIFEST = "https://github.com/maarloms/A2Tools-DPS-Meter/releases/latest/download/latest.json";
   const START_DELAY = 800,
     RETRY = 500,
     LIMIT = 5;

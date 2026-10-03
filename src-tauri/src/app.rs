@@ -1783,6 +1783,7 @@ pub fn run() {
     // Before anything starts a thread: it may set environment variables.
     let process_note = platform::process::prepare();
     logging::logger::init_logging();
+    crate::fork::migrate_legacy_data(); // fork
     if let Some(note) = process_note {
         tracing::info!("{note}");
     }
