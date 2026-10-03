@@ -73,6 +73,10 @@ pub struct AppState {
     pub capture_suspended: Arc<std::sync::atomic::AtomicBool>,
     /// The overlay's click-through lock. See `apply_overlay_lock`.
     pub overlay_lock: Arc<OverlayLock>,
+    /// What the last account check found: `None` until one has run, then
+    /// `Some(None)` signed out or `Some(Some(_))` signed in. Settings shows it
+    /// at once instead of "checking" for as long as the server takes.
+    pub account_seen: Mutex<Option<Option<crate::account::AccountSummary>>>,
 }
 
 /// The overlay's click-through lock: while locked, clicks go through the meter
@@ -294,7 +298,25 @@ async fn preview_share(
 async fn account_status(
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<crate::account::AccountSummary>, String> {
-    Ok(crate::account::whoami(&state.http, &state.app_data_dir).await)
+    let who = crate::account::whoami(&state.http, &state.app_data_dir).await;
+    *state.account_seen.lock() = Some(who.clone());
+    Ok(who)
+}
+
+/// Whether this build can show a Discord activity (it has a Discord
+/// application configured). The Settings toggle is hidden when it cannot.
+#[tauri::command]
+fn discord_activity_available() -> bool {
+    crate::presence::available()
+}
+
+/// What the last `account_status` found, without asking the server again.
+/// `None` when nothing has been checked yet this session.
+#[tauri::command]
+fn account_status_cached(
+    state: tauri::State<'_, AppState>,
+) -> Option<Option<crate::account::AccountSummary>> {
+    state.account_seen.lock().clone()
 }
 
 /// Begin signing in, and return the code to show the player.
@@ -340,6 +362,7 @@ async fn account_begin_link(
 #[tauri::command]
 fn account_sign_out(state: tauri::State<'_, AppState>) {
     crate::account::secret::clear(&state.app_data_dir);
+    *state.account_seen.lock() = Some(None);
     tracing::info!("Account signed out on this machine");
 }
 
@@ -392,7 +415,7 @@ fn get_capture_status(state: tauri::State<'_, AppState>) -> serde_json::Value {
         "characterName": char_name,
         // When true, characterName is the game's (null = an unnamed tutorial
         // character) and the UI should adopt it rather than push its own.
-        "characterNameFromGame": state.data_storage.local_identity_from_game(),
+        "characterNameFromGame": state.data_storage.local_identity_from_self_record(),
     })
 }
 
@@ -407,7 +430,7 @@ fn set_character_name(state: tauri::State<'_, AppState>, name: String, manual: O
     // last session is at best the same and at worst another character. A name
     // the player typed (`manual`) is taken anyway: it is their call, and the
     // game's next self record replaces it if it was wrong.
-    if state.data_storage.local_identity_from_game() && !manual.unwrap_or(false) {
+    if state.data_storage.local_identity_from_self_record() && !manual.unwrap_or(false) {
         return;
     }
     let trimmed = name.trim().to_string();
@@ -465,7 +488,7 @@ fn bind_local_nickname(state: tauri::State<'_, AppState>, actor_id: i64, nicknam
         return;
     }
     // Same as set_character_name: the game's name for the local player wins.
-    if state.data_storage.local_identity_from_game()
+    if state.data_storage.local_identity_from_self_record()
         && state.data_storage.local_character_name().as_deref() != Some(nickname.trim())
     {
         return;
@@ -1131,6 +1154,8 @@ async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
         let _ = existing.unminimize();
         let _ = existing.set_always_on_top(true);
         let _ = existing.set_focus();
+        // Already open (perhaps behind the game): check the account again.
+        let _ = app.emit_to("settings", "settings-shown", ());
         return Ok(());
     }
     build_settings_window(&app)
@@ -1171,6 +1196,9 @@ fn build_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn close_settings_window(app: tauri::AppHandle) {
+    // Closed, not hidden: a hidden WebView2 window came back blank when shown
+    // again. Rebuilding it costs little now that Quit is wired before the
+    // page loads and the account line starts from the last check.
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.close();
     }
@@ -1894,10 +1922,12 @@ pub fn run() {
                     .unwrap_or_default(),
                 capture_suspended: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 overlay_lock: Arc::new(OverlayLock::default()),
+                account_seen: Mutex::new(None),
             };
             let capture_suspended = state.capture_suspended.clone();
 
             app.manage(state);
+            crate::presence::spawn(app.handle().clone());
 
             // Reopen the Details window if it was left enabled. Done here rather
             // than from JS because the backend already has settings loaded — the
@@ -2299,6 +2329,8 @@ pub fn run() {
             upload_fight,
             share_status,
             account_status,
+            account_status_cached,
+            discord_activity_available,
             account_begin_link,
             account_sign_out,
             get_settings,

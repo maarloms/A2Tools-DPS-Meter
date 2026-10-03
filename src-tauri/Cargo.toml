@@ -1,6 +1,6 @@
 [package]
 name = "a2tools-dps-meter"
-version = "2.0.41"
+version = "2.0.42"
 description = "A2Tools DPS Meter - AION 2 real-time DPS overlay"
 authors = ["taengu"]
 edition = "2024"
@@ -35,10 +35,12 @@ desktop = [
     "dep:futures-util",
     "dep:urlencoding",
     "dep:flate2",
+    "dep:discord-rich-presence",
     # Linux only (see the target section below); ignored elsewhere.
     "dep:secret-service",
     "dep:gtk",
     "dep:webkit2gtk",
+    "dep:x11-dl",
 ]
 
 # Both binaries are declared rather than left to auto-discovery, so adding the
@@ -89,6 +91,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 chrono = { version = "0.4", features = ["serde"] }
 parking_lot = "0.12"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"], optional = true }
+# Discord activity ("playing AION2 as a level 29 Cleric on Kaisinel"), over the
+# local Discord client's IPC socket. Opt-in; see presence.rs.
+discord-rich-presence = { version = "1.1", optional = true }
 futures-util = { version = "0.3", optional = true }
 urlencoding = { version = "2", optional = true }
 sha2 = "0.11.0"
@@ -125,6 +130,9 @@ gtk = { version = "0.18", optional = true }
 # Screenshots: WebKit's snapshot of the meter's page. Same version and feature
 # as Tauri's own, so it is the one copy.
 webkit2gtk = { version = "2", features = ["v2_40"], optional = true }
+# The pointer's position under XWayland, for the click-through lock. Loads
+# libX11 at run time; already in the tree through tao.
+x11-dl = { version = "2.21", optional = true }
 
 [dev-dependencies]
 flate2 = "1"

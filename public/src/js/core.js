@@ -64,6 +64,7 @@ class DpsApp {
       bossLogs: "dpsMeter.bossLogsEnabled",
       saveRawPackets: "dpsMeter.saveRawPackets",
       autoUpload: "dpsMeter.autoUpload",
+      discordActivity: "dpsMeter.discordActivity",
       windowOpacity: "dpsMeter.windowOpacity",
       bossNameSize: "dpsMeter.bossNameSize",
       betaUi: "dpsMeter.betaUi",
@@ -1951,14 +1952,29 @@ class DpsApp {
       return;
     }
 
+    // The last known answer first, so the panel is right the moment it opens;
+    // the server's can take seconds, and nothing else waits on it.
+    if (!result) {
+      try {
+        const seen = await window.javaBridge?.accountStatusCached?.();
+        if (seen) this.paintAccount(seen.who);
+      } catch {}
+    }
+
     let who = null;
     try {
       who = await window.javaBridge?.accountStatus?.();
     } catch {
       who = null;
     }
+    this.paintAccount(who);
+  }
 
+  paintAccount(who) {
     const signedIn = !!who;
+    // A sign-in waiting for approval in the browser keeps its code and its
+    // "waiting" line; its outcome arrives on "account-changed".
+    if (!signedIn && this.accountCodeBox?.style.display === "block") return;
     if (this.accountCodeBox && signedIn) this.accountCodeBox.style.display = "none";
     if (this.accountConnectBtn) {
       this.accountConnectBtn.disabled = false;
@@ -2130,12 +2146,35 @@ class DpsApp {
       this.characterNameInput.addEventListener("keydown", (event) => {
         if (event.key === "Enter") event.target.blur();
       });
-      this.characterNameInput.addEventListener("change", (event) => {
-        const name = String(event.target?.value || "").trim();
-        event.target.value = name;
-        if (name === this.USER_NAME) return;
+      // Saved after a pause in typing, on Enter or leaving the field, and when
+      // the window closes: saving on "change" alone lost a name typed just
+      // before closing Settings (issue #13). Compared with what was last
+      // saved, not with the detected name, so typing the detected name still
+      // saves it as the player's own.
+      let savedName = String(this.safeGetSetting(this.storageKeys.userName) || "").trim();
+      let saveTimer = null;
+      const saveTypedName = () => {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        const name = String(this.characterNameInput.value || "").trim();
+        if (name === savedName) return;
+        savedName = name;
         this.setUserName(name, { persist: true, syncBackend: true, manual: true });
         this.safeSetSetting(this.storageKeys.userName, name);
+      };
+      this.characterNameInput.addEventListener("input", () => {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(saveTypedName, 800);
+      });
+      this.characterNameInput.addEventListener("change", (event) => {
+        event.target.value = String(event.target?.value || "").trim();
+        saveTypedName();
+      });
+      window.addEventListener("pagehide", () => {
+        if (saveTimer) saveTypedName();
+      });
+      window.addEventListener("beforeunload", () => {
+        if (saveTimer) saveTypedName();
       });
     }
     if (this.localActorIdInput) {
@@ -2305,6 +2344,22 @@ class DpsApp {
       });
     }
     this.refreshAccountPanel();
+
+    // Off unless turned on: it shows others what you are playing. Offered
+    // only when this build has a Discord application to show it under.
+    const discordCheckbox = document.querySelector(".discordActivityCheckbox");
+    if (discordCheckbox) {
+      discordCheckbox.checked = this.safeGetSetting(this.storageKeys.discordActivity) === "true";
+      discordCheckbox.addEventListener("change", (event) => {
+        this.safeSetSetting(this.storageKeys.discordActivity, String(!!event.target?.checked));
+      });
+      Promise.resolve(window.javaBridge?.discordActivityAvailable?.())
+        .then((ok) => {
+          const group = document.querySelector(".discordActivityGroup");
+          if (group && ok) group.style.display = "";
+        })
+        .catch(() => {});
+    }
 
     if (this.autoUploadCheckbox) {
       // Off unless turned on: an upload publishes a fight.
@@ -2521,9 +2576,7 @@ class DpsApp {
       window.javaBridge?.openBrowser?.("https://github.com/taengu/AION2-DPS-Meter/releases");
     });
 
-    this.quitButton?.addEventListener("click", () => {
-      window.javaBridge?.exitApp?.();
-    });
+    // Quit is wired in startApp, before anything that can be slow.
 
     this.updateSettingsVersion();
     this.updateSupportVisibility(currentLanguage);
@@ -3724,12 +3777,7 @@ class DpsApp {
     this.refreshMonitorList().then(() => this.initializeSettingsDropdowns());
     this._loadDeviceDropdown();
     this.settingsPanel?.classList.add("isOpen");
-    const close = () => window.javaBridge?.closeSettingsWindow?.();
-    this.settingsClose?.addEventListener("click", close);
-    document.querySelector(".settingsWindowClose")?.addEventListener("click", close);
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") close();
-    });
+    // Closing is wired in startApp, before anything that can be slow.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => window.javaBridge?.toolWindowReady?.("settings"));
     });
@@ -4828,10 +4876,18 @@ class DpsApp {
     const minWidth = 300;
     const minHeight = 30;
 
+    // Screen coordinates, not client ones: a window manager that keeps windows
+    // on screen (KWin) moves the window while it grows during the drag, which
+    // shifts clientX/Y and made the size jump past the cursor (issue #11).
     const onMouseMove = (event) => {
       if (!isResizing) return;
-      const nextWidth = Math.max(minWidth, startWidth + (event.clientX - startX));
-      const nextHeight = Math.max(minHeight, startHeight + (event.clientY - startY));
+      // The button came up outside the window, where no mouseup arrives.
+      if ((event.buttons & 1) === 0) {
+        onMouseUp();
+        return;
+      }
+      const nextWidth = Math.max(minWidth, startWidth + (event.screenX - startX));
+      const nextHeight = Math.max(minHeight, startHeight + (event.screenY - startY));
       this.meterEl.style.width = `${nextWidth}px`;
       this.meterEl.style.height = `${nextHeight}px`;
     };
@@ -4854,8 +4910,8 @@ class DpsApp {
       const rect = this.meterEl.getBoundingClientRect();
       startWidth = rect.width;
       startHeight = rect.height;
-      startX = event.clientX;
-      startY = event.clientY;
+      startX = event.screenX;
+      startY = event.screenY;
       isResizing = true;
     });
 
@@ -5073,6 +5129,19 @@ const startApp = async ({ forced = false } = {}) => {
     hasJavaBridge: !!window.javaBridge,
     forced,
   });
+  // Window controls answer at once: the translations below load first, and
+  // until they had, Quit and closing the settings window did nothing.
+  document.querySelector(".quitButton")?.addEventListener("click", () => {
+    window.javaBridge?.exitApp?.();
+  });
+  if (window.A2_VIEW === "settings") {
+    const close = () => window.javaBridge?.closeSettingsWindow?.();
+    document.querySelector(".settingsClose")?.addEventListener("click", close);
+    document.querySelector(".settingsWindowClose")?.addEventListener("click", close);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") close();
+    });
+  }
   try {
     await window.i18n?.init?.();
     window.lucide?.createIcons?.();

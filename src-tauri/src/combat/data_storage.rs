@@ -29,6 +29,16 @@ const ZONE_RESET_DEBOUNCE_MS: i64 = 4_000;
 /// How long party members who have not fought stay on the meter after the
 /// last roster. See `DataStorage::party_placeholders_wanted`.
 const PARTY_PLACEHOLDER_MS: i64 = 10 * 60 * 1000;
+/// "Has not happened" for the times below. Not 0: a replayed slice's clock
+/// starts before 0 (the lead-in runs at negative offsets from the pull), so
+/// a 0 there read as "a moment ago" and suppressed every zone reset in the
+/// lead-in, which ran a wiped pull's damage into the next pull (Gargaum,
+/// 2026-07 capture: 114M derived for a 69M pull).
+const NEVER_MS: i64 = i64::MIN;
+/// How often, in damage records, unnamed party members are matched to the
+/// roster by class. A fight brings a few hundred records a second, so this
+/// names them within the first moments of combat.
+const ROSTER_BIND_EVERY: u32 = 64;
 
 fn now_ms() -> i64 {
     crate::clock::now_ms()
@@ -101,6 +111,31 @@ impl SkillCombatData {
         }
     }
 
+    /// Add `other`'s hits to these: the same skill, recorded under two ids.
+    fn absorb(&mut self, other: SkillCombatData) {
+        self.hit_count += other.hit_count;
+        self.total_damage = self.total_damage.saturating_add(other.total_damage);
+        self.min_damage = self.min_damage.min(other.min_damage);
+        self.max_damage = self.max_damage.max(other.max_damage);
+        self.crit_count += other.crit_count;
+        self.back_count += other.back_count;
+        self.frontal_count += other.frontal_count;
+        self.parry_count += other.parry_count;
+        self.perfect_count += other.perfect_count;
+        self.double_count += other.double_count;
+        self.smite_count += other.smite_count;
+        self.powershard_count += other.powershard_count;
+        self.multi_hit_count += other.multi_hit_count;
+        self.multi_hit_damage = self.multi_hit_damage.saturating_add(other.multi_hit_damage);
+        self.multi_hit_hits += other.multi_hit_hits;
+        self.heal_amount = self.heal_amount.saturating_add(other.heal_amount);
+        self.hit_timestamps.extend(other.hit_timestamps);
+        self.hit_timestamps.sort_unstable();
+        for (mine, theirs) in self.spec_flags.iter_mut().zip(other.spec_flags) {
+            *mine |= theirs;
+        }
+    }
+
     fn new(skill_code: i32, is_dot: bool) -> Self {
         Self {
             skill_code,
@@ -125,6 +160,16 @@ impl SkillCombatData {
             spec_flags: [false; 5],
         }
     }
+}
+
+/// Who the local player is playing. See `DataStorage::local_profile`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LocalProfile {
+    pub name: Option<String>,
+    /// 0 when unknown.
+    pub server_id: u16,
+    pub class: Option<JobClass>,
+    pub level: Option<u32>,
 }
 
 /// One entry of the party roster packet (`0x9702`). Keyed by character name,
@@ -153,6 +198,9 @@ pub struct PartyMember {
     /// changes on rename, and it is re-usable by a stranger once freed, which
     /// would silently hand them the previous owner's consent.
     pub dbid: u64,
+    /// The member's class, as the roster states it. Lets a member be named
+    /// before their entity id is known: see `bind_roster_names_by_class`.
+    pub job: Option<JobClass>,
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +217,25 @@ pub struct ActorCombatData {
 }
 
 impl ActorCombatData {
+    /// Add everything `other` recorded: one character, under an old entity id.
+    fn absorb(&mut self, other: ActorCombatData) {
+        self.total_damage += other.total_damage;
+        self.party_heal += other.party_heal;
+        self.regen += other.regen;
+        self.damage_received += other.damage_received;
+        self.hits_received += other.hits_received;
+        self.last_damage_time = self.last_damage_time.max(other.last_damage_time);
+        self.job = self.job.or(other.job);
+        for (key, skill) in other.skills {
+            match self.skills.get_mut(&key) {
+                Some(mine) => mine.absorb(skill),
+                None => {
+                    self.skills.insert(key, skill);
+                }
+            }
+        }
+    }
+
     fn new() -> Self {
         Self {
             total_damage: 0,
@@ -273,6 +340,10 @@ struct Inner {
     /// fought should still get rows. See `party_placeholders_wanted`.
     party_roster_at_ms: i64,
     party_placeholders_hidden: bool,
+    /// Damage records since `bind_roster_names_by_class` last ran. Counted in
+    /// records rather than time so a replay names players where a live meter
+    /// did.
+    damage_since_roster_bind: u32,
     /// Instance id the party is in, from the same packet. Encodes the dungeon and
     /// its difficulty tier; resolved to a name by the frontend's dungeon table.
     current_dungeon_id: i32,
@@ -318,15 +389,25 @@ struct Inner {
     /// Who the loot records (`04 8d` after a kill) say owns the drops, and
     /// what that has been used for. See `note_loot_owner`.
     loot_identity: LootIdentity,
+    /// Each character's home server, by name, from the records that state it:
+    /// the self record and loot records. See `fight_server_id`.
+    player_servers: HashMap<String, u16>,
+    /// The class and level your own self record last stated, with the name it
+    /// was for, so a character switch does not carry the last one's over.
+    self_profile: Option<(String, Option<JobClass>, Option<u32>)>,
 }
 
 #[derive(Default)]
 struct LootIdentity {
-    /// The one name the loot records have named so far this session.
-    owner: Option<String>,
-    /// They have named two different players, so they say nothing about who
-    /// "you" are.
-    conflicted: bool,
+    /// Each owner the loot records have named this session: the entity id
+    /// they gave, and the kills (mob ids) they named them for. Kills, not
+    /// records: the embedded scan sees one record again on every read of the
+    /// buffer it sits in, which counted one kill dozens of times.
+    owners: HashMap<String, (i32, HashSet<i32>)>,
+    /// Entities the server has sent a `06 38` record about. Those go to you
+    /// and your party, never to strangers fighting nearby, so a loot owner
+    /// outside this set is someone else's kill. See `note_party_scope`.
+    party_scope: HashSet<i32>,
     /// The local identity currently in force came from them, not from the
     /// self record.
     applied: bool,
@@ -359,6 +440,7 @@ impl DataStorage {
                 low_id_entities: HashSet::new(),
                 party_members: HashMap::new(),
                 party_roster_at_ms: 0,
+                damage_since_roster_bind: 0,
                 party_placeholders_hidden: false,
                 current_dungeon_id: 0,
                 actor_power_scalars: HashMap::new(),
@@ -374,10 +456,12 @@ impl DataStorage {
                 local_character_name: None,
                 local_identity_from_game: false,
                 loot_identity: LootIdentity::default(),
+                player_servers: HashMap::new(),
+                self_profile: None,
             }),
             damage_generation: AtomicI64::new(0),
-            last_damage_ms: AtomicI64::new(0),
-            last_zone_reset_ms: AtomicI64::new(0),
+            last_damage_ms: AtomicI64::new(NEVER_MS),
+            last_zone_reset_ms: AtomicI64::new(NEVER_MS),
             combat_reset_requested: AtomicBool::new(false),
         }
     }
@@ -388,10 +472,10 @@ impl DataStorage {
     /// without ever wiping an in-progress fight. Returns true if it reset.
     pub fn note_zone_change(&self) -> bool {
         let now = now_ms();
-        if now - self.last_damage_ms.load(Ordering::Relaxed) < ZONE_RESET_LULL_MS {
+        if now.saturating_sub(self.last_damage_ms.load(Ordering::Relaxed)) < ZONE_RESET_LULL_MS {
             return false; // mid-combat teleport — ignore
         }
-        if now - self.last_zone_reset_ms.load(Ordering::Relaxed) < ZONE_RESET_DEBOUNCE_MS {
+        if now.saturating_sub(self.last_zone_reset_ms.load(Ordering::Relaxed)) < ZONE_RESET_DEBOUNCE_MS {
             return false; // already reset moments ago
         }
         {
@@ -409,6 +493,12 @@ impl DataStorage {
         self.combat_reset_requested.store(true, Ordering::Relaxed);
         tracing::info!("Zone change detected — combat data reset (identity preserved)");
         true
+    }
+
+    /// When the last zone-change combat reset happened (clock ms), `NEVER_MS`
+    /// if it has not.
+    pub fn last_zone_reset_ms(&self) -> i64 {
+        self.last_zone_reset_ms.load(Ordering::Relaxed)
     }
 
     /// Consumed by the dps calculator to drop its cached snapshot/saved-target
@@ -437,7 +527,7 @@ impl DataStorage {
         // new id outside combat means a new zone or instance, where the old
         // ids now belong to other players and mobs: forget who they were, or
         // the previous instance's names stick to the new one's players.
-        let quiet = now_ms() - self.last_damage_ms.load(Ordering::Relaxed) >= ZONE_RESET_LULL_MS;
+        let quiet = now_ms().saturating_sub(self.last_damage_ms.load(Ordering::Relaxed)) >= ZONE_RESET_LULL_MS;
         // (Not local_player_id: the self record's name was stored a moment
         // earlier, and a stored name equal to yours already moves that.)
         let new_zone = inner.last_self_id.is_some_and(|old| old != id);
@@ -460,34 +550,62 @@ impl DataStorage {
     ///
     /// The self record that names you arrives on login and zone loads, so a
     /// meter started mid-session can go a long while without it. Loot records
-    /// fill that gap: in every capture so far (2026-10, global servers) they
-    /// have named only the player whose meter it was, once per kill. Until the
-    /// self record arrives, the owner is taken as you, with two checks: if
-    /// they ever name a second player (a party kill, say) they are ignored
-    /// from then on, and a configured name already matched to a player in the
-    /// world is kept. Returns whether the local identity changed.
-    pub fn note_loot_owner(&self, owner_id: i32, name: &str) -> bool {
+    /// fill that gap: they name the player whose kill it was, and mostly that
+    /// is you. Not always: a kill by someone nearby reaches you too, inside
+    /// another packet (2026-10-04, "Deityclaire" a second into a capture whose
+    /// player was Naicha). So they are a vote. Until the self record arrives,
+    /// you are the owner named most often, while that owner leads outright;
+    /// a tie means not knowing. A configured name already matched to a player
+    /// in the world is kept. Returns whether the local identity changed.
+    ///
+    /// Taking the first name and ignoring loot records for good once a second
+    /// appeared left that capture with no local player at all.
+    pub fn note_loot_owner(&self, mob_id: i32, owner_id: i32, name: &str) -> bool {
         let mut inner = self.inner.write();
         // fork: on global servers (2026-10) loot records name the looter of
         // every kill nearby — one minute of farming logged a dozen owners, and
         // the first guess made "last hit by me" follow a stranger's targets.
         // So they only confirm the name the player configured; they never
         // pick one on their own.
+        // (Without a configured name, upstream's party-scoped vote below decides.)
         if !inner.local_identity_from_game || inner.loot_identity.applied {
-            let configured = inner.local_character_name.as_deref().map(str::trim).filter(|n| !n.is_empty());
-            if configured != Some(name.trim()) {
+            // The name typed in, not one an earlier loot guess put in its place.
+            let configured = if inner.loot_identity.applied {
+                inner.loot_identity.name_before.as_deref()
+            } else {
+                inner.local_character_name.as_deref()
+            };
+            let configured = configured.map(str::trim).filter(|n| !n.is_empty());
+            if configured.is_some_and(|c| c != name.trim()) {
                 tracing::debug!("loot record names '{}', configured {:?}; ignored", name, configured);
                 return false;
             }
         }
         let loot = &mut inner.loot_identity;
-        if loot.conflicted {
-            return false;
+        let entry = loot.owners.entry(name.to_string()).or_insert_with(|| (owner_id, HashSet::new()));
+        entry.0 = owner_id;
+        if entry.1.len() < 10_000 {
+            entry.1.insert(mob_id);
         }
-        if loot.owner.as_deref().is_some_and(|known| known != name) {
-            loot.conflicted = true;
+        // Only you and your party: a stranger farming nearby out-killed the
+        // player in one capture, 3 to 2, and took over as "you".
+        let scope = &loot.party_scope;
+        let mut ranked: Vec<(&String, i32, usize)> = loot
+            .owners
+            .iter()
+            .filter(|(_, (id, _))| scope.contains(id))
+            .map(|(n, (id, kills))| (n, *id, kills.len()))
+            .collect();
+        ranked.sort_by(|a, b| b.2.cmp(&a.2));
+        let leader = match ranked.as_slice() {
+            [] => return false, // nobody of yours yet: not evidence either way
+            [first] => Some((first.0.clone(), first.1)),
+            [first, second, ..] if first.2 > second.2 => Some((first.0.clone(), first.1)),
+            _ => None,
+        };
+        let Some((name, owner_id)) = leader else {
             let was_applied = std::mem::take(&mut loot.applied);
-            tracing::info!("loot records name a second player ('{}'); not using them to identify you", name);
+            tracing::info!("loot records name several players equally; not using them to identify you");
             if was_applied {
                 // Back to not knowing: the UI's name and the self record decide.
                 // fork: also drop the loot name, or the next nickname packet for
@@ -499,8 +617,8 @@ impl DataStorage {
                 return true;
             }
             return false;
-        }
-        loot.owner = Some(name.to_string());
+        };
+        let name = name.as_str();
         if inner.local_identity_from_game && !inner.loot_identity.applied {
             return false; // the self record has spoken
         }
@@ -523,6 +641,106 @@ impl DataStorage {
         inner.loot_identity.applied = true;
         set_game_identity(&mut inner, owner_id as i64, Some(name.to_string()));
         true
+    }
+
+    /// The server sent a `06 38` record about `entity_id`.
+    ///
+    /// Measured on every capture at hand: in the Global ones it names the
+    /// local player hundreds of times and players nearby never; in older
+    /// Korean/Taiwanese ones, party members too. So it marks you and your
+    /// party, which is what tells your loot from a stranger's.
+    pub fn note_party_scope(&self, entity_id: i32) {
+        if !(100..=9_999_999).contains(&entity_id) {
+            return;
+        }
+        let mut inner = self.inner.write();
+        let scope = &mut inner.loot_identity.party_scope;
+        if scope.len() < 10_000 {
+            scope.insert(entity_id);
+        }
+    }
+
+    /// `name`'s home server, as a self or loot record states it.
+    pub fn note_player_server(&self, name: &str, server_id: u16) {
+        if !(1000..3000).contains(&server_id) {
+            return;
+        }
+        let mut inner = self.inner.write();
+        // Bounded: one entry per character met, and a session meets hundreds.
+        if inner.player_servers.len() < 10_000 || inner.player_servers.contains_key(name) {
+            inner.player_servers.insert(name.to_string(), server_id);
+        }
+    }
+
+    /// Your class and level, as your own self record states them.
+    ///
+    /// A record whose level did not read (a partial copy, the scan having met
+    /// one in still-compressed bytes) keeps the level already known for that
+    /// character rather than erasing it.
+    pub fn note_self_profile(&self, name: &str, class: Option<JobClass>, level: Option<u32>) {
+        let mut inner = self.inner.write();
+        let (old_class, old_level) = match &inner.self_profile {
+            Some((n, c, l)) if n == name => (*c, *l),
+            _ => (None, None),
+        };
+        inner.self_profile = Some((name.to_string(), class.or(old_class), level.or(old_level)));
+    }
+
+    /// Who you are playing, as far as the game has said: name, server, class
+    /// and level. Class falls back to the one your skills show, for a meter
+    /// started before the self record came; level has no such fallback.
+    pub fn local_profile(&self) -> LocalProfile {
+        let server = self.fight_server_id();
+        let inner = self.inner.read();
+        let name = inner.local_character_name.clone();
+        let (mut class, mut level) = (None, None);
+        if let (Some(n), Some((pn, pc, pl))) = (name.as_deref(), inner.self_profile.as_ref()) {
+            if n.trim() == pn.trim() {
+                class = *pc;
+                level = *pl;
+            }
+        }
+        if class.is_none() {
+            class = inner.local_player_id.and_then(|id| inner.actor_jobs.get(&(id as i32)).copied());
+        }
+        LocalProfile { name, server_id: server, class, level }
+    }
+
+    /// The server the fights being recorded are on: the local player's, else
+    /// the party's. 0 when nothing has said.
+    ///
+    /// A server id names its region (`1304` is Europe), which is what this is
+    /// for: uploaded logs are grouped by region. The local player's own server
+    /// comes from the self record (or a loot record naming them); the roster's
+    /// is the fallback, by majority, since in a cross-server party each member
+    /// keeps their own server but all share the region.
+    pub fn fight_server_id(&self) -> u16 {
+        let inner = self.inner.read();
+        let local = inner.local_character_name.as_deref().map(str::trim);
+        if let Some(&server) = local.and_then(|n| inner.player_servers.get(n)) {
+            return server;
+        }
+        if let Some(member) = local.and_then(|n| inner.party_members.get(n)) {
+            if member.server_id != 0 {
+                return member.server_id;
+            }
+        }
+        let mut counts: HashMap<u16, usize> = HashMap::new();
+        for member in inner.party_members.values() {
+            if member.server_id != 0 {
+                *counts.entry(member.server_id).or_default() += 1;
+            }
+        }
+        counts.into_iter().max_by_key(|&(server, n)| (n, std::cmp::Reverse(server))).map_or(0, |(s, _)| s)
+    }
+
+    /// Whether the game itself named the local player (the self record or the
+    /// character list), not a guess from loot records. Only this may stand
+    /// over a name the player typed (issue #13): a loot guess can be a
+    /// bystander's kill.
+    pub fn local_identity_from_self_record(&self) -> bool {
+        let inner = self.inner.read();
+        inner.local_identity_from_game && !inner.loot_identity.applied
     }
 
     /// Whether the local player's identity came from the game rather than from
@@ -656,6 +874,12 @@ impl DataStorage {
 
         // Apply pending nickname
         apply_pending_nickname(&mut inner, actor_id);
+
+        inner.damage_since_roster_bind += 1;
+        if inner.damage_since_roster_bind >= ROSTER_BIND_EVERY {
+            inner.damage_since_roster_bind = 0;
+            bind_roster_names_by_class(&mut inner);
+        }
     }
 
     pub fn append_mob(&self, mid: i32, code: i32) {
@@ -811,9 +1035,12 @@ impl DataStorage {
             // fork: one player per slot. A partial roster that puts someone new
             // into a slot means the old occupant left; keeping them showed the
             // previous run's player (2026-10-03: Shraeden and Zhou both "slot 1").
-            inner.party_members.retain(|n, m| m.slot != member.slot || *n == name);
+            if !complete {
+                inner.party_members.retain(|n, m| m.slot != member.slot || *n == name);
+            }
             inner.party_members.insert(name, member);
         }
+        bind_roster_names_by_class(&mut inner);
     }
 
     pub fn set_current_dungeon(&self, dungeon_id: i32) {
@@ -1344,6 +1571,8 @@ fn forget_entities(inner: &mut Inner) {
     inner.heal_storage.clear();
     inner.has_boss_in_segment = false;
     inner.current_target = 0;
+    // `06 38` scope: entity ids of the last zone.
+    inner.loot_identity.party_scope.clear();
     // Names the UI pinned to ids of the last zone ("you" was 14701 there).
     inner.permanent_nicknames.clear();
     inner.pending_nicknames.clear();
@@ -1401,25 +1630,44 @@ fn append_nickname_inner_with_force(inner: &mut Inner, uid: i32, nickname: &str,
     }
 
     // Name eviction: character names are unique per server, so if this name
-    // already belongs to a different entity ID, that old ID is stale (zone change).
-    // Evict the old entity's name, player status, and summon mappings regardless
-    // of whether the old entity was ever classified as a player.
+    // already belongs to a different entity ID, that old ID is stale. Evict the
+    // old entity's name, player status, and summon mappings regardless of
+    // whether the old entity was ever classified as a player.
     let evicted_ids: Vec<i32> = inner.nickname_storage.iter()
         .filter(|&(&old_id, old_name)| old_name == nickname && old_id != uid)
         .map(|(&old_id, _)| old_id)
         .collect();
     for old_id in evicted_ids {
         tracing::debug!("Name eviction: '{}' moved from entity {} to {}", nickname, old_id, uid);
+        // When the game itself named both ids (a spawn or self record each
+        // time), they are one character who came back as a new entity: after
+        // dying, or as the local player does several times a fight. What the
+        // old id did in this segment is theirs, so it moves to the new id. It
+        // used to be deleted: a Cleric re-entering mid-pull lost ~55M of a
+        // Gargaum fight (2026-07 capture). A name that only a fuzzy rule had
+        // bound may have been on someone else, so that damage is still dropped.
+        let same_character = force && inner.authoritative_name_ids.contains(&old_id);
         inner.nickname_storage.remove(&old_id);
         inner.known_player_ids.remove(&old_id);
         inner.authoritative_name_ids.remove(&old_id);
         inner.pending_nicknames.remove(&old_id);
-        // Remove summon mappings pointing to the stale owner
-        inner.summon_storage.retain(|_, &mut owner| owner != old_id);
-        // Also scrub the stale entity's damage from all target aggregates
+        if same_character {
+            for owner in inner.summon_storage.values_mut() {
+                if *owner == old_id {
+                    *owner = uid;
+                }
+            }
+        } else {
+            // Remove summon mappings pointing to the stale owner
+            inner.summon_storage.retain(|_, &mut owner| owner != old_id);
+        }
         for target_data in inner.target_combat.values_mut() {
             if let Some(actor_data) = target_data.actors.remove(&old_id) {
-                target_data.total_damage -= actor_data.total_damage;
+                if same_character {
+                    target_data.actors.entry(uid).or_insert_with(ActorCombatData::new).absorb(actor_data);
+                } else {
+                    target_data.total_damage -= actor_data.total_damage;
+                }
             }
         }
     }
@@ -1441,6 +1689,80 @@ fn append_nickname_inner_with_force(inner: &mut Inner, uid: i32, nickname: &str,
         if local_name.trim() == nickname.trim() {
             inner.local_player_id = Some(uid as i64);
         }
+    }
+}
+
+/// Name party members whose entity id no packet has tied to their name yet,
+/// by class: the roster gives each member's class, and so does the damage of
+/// each player on the meter.
+///
+/// A player's id and name arrive together in their spawn (`45 36`), which the
+/// game sends when they come into view. Start the meter with the party
+/// already together and those spawns have been and gone: a player's capture
+/// started in a dungeon showed four of five members as bare ids through two
+/// bosses, until a later area re-sent the spawns (2026-10-03). The roster
+/// arrived within seconds.
+///
+/// Only a pairing nothing else could explain is used: exactly one roster
+/// member of a class without an entity, and exactly one unnamed player of
+/// that class fighting now. Two of a class on either side are left alone,
+/// unless one of the players clearly runs a rotation and the others only
+/// repeat a skill or two (an aura or a spirit the spawn never covered).
+fn bind_roster_names_by_class(inner: &mut Inner) {
+    if inner.party_members.len() < 2 {
+        return;
+    }
+    let named: HashSet<&str> = inner.nickname_storage.values().map(|n| n.trim()).collect();
+    let mut open: HashMap<JobClass, Vec<String>> = HashMap::new();
+    for (name, member) in &inner.party_members {
+        if let Some(job) = member.job
+            && !named.contains(name.trim())
+        {
+            open.entry(job).or_default().push(name.clone());
+        }
+    }
+    if open.is_empty() {
+        return;
+    }
+    // Unnamed players in the current fight, with how many distinct skills each used.
+    let mut skills: HashMap<i32, HashSet<i32>> = HashMap::new();
+    for target in inner.target_combat.values() {
+        for (&actor, data) in &target.actors {
+            if inner.known_player_ids.contains(&actor)
+                && !inner.nickname_storage.contains_key(&actor)
+                && !inner.summon_storage.contains_key(&actor)
+            {
+                skills.entry(actor).or_default().extend(data.skills.keys().map(|&(code, _)| code));
+            }
+        }
+    }
+    // More unnamed players than unbound members means someone fighting is not
+    // in the party (open world), and a stranger of the right class could be
+    // the one matched. A rotation-less extra (a stray aura) counts here too;
+    // that only delays naming until its owner's spawn does it.
+    let open_names: usize = open.values().map(Vec::len).sum();
+    if skills.len() > open_names {
+        return;
+    }
+    let mut binds = Vec::new();
+    for (job, names) in open {
+        let [name] = names.as_slice() else { continue };
+        let mut players: Vec<(i32, usize)> = skills
+            .iter()
+            .filter(|(id, _)| inner.actor_jobs.get(id) == Some(&job))
+            .map(|(&id, s)| (id, s.len()))
+            .collect();
+        players.sort_by_key(|&(id, n)| (std::cmp::Reverse(n), id));
+        let chosen = match players.as_slice() {
+            [(id, _)] => *id,
+            [(id, top), (_, next), ..] if *top >= 3 * *next => *id,
+            _ => continue,
+        };
+        binds.push((chosen, name.clone()));
+    }
+    for (id, name) in binds {
+        tracing::info!("Roster: {} is entity {}, the one unnamed player of their class", name, id);
+        append_nickname_inner(inner, id, &name);
     }
 }
 
@@ -1504,28 +1826,31 @@ mod tests {
         (s.local_player_id(), s.local_character_name(), s.local_identity_from_game())
     }
 
-    // fork: loot records name every nearby looter, so without a configured
-    // name they identify no one.
+    // Without a configured name, loot is a vote among you and your party.
     #[test]
-    fn loot_alone_never_picks_who_you_are() {
+    fn loot_alone_picks_only_a_clear_leader_of_yours() {
         let s = DataStorage::new();
-        assert!(!s.note_loot_owner(1454, "ApexZ"));
-        assert!(!s.note_loot_owner(3583, "Galaaadriel"));
+        assert!(!s.note_loot_owner(900, 1454, "ApexZ"), "not one of yours");
         assert_eq!(who(&s), (None, None, false));
+        s.note_party_scope(1454);
+        assert!(s.note_loot_owner(901, 1454, "ApexZ"), "one of yours, and the only one");
+        assert_eq!(who(&s), (Some(1454), Some("ApexZ".into()), true));
     }
 
     #[test]
     fn loot_confirms_the_configured_name_until_the_self_record_says_otherwise() {
         let s = DataStorage::new();
         s.set_local_character_name(Some("ApexZ".into()));
-        assert!(s.note_loot_owner(1454, "ApexZ"));
+        s.note_party_scope(1454);
+        assert!(s.note_loot_owner(900, 1454, "ApexZ"));
         assert_eq!(who(&s), (Some(1454), Some("ApexZ".into()), true));
-        assert!(!s.note_loot_owner(1454, "ApexZ"), "same owner again changes nothing");
-        assert!(!s.note_loot_owner(3583, "Galaaadriel"), "strangers' loot is ignored");
+        assert!(!s.note_loot_owner(900, 1454, "ApexZ"), "same owner again changes nothing");
+        s.note_party_scope(3583);
+        assert!(!s.note_loot_owner(901, 3583, "Galaaadriel"), "another name than yours is ignored");
 
         // A zone load brings the self record, which wins.
         assert!(s.set_local_identity_from_game(2001, Some("ApexZ".into())));
-        assert!(!s.note_loot_owner(1454, "ApexZ"));
+        assert!(!s.note_loot_owner(900, 1454, "ApexZ"));
         assert_eq!(who(&s), (Some(2001), Some("ApexZ".into()), true));
     }
 
@@ -1535,13 +1860,63 @@ mod tests {
     fn a_configured_name_outranks_loot_naming_someone_else() {
         let s = DataStorage::new();
         s.set_local_character_name(Some("marloms".into()));
-        assert!(!s.note_loot_owner(103, "Uhrmacherin"));
+        s.note_party_scope(103);
+        assert!(!s.note_loot_owner(900, 103, "Uhrmacherin"));
         assert_eq!(who(&s), (None, Some("marloms".into()), false));
         s.append_nickname_authoritative(13289, "Uhrmacherin");
         assert_eq!(s.local_player_id(), None);
         // Loot naming the configured player is still used.
-        assert!(s.note_loot_owner(4926, "marloms"));
+        s.note_party_scope(4926);
+        assert!(s.note_loot_owner(901, 4926, "marloms"));
         assert_eq!(who(&s), (Some(4926), Some("marloms".into()), true));
+    }
+
+    #[test]
+    fn loot_naming_two_of_yours_equally_withdraws_the_guess_until_one_leads() {
+        let s = DataStorage::new();
+        s.note_party_scope(1454);
+        s.note_party_scope(3583);
+        s.note_loot_owner(900, 1454, "ApexZ");
+        assert!(s.note_loot_owner(901, 3583, "Galaaadriel"), "the guess is withdrawn");
+        // fork: the loot's name goes too (see note_loot_owner).
+        assert_eq!(who(&s), (None, None, false));
+        assert!(!s.note_loot_owner(900, 1454, "ApexZ"), "the same kill again is no new vote");
+        assert_eq!(s.local_player_id(), None);
+        assert!(s.note_loot_owner(902, 1454, "ApexZ"), "a second kill leads");
+        assert_eq!(who(&s), (Some(1454), Some("ApexZ".into()), true));
+    }
+
+    /// Issue #12's two orders: you then a bystander, and a bystander then you.
+    #[test]
+    fn a_bystanders_loot_never_takes_over_whichever_comes_first() {
+        let s = DataStorage::new();
+        s.set_local_character_name(Some("PlayerA".into()));
+        s.note_party_scope(13978);
+        assert!(s.note_loot_owner(1, 13978, "PlayerA"));
+        assert!(!s.note_loot_owner(2, 15855, "PlayerB"));
+        assert_eq!(s.local_player_id(), Some(13978));
+
+        let s = DataStorage::new();
+        s.set_local_character_name(Some("PlayerA".into()));
+        s.note_party_scope(13978);
+        assert!(!s.note_loot_owner(1, 15855, "PlayerB"));
+        assert!(s.note_loot_owner(2, 13978, "PlayerA"));
+        assert_eq!(s.local_player_id(), Some(13978));
+        assert!(!s.local_identity_from_self_record(), "a loot guess is not the game's own word");
+    }
+
+    #[test]
+    fn a_strangers_kill_says_nothing_about_who_you_are() {
+        // Loot from kills by players nearby reaches you too; the server's
+        // `06 38` records, which name only you and your party, tell them apart.
+        let s = DataStorage::new();
+        s.note_party_scope(14957);
+        assert!(!s.note_loot_owner(22965, 11937, "Deityclaire"));
+        assert!(s.note_loot_owner(46643, 14957, "Naicha"));
+        for mob in [40758, 63645, 74428] {
+            assert!(!s.note_loot_owner(mob, 892, "Dandelion"));
+        }
+        assert_eq!(who(&s), (Some(14957), Some("Naicha".into()), true));
     }
 
     fn member(slot: u8) -> PartyMember {
@@ -1576,6 +1951,161 @@ mod tests {
         p.set_dot(dot);
         p.set_timestamp(at);
         p
+    }
+
+    fn of_class(slot: u8, job: JobClass) -> PartyMember {
+        PartyMember { job: Some(job), ..member(slot) }
+    }
+
+    /// 64 hits from each of `actors`, taking turns, each using `skills`
+    /// distinct skills of the class with skill prefix `prefix`.
+    fn fight_together(s: &DataStorage, actors: &[i32], prefix: i32, skills: i32) {
+        for i in 0..64 {
+            for &actor in actors {
+                let mut p = hit(actor, 900, i, 100, false);
+                p.set_skill_code(prefix * 1_000_000 + 10_000 + (i as i32 % skills) * 10);
+                s.append_damage(p);
+            }
+        }
+    }
+
+    fn fight(s: &DataStorage, actor: i32, prefix: i32, skills: i32) {
+        fight_together(s, &[actor], prefix, skills);
+    }
+
+    #[test]
+    fn a_record_without_a_readable_level_keeps_the_known_one() {
+        let s = DataStorage::new();
+        s.set_local_identity_from_game(14957, Some("Naicha".into()));
+        s.note_self_profile("Naicha", Some(JobClass::Cleric), Some(29));
+        s.note_self_profile("Naicha", Some(JobClass::Cleric), None);
+        assert_eq!(s.local_profile().level, Some(29));
+        s.note_self_profile("Naicha", Some(JobClass::Cleric), Some(30));
+        assert_eq!(s.local_profile().level, Some(30), "a level-up replaces it");
+        s.note_self_profile("Other", None, None);
+        s.set_local_identity_from_game(1, Some("Other".into()));
+        assert_eq!(s.local_profile().level, None, "another character starts unknown");
+    }
+
+    #[test]
+    fn a_character_back_as_a_new_entity_keeps_their_damage() {
+        let s = DataStorage::new();
+        s.append_nickname_authoritative(101, "Cleric");
+        s.append_damage(hit(101, 900, 1_000, 500, false));
+        s.append_nickname_authoritative(202, "Cleric");
+        s.append_damage(hit(202, 900, 2_000, 300, false));
+        let snap = s.get_combat_snapshot();
+        let boss = &snap[&900];
+        assert!(!boss.actors.contains_key(&101));
+        assert_eq!(boss.actors[&202].total_damage, 800, "the earlier hits moved with the name");
+        assert_eq!(boss.total_damage, 800);
+
+        // A name a fuzzy rule had put on some id says nothing about whose
+        // damage that id dealt, so it is not moved.
+        let s = DataStorage::new();
+        s.append_damage(hit(303, 900, 1_000, 500, false));
+        s.append_nickname(303, "Cleric");
+        s.append_nickname_authoritative(404, "Cleric");
+        assert!(!s.get_combat_snapshot()[&900].actors.contains_key(&404));
+    }
+
+    #[test]
+    fn a_zone_change_resets_on_a_replays_clock_before_zero() {
+        // A slice replays at offsets from the pull, so its lead-in runs at
+        // negative times; "never" must still read as long ago there.
+        let s = DataStorage::new();
+        crate::clock::set_override(Some(-40_000));
+        s.append_damage(hit(5, 900, -40_000, 100, false));
+        crate::clock::set_override(Some(-30_000));
+        assert!(s.note_zone_change(), "a wipe's teleport in the lead-in clears the pull before");
+        crate::clock::set_override(None);
+    }
+
+    #[test]
+    fn fights_are_on_your_server_else_your_partys() {
+        let s = DataStorage::new();
+        assert_eq!(s.fight_server_id(), 0, "nothing has said");
+        let on = |server: u16| PartyMember { server_id: server, ..member(1) };
+        s.set_party_roster(vec![("A".into(), on(2304)), ("B".into(), on(2304)), ("C".into(), on(1307))], true);
+        assert_eq!(s.fight_server_id(), 2304, "the party's, by majority");
+        s.set_local_identity_from_game(7, Some("C".into()));
+        assert_eq!(s.fight_server_id(), 1307, "your own place in the roster");
+        s.note_player_server("C", 1304);
+        assert_eq!(s.fight_server_id(), 1304, "what your own record says");
+        s.note_player_server("C", 99);
+        assert_eq!(s.fight_server_id(), 1304, "a value no server has is not taken");
+    }
+
+    #[test]
+    fn a_party_member_is_named_by_class_when_only_one_fits() {
+        let s = DataStorage::new();
+        s.set_party_roster(
+            vec![("Glad".into(), of_class(1, JobClass::Gladiator)), ("Temp".into(), of_class(2, JobClass::Templar))],
+            true,
+        );
+        fight(&s, 101, 11, 6);
+        fight(&s, 102, 12, 6);
+        assert_eq!(s.get_nickname(101).as_deref(), Some("Glad"));
+        assert_eq!(s.get_nickname(102).as_deref(), Some("Temp"));
+    }
+
+    #[test]
+    fn two_of_a_class_on_either_side_stay_unnamed() {
+        // Two Gladiators in the roster, one fighting: either could be them.
+        let s = DataStorage::new();
+        s.set_party_roster(
+            vec![("GladA".into(), of_class(1, JobClass::Gladiator)), ("GladB".into(), of_class(2, JobClass::Gladiator))],
+            true,
+        );
+        fight(&s, 101, 11, 6);
+        assert_eq!(s.get_nickname(101), None);
+
+        // One Gladiator in the roster, two with equal rotations fighting.
+        let s = DataStorage::new();
+        s.set_party_roster(
+            vec![("Glad".into(), of_class(1, JobClass::Gladiator)), ("Temp".into(), of_class(2, JobClass::Templar))],
+            true,
+        );
+        fight_together(&s, &[101, 103], 11, 6);
+        assert_eq!(s.get_nickname(101), None);
+        assert_eq!(s.get_nickname(103), None);
+
+        // Once the other is named by their own spawn, the one left is the match.
+        s.append_nickname_authoritative(103, "Stranger");
+        fight(&s, 101, 11, 6);
+        assert_eq!(s.get_nickname(101).as_deref(), Some("Glad"));
+    }
+
+    #[test]
+    fn strangers_fighting_alongside_stop_the_match() {
+        // Open world: the party's Gladiator plus two players from outside it.
+        // Only one is a Gladiator, but with more unnamed players than open
+        // roster names the meter cannot know a stranger is not the one.
+        let s = DataStorage::new();
+        s.set_party_roster(
+            vec![("Glad".into(), of_class(1, JobClass::Gladiator)), ("Me".into(), of_class(2, JobClass::Templar))],
+            true,
+        );
+        s.append_nickname_authoritative(100, "Me");
+        fight(&s, 100, 12, 6);
+        for (actor, prefix) in [(102, 14), (104, 17), (101, 11)] {
+            fight(&s, actor, prefix, 6);
+        }
+        assert_eq!(s.get_nickname(101), None);
+    }
+
+    #[test]
+    fn a_member_whose_name_is_on_an_entity_is_not_bound_again() {
+        let s = DataStorage::new();
+        s.append_nickname_authoritative(101, "Glad");
+        s.set_party_roster(
+            vec![("Glad".into(), of_class(1, JobClass::Gladiator)), ("Temp".into(), of_class(2, JobClass::Templar))],
+            true,
+        );
+        fight(&s, 101, 11, 6);
+        fight(&s, 105, 11, 6);
+        assert_eq!(s.get_nickname(101).as_deref(), Some("Glad"));
+        assert_eq!(s.get_nickname(105), None);
     }
 
     fn totals(s: &DataStorage, target: i32) -> (i64, i64) {
@@ -1615,7 +2145,7 @@ mod tests {
         s.set_local_character_name(Some("Misti".into()));
         s.append_nickname_authoritative(4099, "Misti");
         assert_eq!(s.local_player_id(), Some(4099));
-        assert!(!s.note_loot_owner(1454, "ApexZ"));
+        assert!(!s.note_loot_owner(900, 1454, "ApexZ"));
         assert_eq!(who(&s), (Some(4099), Some("Misti".into()), false));
     }
 }

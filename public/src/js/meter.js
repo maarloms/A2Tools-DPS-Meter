@@ -328,7 +328,8 @@ const createMeterUI = ({
         view.lastCombatPowerText = combatPowerText;
       }
 
-      // fork: party placeholders carry job "Unknown", which has no icon file.
+      // "Unknown" is a row whose class is not known yet: no icon, rather than
+      // a broken image of a file that does not exist (issue #9).
       if (row.job && row.job !== "Unknown") {
         if (!classIconSrcByJob.has(row.job)) {
           classIconSrcByJob.set(row.job, `./assets/${row.job}.png`);

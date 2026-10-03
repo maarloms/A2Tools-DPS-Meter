@@ -41,6 +41,11 @@ pub struct FightRecord {
     /// before this record was saved. False for older records.
     #[serde(default)]
     pub killed: bool,
+    /// The recording player's home server (`1304` = Europe, Kaisinel), else
+    /// their party's; 0 when the capture never said. Its digits name the
+    /// region, which a2tools.app groups uploaded logs by.
+    #[serde(default)]
+    pub server_id: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

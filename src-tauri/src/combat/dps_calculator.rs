@@ -424,7 +424,9 @@ impl DpsCalculator {
             }
             if data.job.is_empty() {
                 if local_ids.as_ref().is_some_and(|ids| ids.contains(&uid)) {
-                    data.job = "Unknown".to_string();
+                    // A class seen earlier this session survives a reset
+                    // (issue #9); "Unknown" draws no icon.
+                    data.job = self.cached_job(&data.nickname).unwrap_or_else(|| "Unknown".to_string());
                 } else {
                     to_remove.push(uid);
                     continue;
@@ -522,9 +524,14 @@ impl DpsCalculator {
                 .filter(|id| !dps_data.map.contains_key(id))
                 .unwrap_or(PARTY_ROW_ID_BASE + member.slot.min(64) as i32);
             let mut entry = PersonalData::new(name.clone());
-            // The row filter drops anything without a job; these have not
-            // attacked yet, so mark them the way the local player is marked.
-            entry.job = "Unknown".to_string();
+            // The row filter drops anything without a job. These have not
+            // attacked yet: their class from the roster, else from earlier
+            // this session, else "Unknown", which draws no icon (issue #9).
+            entry.job = member
+                .job
+                .map(|j| j.class_name().to_string())
+                .or_else(|| self.cached_job(name))
+                .unwrap_or_else(|| "Unknown".to_string());
             entry.combat_power = member.combat_power;
             dps_data.map.entry(uid).or_insert(entry);
         }
@@ -879,6 +886,7 @@ impl DpsCalculator {
                 dungeon_id,
                 killed: self.data_storage.is_entity_dead(target_id)
                     || self.data_storage.get_mob_current_hp(target_id) == Some(0),
+                server_id: self.data_storage.fight_server_id(),
             };
 
             if is_ended {
@@ -1081,6 +1089,13 @@ impl DpsCalculator {
                     actor_jobs.insert(uid, job.class_name().to_string());
                 }
             }
+            let scalars = self.data_storage.get_power_scalars();
+            // Players who hit this target, as the rows they end up on.
+            let player_ids: HashSet<i32> = target_data.actors.keys()
+                .map(|&id| summon_resolver::resolve(id, &summon_data))
+                .filter(|id| known_players.contains(id))
+                .map(|id| *canonical.get(&resolve_nickname(id, &nickname_data, &summon_data)).unwrap_or(&id))
+                .collect();
             let mut seen = HashSet::new();
             for (&actor_id, actor_data) in &target_data.actors {
                 let raw_uid = summon_resolver::resolve(actor_id, &summon_data);
@@ -1093,16 +1108,32 @@ impl DpsCalculator {
                 let job = actor_data.skills.keys()
                     .find_map(|&(sc, _)| JobClass::convert_from_skill_loose(sc))
                     .map(|j| j.class_name().to_string());
-                let job = match job {
-                    Some(j) => j,
-                    None => continue,
-                };
-                let matching: Vec<i32> = actor_jobs.iter()
-                    .filter(|(id, j)| **id != raw_uid && **j == job && nickname_data.contains_key(id))
-                    .map(|(id, _)| *id)
+                if let Some(job) = &job {
+                    let matching: Vec<i32> = actor_jobs.iter()
+                        .filter(|(id, j)| **id != raw_uid && *j == job && nickname_data.contains_key(id))
+                        .map(|(id, _)| *id)
+                        .collect();
+                    if matching.len() == 1 {
+                        orphan_to_owner.insert(raw_uid, matching[0]);
+                        continue;
+                    }
+                }
+                // The power scalar, as in `get_dps`: with two players of a
+                // class named, the class says nothing, and a spirit whose
+                // skills name no class has none to go on. History showed
+                // another Elementalist's spirits as their own rows, or folded
+                // every spirit into one of the two (2026-10-03).
+                let Some(mine) = scalars.get(&raw_uid).filter(|s| !s.is_empty()) else { continue };
+                let owners: Vec<i32> = player_ids.iter()
+                    .copied()
+                    .filter(|&id| {
+                        id != raw_uid
+                            && job.as_ref().is_none_or(|j| actor_jobs.get(&id) == Some(j))
+                            && scalars.get(&id).is_some_and(|s| !s.is_disjoint(mine))
+                    })
                     .collect();
-                if matching.len() == 1 {
-                    orphan_to_owner.insert(raw_uid, matching[0]);
+                if owners.len() == 1 {
+                    orphan_to_owner.insert(raw_uid, owners[0]);
                 }
             }
         }

@@ -120,6 +120,7 @@ impl StreamProcessor {
                 }
                 super::framing::FrameKind::Packet => {
                     self.parse_perfect_packet(frame.bytes(buffer));
+                    self.scan_embedded_bundles_for_identity(frame.bytes(buffer));
                 }
             }
         }
@@ -152,6 +153,54 @@ impl StreamProcessor {
         self.scan_party_roster(buffer);
 
         offset
+    }
+
+    /// Who you are, from compressed bundles that sit inside another packet.
+    ///
+    /// The game sends your self record (`33 36`: name, server, class, level)
+    /// on zone loads and then every few minutes, and those later copies arrive
+    /// in a bundle carried inside a larger packet, where the framing never
+    /// opens it. A meter started mid-session therefore never learned your
+    /// level: five copies went unread in one hour of a capture (2026-10-04),
+    /// the player levelling 29 to 30 among them. Only identity is read from
+    /// these: what else they hold is left as it was, so no fight changes.
+    fn scan_embedded_bundles_for_identity(&self, packet: &[u8]) {
+        let mut i = 1;
+        while i + 8 < packet.len() {
+            if packet[i] != 0xFF || packet[i + 1] != 0xFF {
+                i += 1;
+                continue;
+            }
+            // `<varint len> FF FF <size u32> <lz4>`, an outer bundle being one
+            // byte longer than its length says (see `framing`).
+            let bundle = (1..=3usize).rev().find_map(|n| {
+                let at = i.checked_sub(n)?;
+                let len = read_varint(packet, at);
+                if len.length != n as i32 || len.value <= 4 {
+                    return None;
+                }
+                let end = at + (len.value as usize - 3) + 1;
+                let data = super::framing::decompress_bundle(packet.get(i..end)?)?;
+                Some((end, data))
+            });
+            match bundle {
+                Some((end, data)) => {
+                    self.scan_masked_identity(&data);
+                    self.scan_party_roster(&data);
+                    // fork: the gear reader wants these self records too
+                    // (src/fork/gear.rs), for gear scores between zone loads.
+                    if let Some(hook) = FORK_PACKET_HOOK.get() {
+                        for frame in &super::framing::walk_inner(&data).frames {
+                            if matches!(frame.kind, super::framing::FrameKind::Packet) {
+                                hook(frame.bytes(&data));
+                            }
+                        }
+                    }
+                    i = end;
+                }
+                None => i += 1,
+            }
+        }
     }
 
     fn unwrap_bundle(&mut self, payload: &[u8]) {
@@ -210,6 +259,7 @@ impl StreamProcessor {
             || self.parse_loot_attribution_actor_name(packet)
             || self.parsing_nickname(packet);
         let parsed_hp = self.parse_hp_mp_update_packet(packet);
+        self.parse_party_scope_packet(packet);
         self.parse_death_packet(packet);
         self.parse_zone_change_packet(packet);
 
@@ -218,6 +268,26 @@ impl StreamProcessor {
         }
 
         parsed_damage || parsed_name
+    }
+
+    // ===== PARTY SCOPE (06 38) =====
+
+    /// `<len> 06 38 <entity_id varint> ...`: a record the server sends about
+    /// you and your party only. What it carries is not decoded; who it is
+    /// about is what identifies your loot (see `DataStorage::note_party_scope`).
+    fn parse_party_scope_packet(&self, packet: &[u8]) {
+        let length_info = read_varint(packet, 0);
+        if length_info.length <= 0 {
+            return;
+        }
+        let offset = length_info.length as usize;
+        if offset + 3 >= packet.len() || packet[offset] != 0x06 || packet[offset + 1] != 0x38 {
+            return;
+        }
+        let id = read_varint(packet, offset + 2);
+        if id.length > 0 {
+            self.data_storage.note_party_scope(id.value);
+        }
     }
 
     // ===== ZONE CHANGE (23 36) =====
@@ -594,15 +664,9 @@ impl StreamProcessor {
                 if !(1000..=2999).contains(&server_id) {
                     continue;
                 }
-                let owner_id = (1..=3usize).find_map(|v_len| {
-                    let v_start = server_idx.checked_sub(v_len)?;
-                    if v_start < after_fixed || !can_read_varint(data, v_start) {
-                        return None;
-                    }
-                    let v = read_varint(data, v_start);
-                    (v.length == v_len as i32 && (100..=99_999).contains(&v.value))
-                        .then_some(v.value)
-                });
+                // The owner `ed 74` (14957) ends in a byte that alone reads as
+                // an id too (`74`, 116); see `varint_ending_at`.
+                let owner_id = varint_ending_at(data, server_idx, after_fixed, 100..=99_999);
                 let Some(owner_id) = owner_id.filter(|&id| id != summon_id) else {
                     continue;
                 };
@@ -613,18 +677,18 @@ impl StreamProcessor {
                     continue;
                 }
                 if let Some(name) = exact_name(&data[name_len_idx + 1..name_end]) {
-                    found = Some((owner_id, name, name_end));
+                    found = Some((owner_id, server_id, name, name_end));
                     break;
                 }
             }
-            let Some((owner_id, name, name_end)) = found else {
+            let Some((owner_id, server_id, name, name_end)) = found else {
                 continue;
             };
-            // fork: on global servers the owner id here is not the player's
-            // entity (captures of 2026-10-03: loot named 'marloms' as 114 while
-            // all of their hits came from 14701). An id that never dealt
-            // player damage is skipped: binding it as you, or naming it, only
-            // pointed "you" at an entity that never hits anything.
+            // fork: loot once named 'marloms' as 114 while all of their hits
+            // came from 14701 (2026-10-03): 14701 is `ED 72`, read from its
+            // last byte, which `varint_ending_at` fixed. Still, an id that
+            // never dealt player damage is skipped: binding it as you, or
+            // naming it, only points "you" at an entity that never hits.
             if !self.data_storage.is_known_player(owner_id) {
                 found_any = true;
                 search_offset = name_end;
@@ -635,11 +699,12 @@ impl StreamProcessor {
                 self.data_storage.append_summon(owner_id, summon_id);
             }
             self.data_storage.append_nickname(owner_id, &name);
+            self.data_storage.note_player_server(&name, server_id);
             // For a mob that was fought (it follows the mob's `35 38` despawn)
             // this is the loot owner, which so far has always been you.
             if !self.data_storage.is_confirmed_summon(summon_id)
                 && self.data_storage.is_damage_target(summon_id)
-                && self.data_storage.note_loot_owner(owner_id, &name)
+                && self.data_storage.note_loot_owner(summon_id, owner_id, &name)
             {
                 tracing::info!("loot record: local player '{}' -> entity {}", name, owner_id);
             }
@@ -851,12 +916,26 @@ impl StreamProcessor {
                 {
                     tracing::info!("self record: local player '{}' -> entity {}", sanitized, id.value);
                 }
-                // fork: the numbers after the name (level, gear scores) for
-                // matching against the character sheet; see PHASE1.md.
-                let tail_at = (mask2_idx + 2 + name_len).min(data.len());
-                let tail = &data[tail_at..(tail_at + 40).min(data.len())];
-                let hex: String = tail.iter().map(|b| format!("{b:02x}")).collect();
-                tracing::info!("self record after name: {hex}");
+                // Then your server (u16) and class (u32, the roster's encoding).
+                // The class has to read as one, so a record laid out some other
+                // way is not taken for a server.
+                let after = mask2_idx + 2 + name_len;
+                if let Some(rest) = data.get(after..after + 6) {
+                    let server = u16::from_le_bytes([rest[0], rest[1]]);
+                    let class = u32::from_le_bytes([rest[2], rest[3], rest[4], rest[5]]);
+                    let job = crate::entity::job_class::JobClass::from_roster_class(class);
+                    if (1000..3000).contains(&server) && job.is_some() {
+                        self.data_storage.note_player_server(&sanitized, server);
+                        // A byte, then level (u32). Confirmed by a level-up, 28
+                        // then 29 (Naicha, 2026-10-04), and against the roster's
+                        // levels for three other players.
+                        let level = data
+                            .get(after + 7..after + 11)
+                            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                            .filter(|l| (1..=99).contains(l));
+                        self.data_storage.note_self_profile(&sanitized, job, level);
+                    }
+                }
             } else {
                 tracing::debug!("player record: '{}' -> entity {}", sanitized, id.value);
             }
@@ -1444,24 +1523,14 @@ impl StreamProcessor {
                         if let Ok(possible_name) = std::str::from_utf8(np) {
                             if !possible_name.is_empty() && possible_name.chars().next().unwrap().is_alphanumeric() {
                                 if let Some(sanitized) = sanitize_nickname(possible_name) {
-                                    if sanitized.len() >= 2 {
-                                        for v_len in 1..=3usize {
-                                            if search_offset < v_len {
-                                                continue;
-                                            }
-                                            let v_start = search_offset - v_len;
-                                            if can_read_varint(packet, v_start) {
-                                                let v = read_varint(packet, v_start);
-                                                if v.length == v_len as i32 && (100..=9_999_999).contains(&v.value) {
-                                                    self.data_storage.append_nickname(v.value, &sanitized);
-                                                    parsed_any = true;
-                                                    search_offset = len_idx + 1 + name_len;
-                                                    // Skip guild name
-                                                    search_offset = self.skip_guild_name(packet, search_offset);
-                                                    break;
-                                                }
-                                            }
-                                        }
+                                    if sanitized.len() >= 2
+                                        && let Some(id) = varint_ending_at(packet, search_offset, 0, 100..=9_999_999)
+                                    {
+                                        self.data_storage.append_nickname(id, &sanitized);
+                                        parsed_any = true;
+                                        search_offset = len_idx + 1 + name_len;
+                                        // Skip guild name
+                                        search_offset = self.skip_guild_name(packet, search_offset);
                                     }
                                 }
                             }
@@ -2175,6 +2244,41 @@ impl StreamProcessor {
 
 // ===== FREE FUNCTIONS =====
 
+/// The varint that ends just before `end`, starting no earlier than
+/// `min_start` and at most three bytes back, whose value is in `range`.
+///
+/// The last byte of a multi-byte varint has its high bit clear, so it is also
+/// a valid one-byte varint on its own: entity 13978 is `9A 6D`, and `6D`
+/// alone is 109. Read shortest first, every id from 12,800 up came out as
+/// `id >> 7`, which still passes a range check, so names and loot went to the
+/// wrong entity (issue #10). A varint cannot start right after a byte with its
+/// high bit set, since that byte would continue into it, so the candidate not
+/// preceded by one wins; the shortest valid one is only the fallback.
+pub fn varint_ending_at(
+    data: &[u8],
+    end: usize,
+    min_start: usize,
+    range: std::ops::RangeInclusive<i32>,
+) -> Option<i32> {
+    let mut fallback = None;
+    for v_len in 1..=3usize {
+        let Some(v_start) = end.checked_sub(v_len) else { break };
+        if v_start < min_start || !can_read_varint(data, v_start) {
+            continue;
+        }
+        let v = read_varint(data, v_start);
+        if v.length != v_len as i32 || !range.contains(&v.value) {
+            continue;
+        }
+        let continued = v_start > 0 && data[v_start - 1] & 0x80 != 0;
+        if !continued {
+            return Some(v.value);
+        }
+        fallback.get_or_insert(v.value);
+    }
+    fallback
+}
+
 pub fn read_varint(bytes: &[u8], offset: usize) -> VarIntResult {
     let mut value: i32 = 0;
     let mut shift = 0;
@@ -2343,7 +2447,8 @@ fn parse_party_roster_at(
         if o + 12 > data.len() {
             break;
         }
-        o += 4; // unnamed u32
+        let job = crate::entity::job_class::JobClass::from_roster_class(parse_u32_le(data, o));
+        o += 4;
         let level = parse_u32_le(data, o) as i32;
         o += 4;
         if !(1..=200).contains(&level) {
@@ -2380,6 +2485,7 @@ fn parse_party_roster_at(
                 combat_power: combat_power as i64,
                 server_id,
                 dbid,
+                job,
             },
         ));
 
@@ -2611,6 +2717,34 @@ mod tests {
         ] {
             assert_eq!(exact_name(field), None, "{field:?}");
         }
+    }
+
+    #[test]
+    fn an_id_is_read_whole_not_from_its_last_byte() {
+        // 13978 = 9A 6D; the 6D alone is 109 and must not win (issue #10).
+        assert_eq!(varint_ending_at(&[0x01, 0x9A, 0x6D, 0xE2, 0x07], 3, 0, 100..=99_999), Some(13978));
+        // 14957 = ED 74, a loot owner (2026-10-04).
+        assert_eq!(varint_ending_at(&[0x01, 0xED, 0x74, 0x18, 0x05], 3, 0, 100..=99_999), Some(14957));
+        // A small id is still one byte.
+        assert_eq!(varint_ending_at(&[0x01, 0x6D, 0xE2, 0x07], 2, 0, 100..=99_999), Some(109));
+        // 8765 = BD 44: 44 alone is 68, below range.
+        assert_eq!(varint_ending_at(&[0x01, 0xBD, 0x44, 0xE2, 0x07], 3, 0, 100..=99_999), Some(8765));
+    }
+
+    /// The start of a self record from a live capture (2026-10-04): Naicha,
+    /// entity 14957 (`ed 74`), server 1304 (`18 05`), class 30 = Cleric, a
+    /// byte, level 28. The rest of the record is not needed and not kept.
+    #[test]
+    fn the_self_record_says_your_server_class_and_level() {
+        let storage = Arc::new(DataStorage::new());
+        let processor = StreamProcessor::new(storage.clone(), Arc::new(SkillLookup::new()), Arc::new(NpcLookup::new()));
+        let hex = "3336ed745e91c12837064e616963686118051e000000011c0000007f0100007f0100001c000000d002040000000000";
+        let record: Vec<u8> = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect();
+        processor.scan_masked_identity(&record);
+        let me = storage.local_profile();
+        assert_eq!(me.name.as_deref(), Some("Naicha"));
+        assert_eq!(storage.local_player_id(), Some(14957));
+        assert_eq!((me.server_id, me.class, me.level), (1304, Some(crate::entity::job_class::JobClass::Cleric), Some(28)));
     }
 
     /// A Sorcerer on Ventus (server 1305) killing a mob, from a player's log
