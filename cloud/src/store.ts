@@ -2,6 +2,7 @@
 // das Uploads pro Raum serialisiert) und Mitgliederverwaltung.
 
 import { LIMITS } from "./protocol";
+import { isHidden, upsertBoss } from "./bosses";
 import {
   EncounterDetail,
   MERGE_VERSION,
@@ -173,6 +174,7 @@ async function remerge(db: D1Database, room: string, encounterId: string, known:
       ),
     db.prepare("DELETE FROM player_stats WHERE encounter_id = ?1").bind(encounterId),
   ];
+  if (!s.isTrain) stmts.push(upsertBoss(db, room, s.mobCode, s.boss, s.maxHp));
   for (const p of statRows) {
     stmts.push(
       db
@@ -204,6 +206,7 @@ async function remerge(db: D1Database, room: string, encounterId: string, known:
 async function newRecords(db: D1Database, room: string, encounterId: string, d: EncounterDetail, known: string[]): Promise<RecordHit[]> {
   const s = d.summary;
   if (s.isTrain || s.durationMs < RECORD_MIN_MS) return [];
+  if (await isHidden(db, room, s.mobCode)) return []; // Quest-Miniboss o. ä.: kein Rekord-Banner
   const knownLc = new Set(known.map((n) => n.toLowerCase()));
   const peaks = peaksOf(d);
   const out: RecordHit[] = [];

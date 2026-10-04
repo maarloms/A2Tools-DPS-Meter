@@ -91,7 +91,7 @@ const PARTY = [
  * FightRecord wie in AppData/history: der Uploader sieht sich selbst voll und
  * unmaskiert, die anderen maskiert und mit etwas weniger Schaden (Reichweite).
  */
-function fakeRecord({ id, uploader, start, targetId = 4242, party = PARTY, durationMs = 60000 }) {
+function fakeRecord({ id, uploader, start, targetId = 4242, party = PARTY, durationMs = 60000, mobCode = 4242, maxHp = 5000000, bossName = "Testboss Kelpina" }) {
   const skills = [];
   const actors = [];
   party.forEach((p, i) => {
@@ -110,10 +110,10 @@ function fakeRecord({ id, uploader, start, targetId = 4242, party = PARTY, durat
   });
   const total = skills.reduce((s, x) => s + x.dmg, 0);
   return {
-    id, bossName: "Testboss Kelpina", targetId, startTimeMs: start, durationMs, totalDamage: total, killed: true,
-    jobs: [], jobIds: [], details: { targetId, maxHp: 5000000, totalTargetDamage: total, battleTime: durationMs, startTime: 0, skills,
+    id, bossName, targetId, startTimeMs: start, durationMs, totalDamage: total, killed: true,
+    jobs: [], jobIds: [], details: { targetId, maxHp, totalTargetDamage: total, battleTime: durationMs, startTime: 0, skills,
       pingHistory: Array.from({ length: 20 }, (_, i) => ({ tsMs: start + i * 3000, pingMs: 40 + i })), healSkills: [] },
-    actors, isTrain: false, appVersion: "2.0.41", mobCode: 4242, dungeonId: 600072,
+    actors, isTrain: false, appVersion: "2.0.41", mobCode, dungeonId: 600072,
   };
 }
 function maskName(name) {
@@ -375,6 +375,28 @@ async function main() {
   await patch(NEU, true);
   check("wieder eingeblendet", inTop(await getj("/stats/leaderboard?boss=4242:600072")));
   await patch(NEU, false); // Testname bleibt ausgeblendet
+
+  // ---------- Bosse: kleine (Quest-Minibosse) zählen nicht ----------
+  const MINI = { mobCode: 7777, maxHp: 900_000, bossName: "Questboss Kius" };
+  const tMini = t0f + 2_400_000;
+  const upMj = await (await post("Marlon", fakeRecord({ id: `auto_7777_${tMini}`, uploader: "Marlon", start: tMini, targetId: 7777, ...MINI }))).json();
+  const upM2j = await (await post("Marlon", fakeRecord({ id: `auto_7778_${tMini + 600000}`, uploader: "Marlon", start: tMini + 600000, targetId: 7778, party: STRONG, ...MINI }))).json();
+  check("Miniboss gespeichert, aber kein Rekord", upMj.fightId && upM2j.fightId && upM2j.records?.length === 0, JSON.stringify(upM2j.records));
+  const hasMini = (r) => r.bosses?.some((b) => b.mobCode === 7777);
+  const inList = async (q = "") => (await getj(`/fights?limit=100${q}`)).fights?.some((f) => f.id === upMj.fightId);
+  check("Miniboss nicht in Bossliste/Kampfliste", !hasMini(await getj("/stats/bosses")) && !(await inList()));
+  check("Kampfliste mit all=1 zeigt ihn", await inList("&all=1"));
+  const bs = await getj("/boss-settings");
+  check("Boss-Verwaltung: Miniboss ausgeblendet, Testboss zählt", bs.bosses?.find((b) => b.mobCode === 7777)?.hidden === true &&
+    bs.bosses?.find((b) => b.mobCode === 4242)?.hidden === false && bs.minHp > 900_000, JSON.stringify(bs.bosses));
+  const setMode = (mobCode, mode) =>
+    fetch(`${BASE}/api/rooms/${ROOM}/boss-settings`, { method: "PATCH", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ mobCode, mode }) });
+  check("Boss fest einblenden", (await setMode(7777, "show")).status === 200 && hasMini(await getj("/stats/bosses")) && (await inList()));
+  check("Boss fest ausblenden", (await setMode(4242, "hide")).status === 200 && !(await getj("/stats/bosses")).bosses?.some((b) => b.mobCode === 4242));
+  await setMode(4242, "auto");
+  await setMode(7777, "auto");
+  check("zurück auf Auto", !hasMini(await getj("/stats/bosses")) && (await getj("/stats/bosses")).bosses?.some((b) => b.mobCode === 4242));
+  check("ungültiger Modus → 400", (await setMode(7777, "egal")).status === 400);
 
   // ---------- Dashboard-Session (Cookie) ----------
   const login = (secret) =>

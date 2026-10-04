@@ -31,6 +31,7 @@ export async function loadFights(more = false, { quiet = false } = {}) {
   try {
     const qs = new URLSearchParams({ limit: "40" });
     if (state.train) qs.set("train", "1");
+    if (state.allBosses) qs.set("all", "1");
     if (state.bossFilter) qs.set("boss", state.bossFilter);
     if (state.killedOnly) qs.set("killed", "1");
     if (state.withMe && getMe()) qs.set("with", getMe());
@@ -78,6 +79,7 @@ export function renderFights() {
       ${dungeonSelect()}
       <label class="check"><input type="checkbox" id="killedOnly" ${state.killedOnly ? "checked" : ""}> Nur besiegt</label>
       ${getMe() ? `<label class="check"><input type="checkbox" id="withMe" ${state.withMe ? "checked" : ""}> Nur mit mir</label>` : ""}
+      <label class="check" title="Auch ausgeblendete Bosse (siehe Bosse)"><input type="checkbox" id="allBosses" ${state.allBosses ? "checked" : ""}> Alle Bosse</label>
       <label class="check"><input type="checkbox" id="train" ${state.train ? "checked" : ""}> Training</label>
     </div>
     <div class="fights">${
@@ -113,6 +115,7 @@ export function renderFights() {
     loadFights(false, { quiet: true });
   };
   $("#killedOnly", view).addEventListener("change", (e) => refilter("killedOnly", e.target.checked));
+  $("#allBosses", view).addEventListener("change", (e) => refilter("allBosses", e.target.checked));
   $("#withMe", view)?.addEventListener("change", (e) => refilter("withMe", e.target.checked));
   $("#dungeonSel", view).addEventListener("change", (e) => refilter("dungeonFilter", e.target.value));
   $("#more", view)?.addEventListener("click", () => loadFights(true));

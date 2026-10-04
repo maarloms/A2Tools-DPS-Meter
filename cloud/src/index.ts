@@ -51,6 +51,7 @@ function routeOf(method: string, rest: string): "do" | "d1" | null {
   if (/^\/fights\/[0-9a-f]{16}$/.test(rest)) return method === "GET" || method === "DELETE" ? "do" : null;
   if (/^\/uploads\/[0-9a-f]{16}\/raw$/.test(rest)) return method === "GET" ? "do" : null;
   if (rest === "/members") return method === "GET" || method === "PATCH" ? "d1" : null;
+  if (rest === "/boss-settings") return method === "GET" || method === "PATCH" ? "d1" : null;
   if (rest === "/maintenance/backfill") return method === "POST" ? "d1" : null;
   if (/^\/stats\/(overview|bosses|leaderboard|player|compare|trends)$/.test(rest)) return method === "GET" ? "d1" : null;
   return null;
@@ -166,7 +167,7 @@ export default {
     // Lesende Statistik + Mitgliederverwaltung direkt aus D1 – kein Durable-Object-Aufruf
     if (target === "d1") {
       const data = await handleStats(env.DB, env, code, rest, url, req);
-      if (req.method === "PATCH" && data && typeof data === "object" && "ok" in data) {
+      if (req.method === "PATCH" && rest === "/members" && data && typeof data === "object" && "ok" in data) {
         // Live-Ansicht im DO über die geänderte Mitgliederliste informieren
         await stub.fetch(new Request(new URL(`/api/rooms/${code}/members-changed`, url.origin), { method: "POST" }));
       }
