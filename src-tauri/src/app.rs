@@ -2316,6 +2316,7 @@ pub fn run() {
             crate::fork::bosses::get_field_bosses,
             crate::fork::bosses::set_field_boss,
             crate::fork::bosses::merge_field_bosses,
+            crate::fork::diagnostics::fork_send_diagnostics,
             get_app_version,
             get_dps_snapshot,
             get_skill_details,

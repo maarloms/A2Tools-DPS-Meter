@@ -1,6 +1,7 @@
 pub mod bosses;
 pub mod gear;
 pub mod cloud;
+pub mod diagnostics;
 pub mod npcap;
 
 use crate::app::AppState;

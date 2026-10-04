@@ -247,6 +247,14 @@
             <button class="settingsAction forkCloudOpen" type="button">${t("Dashboard öffnen", "Open dashboard")}</button>
           </div>
         </div>
+        <div class="settingsRow settingsRowInput settingsRowStacked">
+          <label class="settingsLabel" for="forkCloudDiagNote">${t("Problem melden: Logs und letzte Kämpfe an die Gruppe senden", "Report a problem: send logs and recent fights to the group")}</label>
+          <input id="forkCloudDiagNote" class="forkCloudInput" maxlength="300" autocomplete="off" placeholder="${t("Was ist passiert? (optional)", "What happened? (optional)")}" />
+          <div class="settingsRowEnd">
+            <div class="settingsValue forkCloudStatus forkCloudDiagStatus" data-state="off"></div>
+            <button class="settingsAction forkCloudDiag" type="button">${t("Diagnose senden", "Send diagnostics")}</button>
+          </div>
+        </div>
       </div>`;
     anchor.after(section);
 
@@ -281,7 +289,25 @@
       bridge()?.openBrowser?.(link);
     });
 
-    const statusEl = $(".forkCloudStatus");
+    const diagBtn = $(".forkCloudDiag");
+    const diagStatus = $(".forkCloudDiagStatus");
+    diagBtn.addEventListener("click", async () => {
+      diagBtn.disabled = true;
+      diagStatus.dataset.state = "off";
+      diagStatus.textContent = t("Sende …", "Sending …");
+      try {
+        const kb = await tauri.core.invoke("fork_send_diagnostics", { note: $("#forkCloudDiagNote").value });
+        diagStatus.dataset.state = "ok";
+        diagStatus.textContent = t(`Gesendet (${kb} KB) – danke!`, `Sent (${kb} KB) – thanks!`);
+        $("#forkCloudDiagNote").value = "";
+      } catch (e) {
+        diagStatus.dataset.state = "error";
+        diagStatus.textContent = t("Fehler: ", "Error: ") + String(e);
+      }
+      diagBtn.disabled = false;
+    });
+
+    const statusEl = $(".forkCloudStatus:not(.forkCloudDiagStatus)");
     tauri?.event?.listen?.("fork-cloud-status", ({ payload }) => {
       statusEl.textContent = payload?.text || "–";
       statusEl.dataset.state = payload?.state || "off";

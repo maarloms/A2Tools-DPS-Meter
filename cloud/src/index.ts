@@ -6,6 +6,7 @@
 // Der Worker macht nur billige Arbeit (Routing, Auth, Header) – 10-ms-CPU-Limit im Free Plan.
 
 import { Env, allowedOrigin, bearer, checkRoomSecret, corsHeaders } from "./auth";
+import { handleDiagnostics, isDiagnosticPath } from "./diagnostics";
 import { LIMITS, PROTOCOL_VERSION, ROOM_CODE_RE } from "./protocol";
 import { SESSION_DAYS, createSession, sessionCookie, sessionRoom } from "./session";
 import { handleStats } from "./stats";
@@ -155,6 +156,18 @@ export default {
       headers.delete("authorization");
       if (viaSession) headers.set("x-a2-session", "1");
       return stub.fetch(new Request(doUrl, { method: "GET", headers }));
+    }
+
+    // Diagnose-Pakete der App: direkt D1, Antwort teils binär (Download)
+    if (isDiagnosticPath(rest)) {
+      if (!viaSession && !(await checkRoomSecret(env, code, bearer(req)))) {
+        return json({ error: "unauthorized" }, 401, { ...cors, "www-authenticate": 'Bearer realm="a2dps"' });
+      }
+      if (req.method === "POST" && Number(req.headers.get("content-length") || "0") > LIMITS.maxUploadBytes) {
+        await req.body?.cancel();
+        return json({ error: "too_large" }, 413, cors);
+      }
+      return withHeaders(await handleDiagnostics(env.DB, code, rest, url, req), { ...SECURITY_HEADERS, ...NO_STORE, ...cors });
     }
 
     const target = routeOf(req.method, rest);

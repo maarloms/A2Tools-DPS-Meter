@@ -10,6 +10,7 @@
 // Umgebungsvariablen: BASE (Default http://127.0.0.1:8787), ROOM, SECRET (wie in .dev.vars)
 
 import { gzipSync } from "node:zlib";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:8787";
@@ -397,6 +398,26 @@ async function main() {
   await setMode(7777, "auto");
   check("zurück auf Auto", !hasMini(await getj("/stats/bosses")) && (await getj("/stats/bosses")).bosses?.some((b) => b.mobCode === 4242));
   check("ungültiger Modus → 400", (await setMode(7777, "egal")).status === 400);
+
+  // ---------- Diagnose-Pakete ----------
+  const diagBody = gzipSync(JSON.stringify({ kind: "a2dps-diagnostics", logs: { "meter.log": "x".repeat(4000) }, fights: [] }));
+  const sendDiag = (body, headers = auth) =>
+    fetch(`${BASE}/api/rooms/${ROOM}/diagnostics?uploader=Zhou&note=${encodeURIComponent("Schaden zu niedrig")}`, { method: "POST", headers: { ...headers, "content-type": "application/gzip" }, body });
+  check("Diagnose ohne Secret → 401", (await sendDiag(diagBody, {})).status === 401);
+  check("Diagnose kein gzip → 400", (await sendDiag("hallo welt, kein gzip hier")).status === 400);
+  const dr = await sendDiag(diagBody);
+  const dj = await dr.json();
+  check("Diagnose senden → 201", dr.status === 201 && /^[0-9a-f]{16}$/.test(dj.id) && dj.bytes === diagBody.length, JSON.stringify(dj));
+  const dl = await getj("/diagnostics");
+  check("Diagnose-Liste mit Notiz", dl.diagnostics?.[0]?.id === dj.id && dl.diagnostics[0].uploader === "Zhou" && dl.diagnostics[0].note === "Schaden zu niedrig");
+  const dd = await fetch(`${BASE}/api/rooms/${ROOM}/diagnostics/${dj.id}`, { headers: auth });
+  const ddBytes = Buffer.from(await dd.arrayBuffer());
+  check("Diagnose-Download = gesendete Bytes", dd.status === 200 && ddBytes.equals(diagBody) && /diagnose-Zhou-/.test(dd.headers.get("content-disposition") || ""));
+
+  const bigDiag = gzipSync(randomBytes(3_400_000)); // kaum komprimierbar → 3 Stücke in D1
+  const bj = await (await sendDiag(bigDiag)).json();
+  const bigBack = Buffer.from(await (await fetch(`${BASE}/api/rooms/${ROOM}/diagnostics/${bj.id}`, { headers: auth })).arrayBuffer());
+  check("großes Diagnose-Paket in Stücken, unverändert zurück", bigBack.equals(bigDiag), `${bigBack.length} von ${bigDiag.length} Bytes`);
 
   // ---------- Dashboard-Session (Cookie) ----------
   const login = (secret) =>
