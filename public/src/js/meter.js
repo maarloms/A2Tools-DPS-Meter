@@ -144,8 +144,7 @@ const createMeterUI = ({
 
 
     rowEl.addEventListener("mousemove", (event) => {
-      if (view._lastMoveMs && nowMs() - view._lastMoveMs < 100) return;
-      view._lastMoveMs = nowMs();
+      // The tooltip coalesces pointer events into one update per display frame.
       onHoverUserRow?.(view.currentRow, event);
     });
     rowEl.addEventListener("mouseleave", () => {

@@ -176,6 +176,11 @@ class DpsApp {
     this.hoverTooltipEl = null;
     this.hoverMousePos = { x: 0, y: 0 };
     this.hoverTooltipPendingRowIds = new Set();
+    this.hoverTooltipInFlight = false;
+    this.hoverTooltipQueued = null;
+    this.hoverTooltipPositionRaf = 0;
+    this.hoverTooltipGeometryKey = "";
+    this.hoverTooltipDismissed = true;
 
     DpsApp.instance = this;
   }
@@ -683,6 +688,7 @@ class DpsApp {
 
   resetAll({ callBackend = true } = {}) {
     this.resetPending = !!callBackend;
+    this.invalidateHoverTooltip();
 
 
     this.lastSnapshot = null;
@@ -745,30 +751,78 @@ class DpsApp {
   }
 
   hideHoverTooltip() {
-    if (!this.hoverTooltipEl) return;
+    this.hoverTooltipDismissed = true;
+    if (this.hoverTooltipPositionRaf) {
+      cancelAnimationFrame(this.hoverTooltipPositionRaf);
+      this.hoverTooltipPositionRaf = 0;
+    }
+    this.hoverTooltipGeometryKey = "";
+    if (!this.hoverTooltipEl?.classList.contains("isVisible")) return;
     this.hoverTooltipEl.classList.remove("isVisible");
+    this.hoverTooltipEl.setAttribute("aria-hidden", "true");
     this.hoverTooltipEl.innerHTML = "";
+    window.javaBridge?.updateOverlaySize?.();
+  }
+
+  invalidateHoverTooltip() {
+    this.hoverTooltipCacheByRowId.clear();
+    this.hoverTooltipRequestSeqByRowId.clear();
+    this.hoverTooltipPendingRowIds.clear();
+    this.hoveredDetailsRowId = null;
+    this.hideHoverTooltip();
+  }
+
+  // A target change makes cached skills stale, but the cursor is still on its
+  // row: keep the shown skills until the new answer replaces them. Runs after
+  // the rows are rendered, so a row that left the list is really gone.
+  refreshHoverTooltipForTarget(rows) {
+    const rowId = this.hoveredDetailsRowId;
+    this.hoverTooltipCacheByRowId.clear();
+    this.hoverTooltipRequestSeqByRowId.clear();
+    this.hoverTooltipPendingRowIds.clear();
+    this.hoverTooltipQueued = null;
+    if (!rowId || this.hoverTooltipDismissed || !this.hoverTooltipEl?.classList.contains("isVisible")) return;
+    const row = rows.find((item) => Number(item?.id) === rowId);
+    if (!row || !this.elList?.querySelector?.(`.item[data-row-id="${rowId}"]`)) {
+      this.hoveredDetailsRowId = null;
+      this.hideHoverTooltip();
+      return;
+    }
+    this.applyHoverTooltip(row, { forceRefresh: true, keepContent: true });
+  }
+
+  scheduleHoverTooltipPosition() {
+    if (this.hoverTooltipPositionRaf) return;
+    this.hoverTooltipPositionRaf = requestAnimationFrame(() => {
+      this.hoverTooltipPositionRaf = 0;
+      if (this.hoverTooltipEl?.classList.contains("isVisible")) this.positionHoverTooltip();
+    });
   }
 
   openHoverDetailsRow(row, event = null) {
     if (!row || this.pinnedDetailsRowId !== null || this.shouldSuppressRowInteractions()) return;
     const rowId = Number(row?.id);
     if (!Number.isFinite(rowId) || rowId <= 0) return;
+    let pointerMoved = false;
     if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
-      this.hoverMousePos = { x: event.clientX, y: event.clientY };
+      this.hoverMousePos ||= { x: 0, y: 0 };
+      pointerMoved = this.hoverMousePos.x !== event.clientX || this.hoverMousePos.y !== event.clientY;
+      this.hoverMousePos.x = event.clientX;
+      this.hoverMousePos.y = event.clientY;
     }
     const isSameRow = this.hoveredDetailsRowId === rowId;
     this.hoveredDetailsRowId = rowId;
     if (this.detailsUI?.isOpen?.()) {
       return;
     }
+    this.hoverTooltipDismissed = false;
     // Skip redundant tooltip renders when still hovering the same row
     if (isSameRow && this.hoverTooltipEl?.classList.contains("isVisible")) {
-      this.positionHoverTooltip();
+      if (pointerMoved) this.scheduleHoverTooltipPosition();
       return;
     }
     this.detailsUI?.close?.({ keepPinned: false });
-    this.applyHoverTooltip(row, { forceRefresh: !isSameRow });
+    this.applyHoverTooltip(row);
   }
 
   getJobColor(job) {
@@ -797,7 +851,7 @@ class DpsApp {
         const theostoneNameColor = window.skillIcons?.getTheostoneNameColor?.(skill) || "";
         const skillColor = theostoneNameColor || this.getJobColor(skill?.job || row?.job);
         const skillStyle = skillColor ? ` style="color:${skillColor}"` : "";
-        const iconHtml = `<img class="skillIcon isPlaceholder" alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" onerror="window.skillIcons&&window.skillIcons.handleImgError&&window.skillIcons.handleImgError(this)">`;
+        const iconHtml = `<img class="skillIcon isPlaceholder" alt="" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onerror="window.skillIcons&&window.skillIcons.handleImgError&&window.skillIcons.handleImgError(this)">`;
         return `<div class="hoverDetailsTooltipSkill"><span class="idx">${index + 1}.</span><span class="name">${iconHtml}<span class="skillName"${skillStyle}>${name}</span></span><span class="dmg">${dmg}</span></div>`;
       })
       .join("");
@@ -824,7 +878,8 @@ class DpsApp {
       });
     }
     this.hoverTooltipEl.classList.add("isVisible");
-    this.positionHoverTooltip(rowEl);
+    this.hoverTooltipEl.setAttribute("aria-hidden", "false");
+    this.scheduleHoverTooltipPosition();
   }
 
   positionHoverTooltip(rowEl = null) {
@@ -839,9 +894,14 @@ class DpsApp {
       - (window.screenY || 0) - origin.top);
     const margin = 8;
     const gap = 12;
-    tooltip.style.maxWidth = `${Math.min(380, availableWidth - margin * 2)}px`;
-    tooltip.style.minWidth = `${Math.min(200, availableWidth - margin * 2)}px`;
-    tooltip.style.maxHeight = `${availableHeight - margin * 2}px`;
+    const limits = {
+      maxWidth: `${Math.min(380, availableWidth - margin * 2)}px`,
+      minWidth: `${Math.min(200, availableWidth - margin * 2)}px`,
+      maxHeight: `${availableHeight - margin * 2}px`,
+    };
+    for (const [property, value] of Object.entries(limits)) {
+      if (tooltip.style[property] !== value) tooltip.style[property] = value;
+    }
     const rowBounds = rowEl?.getBoundingClientRect?.();
     const x = (this.hoverMousePos?.x ?? rowBounds?.left ?? origin.left) - origin.left;
     const y = (this.hoverMousePos?.y ?? rowBounds?.bottom ?? origin.top) - origin.top;
@@ -851,12 +911,20 @@ class DpsApp {
     let top = y + gap;
     if (left + width + margin > availableWidth) left = x - width - gap;
     if (top + height + margin > availableHeight) top = y - height - gap;
-    tooltip.style.left = `${Math.max(margin, Math.min(availableWidth - width - margin, left))}px`;
-    tooltip.style.top = `${Math.max(margin, Math.min(availableHeight - height - margin, top))}px`;
-    window.javaBridge?.updateOverlaySize?.();
+    left = Math.max(margin, Math.min(availableWidth - width - margin, left));
+    top = Math.max(margin, Math.min(availableHeight - height - margin, top));
+    const transform = `translate3d(${left}px, ${top}px, 0)`;
+    if (tooltip.style.transform !== transform) tooltip.style.transform = transform;
+    // Pointer motion changes only the composited position. Native window
+    // sizing reserves the travel area and only needs content/geometry changes.
+    const geometryKey = `${width}:${height}:${availableWidth}:${availableHeight}:${origin.left}:${origin.top}`;
+    if (geometryKey !== this.hoverTooltipGeometryKey) {
+      this.hoverTooltipGeometryKey = geometryKey;
+      window.javaBridge?.updateOverlaySize?.();
+    }
   }
 
-  applyHoverTooltip(row, { forceRefresh = false } = {}) {
+  applyHoverTooltip(row, { forceRefresh = false, keepContent = false } = {}) {
     const rowId = Number(row?.id);
     if (!Number.isFinite(rowId) || rowId <= 0) return;
     const rowEl = this.elList?.querySelector?.(`.item[data-row-id="${rowId}"]`);
@@ -868,29 +936,45 @@ class DpsApp {
       if (!forceRefresh) return;
     }
 
-    this.renderHoverTooltip({ skills: [], state: "loading" }, row, rowEl);
-    if (!forceRefresh && this.hoverTooltipPendingRowIds.has(rowId)) {
+    if (!cached && !keepContent) this.renderHoverTooltip({ skills: [], state: "loading" }, row, rowEl);
+    if (this.hoverTooltipPendingRowIds.has(rowId)) {
       return;
     }
-    const requestSeq = (this.hoverTooltipRequestSeqByRowId.get(rowId) || 0) + 1;
+    // One summary at a time, latest row wins: rows swept past would otherwise
+    // keep fanning out into the shared native work queue.
+    if (this.hoverTooltipInFlight) {
+      this.hoverTooltipQueued = { row, forceRefresh };
+      return;
+    }
+    this.hoverTooltipInFlight = true;
+    // Identity tokens cannot collide with a new request after reset/target change.
+    const requestSeq = {};
     this.hoverTooltipRequestSeqByRowId.set(rowId, requestSeq);
     this.hoverTooltipPendingRowIds.add(rowId);
 
-    this.getDetails(row, { maxSkills: 5, showSkillIcons: false })
+    this.getDetails(row, { maxSkills: 5, showSkillIcons: false, summaryOnly: true })
       .then((details) => {
+        if (this.hoverTooltipRequestSeqByRowId.get(rowId) !== requestSeq) return;
         this.hoverTooltipPendingRowIds.delete(rowId);
-        const currentSeq = this.hoverTooltipRequestSeqByRowId.get(rowId);
-        if (currentSeq !== requestSeq || this.hoveredDetailsRowId !== rowId) return;
         const lightweightDetails = { skills: Array.isArray(details?.skills) ? details.skills.slice(0, 5) : [] };
         this.hoverTooltipCacheByRowId.set(rowId, lightweightDetails);
+        if (this.hoveredDetailsRowId !== rowId || this.hoverTooltipDismissed) return;
         this.renderHoverTooltip(lightweightDetails, row, rowEl);
       })
       .catch((error) => {
+        if (this.hoverTooltipRequestSeqByRowId.get(rowId) !== requestSeq) return;
         this.hoverTooltipPendingRowIds.delete(rowId);
-        const currentSeq = this.hoverTooltipRequestSeqByRowId.get(rowId);
-        if (currentSeq !== requestSeq || this.hoveredDetailsRowId !== rowId) return;
+        if (this.hoveredDetailsRowId !== rowId || this.hoverTooltipDismissed) return;
         window.javaBridge?.logToDebug?.(`Hover skill details failed: ${error?.message || error}`);
         this.renderHoverTooltip({ skills: [], state: "error" }, row, rowEl);
+      })
+      .finally(() => {
+        this.hoverTooltipInFlight = false;
+        const next = this.hoverTooltipQueued;
+        this.hoverTooltipQueued = null;
+        if (next && Number(next.row?.id) === this.hoveredDetailsRowId && !this.hoverTooltipDismissed) {
+          this.applyHoverTooltip(next.row, { forceRefresh: next.forceRefresh, keepContent: true });
+        }
       });
   }
 
@@ -1013,6 +1097,7 @@ class DpsApp {
     this.applyLocalPlayerIdUpdate(localPlayerId, "backend local id update");
     this.updateLocalPlayerIdentity(rows);
     this._lastBattleTimeMs = battleTimeMs;
+    const targetChanged = targetId !== previousTargetId || targetMode !== previousTargetMode;
     this.lastTargetMode = targetMode;
     this.lastTargetName = targetName;
     this.lastTargetId = targetId;
@@ -1150,6 +1235,7 @@ class DpsApp {
     this.hoverTooltipCacheByRowId.clear();
     this.updateMeterTotalBar(rowsToRender);
     this.meterUI.updateFromRows(rowsToRender);
+    if (targetChanged) this.refreshHoverTooltipForTarget(rowsToRender);
   }
 
   buildRowsFromPayload(raw) {
@@ -1512,7 +1598,7 @@ class DpsApp {
 
   async getDetails(
     row,
-    { targetId = null, attackerIds = null, totalTargetDamage = null, showSkillIcons = false, maxSkills = null } = {}
+    { targetId = null, attackerIds = null, totalTargetDamage = null, showSkillIcons = false, maxSkills = null, summaryOnly = false } = {}
   ) {
     let raw = null;
     let backendFiltered = false;
@@ -1521,9 +1607,11 @@ class DpsApp {
     } else if (targetId && window.dpsData?.getTargetDetails) {
       const payload = Array.isArray(attackerIds) ? JSON.stringify(attackerIds) : "";
       raw = await window.dpsData.getTargetDetails(targetId, payload);
+      // null is the bridge's IPC failure; an empty fight still arrives as JSON.
+      if (raw === null) throw new Error(`skill details failed for target ${targetId}`);
       backendFiltered = true;
     } else {
-      raw = await window.dpsData?.getBattleDetail?.(row.id);
+      raw = await window.dpsData?.getBattleDetail?.(row.id, { summaryOnly });
     }
     let detailObj = raw;
     // globalThis.uiDebug?.log?.("getBattleDetail", detailObj);
@@ -1726,6 +1814,11 @@ class DpsApp {
       }
     }
 
+
+    if (summaryOnly) {
+      skills.sort((a, b) => b.dmg - a.dmg);
+      return { skills: skills.slice(0, 5) };
+    }
 
     if (Number.isFinite(Number(maxSkills)) && Number(maxSkills) > 0 && skills.length > Number(maxSkills)) {
       skills.sort((a, b) => (Number(b?.dmg) || 0) - (Number(a?.dmg) || 0));
@@ -4198,6 +4291,7 @@ class DpsApp {
   }
 
   refreshDamageData({ reason = "refresh" } = {}) {
+    this.invalidateHoverTooltip();
     this.refreshPending = true;
     this.refreshPendingStartedAt = this.nowMs();
     this.lastSnapshot = null;

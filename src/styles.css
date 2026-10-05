@@ -4561,6 +4561,8 @@ body.legacyUi .meter .item .content .name.isSupporter,
 
 .hoverDetailsTooltip {
   position: absolute;
+  left: 0;
+  top: 0;
   z-index: 40;
   min-width: 200px;
   max-width: 380px;
@@ -4574,14 +4576,12 @@ body.legacyUi .meter .item .content .name.isSupporter,
   color: var(--title);
   text-shadow: var(--text-shadow);
   opacity: 0;
-  transform: translateY(2px);
   pointer-events: none;
-  transition: opacity 80ms ease, transform 80ms ease;
+  transition: opacity 80ms ease;
 }
 
 .hoverDetailsTooltip.isVisible {
   opacity: 1;
-  transform: translateY(0);
 }
 
 .hoverDetailsTooltipHeader {
