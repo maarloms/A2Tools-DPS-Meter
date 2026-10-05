@@ -1,6 +1,6 @@
 // Mitglieder verwalten: wer zählt zur Gruppe? (Testnamen/Tippfehler ausblenden)
 
-import { $, ago, api, apiJson, esc, failed, fmtNum, loadMembers, loading, pageHead, state, view } from "./core.js";
+import { $$, ago, api, apiJson, esc, failed, fmtNum, loadMembers, loading, pageHead, state, view } from "./core.js";
 
 let diags = [];
 
