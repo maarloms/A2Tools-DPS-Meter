@@ -5,7 +5,7 @@
 
 import { Env } from "./auth";
 import { activeMembers, fixedMembers, listMembers, setHidden } from "./members";
-import { backfillStats } from "./store";
+import { backfillStats, mergeDuplicates } from "./store";
 import { listBosses, relevant, setBossMode } from "./bosses";
 
 const DAY = 86_400_000;
@@ -290,6 +290,10 @@ export async function handleStats(
     // ---------- Wartung: Peak-DPS und Frontal-Quote alter Kämpfe nachtragen ----------
     case "/maintenance/backfill":
       return req.method === "POST" ? backfillStats(db, room) : null;
+
+    // ---------- Wartung: Kämpfe zusammenlegen, die nur die Dungeon-ID trennte ----------
+    case "/maintenance/dedupe":
+      return req.method === "POST" ? mergeDuplicates(db, room, members) : null;
 
     // ---------- Vergleich ----------
     case "/stats/compare": {

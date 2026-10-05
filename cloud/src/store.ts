@@ -55,9 +55,22 @@ interface EncRow {
   id: string;
   start_ms: number;
   target_id: number;
+  dungeon_id: number;
 }
 
-/** Sucht einen bestehenden Kampf, zu dem dieser Upload gehoert. */
+/**
+ * Sucht einen bestehenden Kampf, zu dem dieser Upload gehoert.
+ *
+ * Die Dungeon-ID ist kein hartes Kriterium: Meter derselben Gruppe melden fuer
+ * denselben Kampf oft verschiedene (eine veraltete aus der letzten Instanz, 0
+ * ohne Gruppenliste), und jeder Upload landete dann in einem eigenen Kampf.
+ * Bei zwei verschiedenen, bekannten Dungeons muss der Start nah beieinander
+ * liegen; dieselbe Entity-ID allein genuegt dann nicht.
+ *
+ * Dieselbe Entity zaehlt auch, wenn sich die Kampfzeiten ueberschneiden: ein
+ * Meter, der einen Kampf ueber eine lange Pause zieht, beginnt ihn
+ * Viertelstunden vor einem anderen, der erst nach der Pause dazukam.
+ */
 async function findEncounter(db: D1Database, room: string, uploadId: string, d: UploadDetail): Promise<string | null> {
   const prev = await db.prepare("SELECT encounter_id FROM uploads WHERE id = ?1").bind(uploadId).first<{ encounter_id: string }>();
   if (prev) return prev.encounter_id;
@@ -66,17 +79,19 @@ async function findEncounter(db: D1Database, room: string, uploadId: string, d: 
   const rows = (
     await db
       .prepare(
-        `SELECT id, start_ms, target_id FROM encounters
-         WHERE room = ?1 AND mob_code = ?2 AND dungeon_id = ?3 AND (?2 != 0 OR boss = ?4)
-           AND start_ms BETWEEN ?5 AND ?6
-         ORDER BY ABS(start_ms - ?7) LIMIT 5`,
+        `SELECT id, start_ms, target_id, dungeon_id FROM encounters
+         WHERE room = ?1 AND mob_code = ?2 AND (?2 != 0 OR boss = ?4)
+           AND (start_ms BETWEEN ?5 AND ?6
+             OR (?8 != 0 AND target_id = ?8 AND start_ms <= ?9 AND start_ms + duration_ms >= ?7))
+         ORDER BY (dungeon_id = ?3) DESC, ABS(start_ms - ?7) LIMIT 5`,
       )
-      .bind(room, d.mobCode, d.dungeonId, d.boss, d.startMs - w, d.startMs + w, d.startMs)
+      .bind(room, d.mobCode, d.dungeonId, d.boss, d.startMs - w, d.startMs + w, d.startMs, d.targetId, d.startMs + d.durationMs)
       .all<EncRow>()
   ).results;
   for (const e of rows) {
     const near = Math.abs(e.start_ms - d.startMs) <= LIMITS.sameFightWindowMs;
-    const sameTarget = d.targetId !== 0 && e.target_id === d.targetId;
+    const otherDungeon = e.dungeon_id !== d.dungeonId && e.dungeon_id !== 0 && d.dungeonId !== 0;
+    const sameTarget = d.targetId !== 0 && e.target_id === d.targetId && !otherDungeon;
     if (!near && !sameTarget) continue;
     // Derselbe Uploader hat dort schon einen ANDEREN Kampf → anderer Pull
     const own = await db
@@ -286,6 +301,55 @@ export async function backfillStats(db: D1Database, room: string, limit = 100): 
     .bind(room)
     .first<{ n: number }>();
   return { updated: ids.length, remaining: left?.n ?? 0 };
+}
+
+/**
+ * Kaempfe zusammenlegen, die findEncounter frueher getrennt hat: derselbe Boss
+ * mit Start hoechstens sameFightWindowMs auseinander, aber verschiedenen
+ * Dungeon-IDs, oder dieselbe Entity mit sich ueberschneidenden Kampfzeiten
+ * (ohne zwei verschiedene bekannte Dungeons). Nie bei gemeinsamem Uploader. Die Uploads ziehen in den frueheren Kampf um, der neu
+ * zusammengefuehrt wird; der andere wird geloescht. Rohdaten haengen an der
+ * Upload-ID und bleiben, wo sie sind.
+ */
+export async function mergeDuplicates(db: D1Database, room: string, known: string[], now = Date.now()): Promise<{ merged: number }> {
+  const pairs = (
+    await db
+      .prepare(
+        `SELECT a.id AS keepId, b.id AS dropId FROM encounters a JOIN encounters b
+           ON b.room = a.room AND b.mob_code = a.mob_code AND (a.mob_code != 0 OR b.boss = a.boss)
+          AND (b.start_ms > a.start_ms OR (b.start_ms = a.start_ms AND b.id > a.id))
+          AND ((b.dungeon_id != a.dungeon_id AND b.start_ms - a.start_ms <= ?2)
+            OR (a.target_id != 0 AND b.target_id = a.target_id AND b.start_ms <= a.start_ms + a.duration_ms
+                AND (a.dungeon_id = b.dungeon_id OR a.dungeon_id = 0 OR b.dungeon_id = 0)))
+         WHERE a.room = ?1 ORDER BY a.start_ms`,
+      )
+      .bind(room, LIMITS.sameFightWindowMs)
+      .all<{ keepId: string; dropId: string }>()
+  ).results;
+  const gone = new Set<string>();
+  let merged = 0;
+  for (const { keepId: keep, dropId: drop } of pairs) {
+    if (gone.has(keep) || gone.has(drop)) continue;
+    // Derselbe Uploader in beiden: zwei Pulls, kein Duplikat
+    const shared = await db
+      .prepare(
+        `SELECT 1 AS x FROM uploads a JOIN uploads b ON lower(a.uploader) = lower(b.uploader)
+         WHERE a.encounter_id = ?1 AND b.encounter_id = ?2 LIMIT 1`,
+      )
+      .bind(keep, drop)
+      .first();
+    if (shared) continue;
+    await db.batch([
+      db.prepare("UPDATE uploads SET encounter_id = ?1 WHERE encounter_id = ?2").bind(keep, drop),
+      db.prepare("DELETE FROM player_stats WHERE encounter_id = ?1").bind(drop),
+      db.prepare("DELETE FROM records WHERE encounter_id = ?1").bind(drop),
+      db.prepare("DELETE FROM encounters WHERE id = ?1").bind(drop),
+    ]);
+    await remerge(db, room, keep, known, now);
+    gone.add(drop);
+    merged++;
+  }
+  return { merged };
 }
 
 /** Aelteste Kaempfe ueber dem Limit loeschen. Liefert geloeschte Upload-IDs (fuer Rohdaten im DO). */

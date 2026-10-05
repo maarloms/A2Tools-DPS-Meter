@@ -413,6 +413,19 @@ export interface StoredUpload {
  * oder, wenn die Basis sie nicht benennt, ueber gleiche Klasse und aehnlichen
  * Schaden. Alle anderen Zeilen der weiteren Perspektiven fallen weg.
  */
+/**
+ * Die Dungeon-ID, die die meisten Perspektiven melden; 0 (unbekannt) zaehlt
+ * nur, wenn keine eine kennt. Gleichstand: die der Basis, sonst die frueheste.
+ */
+function mergedDungeon(uploads: StoredUpload[], best: StoredUpload): number {
+  const votes = new Map<number, number>();
+  for (const u of uploads) if (u.detail.dungeonId) votes.set(u.detail.dungeonId, (votes.get(u.detail.dungeonId) ?? 0) + 1);
+  if (votes.size === 0) return 0;
+  const top = Math.max(...votes.values());
+  const leaders = [...votes].filter(([, n]) => n === top).map(([id]) => id);
+  return leaders.includes(best.detail.dungeonId) ? best.detail.dungeonId : leaders[0];
+}
+
 export function mergeEncounter(id: string, uploads: StoredUpload[], known: string[]): EncounterDetail {
   const unmask = unmasker([...known, ...uploads.map((u) => u.uploader)]);
   const knownLc = new Set([...known, ...uploads.map((u) => u.uploader)].map((n) => n.toLowerCase()));
@@ -496,7 +509,7 @@ export function mergeEncounter(id: string, uploads: StoredUpload[], known: strin
     boss: best.detail.boss,
     mobCode: best.detail.mobCode,
     targetId: best.detail.targetId,
-    dungeonId: best.detail.dungeonId,
+    dungeonId: mergedDungeon(uploads, best),
     startMs,
     durationMs,
     totalDamage,

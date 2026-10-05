@@ -92,7 +92,7 @@ const PARTY = [
  * FightRecord wie in AppData/history: der Uploader sieht sich selbst voll und
  * unmaskiert, die anderen maskiert und mit etwas weniger Schaden (Reichweite).
  */
-function fakeRecord({ id, uploader, start, targetId = 4242, party = PARTY, durationMs = 60000, mobCode = 4242, maxHp = 5000000, bossName = "Testboss Kelpina" }) {
+function fakeRecord({ id, uploader, start, targetId = 4242, party = PARTY, durationMs = 60000, mobCode = 4242, maxHp = 5000000, bossName = "Testboss Kelpina", dungeonId = 600072 }) {
   const skills = [];
   const actors = [];
   party.forEach((p, i) => {
@@ -114,7 +114,7 @@ function fakeRecord({ id, uploader, start, targetId = 4242, party = PARTY, durat
     id, bossName, targetId, startTimeMs: start, durationMs, totalDamage: total, killed: true,
     jobs: [], jobIds: [], details: { targetId, maxHp, totalTargetDamage: total, battleTime: durationMs, startTime: 0, skills,
       pingHistory: Array.from({ length: 20 }, (_, i) => ({ tsMs: start + i * 3000, pingMs: 40 + i })), healSkills: [] },
-    actors, isTrain: false, appVersion: "2.0.41", mobCode, dungeonId: 600072,
+    actors, isTrain: false, appVersion: "2.0.41", mobCode, dungeonId,
   };
 }
 function maskName(name) {
@@ -242,6 +242,27 @@ async function main() {
   const recLater = fakeRecord({ id: `auto_4243_${t0f + 600000}`, uploader: "Marlon", start: t0f + 600000, targetId: 4243, durationMs: 45000 });
   const up4j = await (await post("Marlon", recLater)).json();
   check("anderer Pull → neuer Kampf", up4j.fightId && up4j.fightId !== up1j.fightId, JSON.stringify(up4j));
+
+  // Meter melden für denselben Kampf verschiedene Dungeons (veraltet, 0 ohne Gruppenliste)
+  const tDg = t0f + 2_400_000;
+  const dg = (uploader, off, dungeonId) =>
+    fakeRecord({ id: `auto_4300_${tDg + off}`, uploader, start: tDg + off, targetId: 4300, mobCode: 4300, bossName: "Testboss Dungeonwechsel", dungeonId });
+  const dg1 = await (await post("Marlon", dg("Marlon", 0, 600072))).json();
+  const dg2 = await (await post("Freund2", dg("Freund2", 1500, 600012))).json();
+  const dg3 = await (await post("Freund1", dg("Freund1", 3000, 0))).json();
+  check("andere Dungeon-ID, gleicher Kampf → zusammengeführt", dg2.fightId === dg1.fightId && dg3.fightId === dg1.fightId && dg3.perspectives === 3,
+    JSON.stringify([dg1.fightId, dg2.fightId, dg3.fightId, dg3.perspectives]));
+  const dgFar = await (await post("Freund2", dg("Freund2", 120_000, 600012))).json();
+  check("andere Dungeon-ID, 2 min später → eigener Kampf", dgFar.fightId && dgFar.fightId !== dg1.fightId, JSON.stringify(dgFar));
+  // Ein Meter zieht den Kampf über eine lange Pause, das andere kam erst danach dazu
+  const tLong = t0f + 3_600_000;
+  const lg = (uploader, off, durationMs) =>
+    fakeRecord({ id: `auto_4301_${tLong + off}`, uploader, start: tLong + off, durationMs, targetId: 4301, mobCode: 4301, bossName: "Testboss Pause" });
+  const lg1 = await (await post("Marlon", lg("Marlon", 0, 912_000))).json();
+  const lg2 = await (await post("Freund2", lg("Freund2", 848_000, 205_000))).json();
+  check("gleiche Entity, Kampfzeiten überschneiden sich → ein Kampf", lg2.fightId === lg1.fightId && lg2.perspectives === 2, JSON.stringify([lg1.fightId, lg2]));
+  const dedupe = await fetch(`${BASE}/api/rooms/${ROOM}/maintenance/dedupe`, { method: "POST", headers: auth }).then((r) => r.json());
+  check("Wartung dedupe läuft, nichts mehr doppelt", dedupe.merged === 0, JSON.stringify(dedupe));
 
   // ---------- Neue Bestwerte ----------
   check("erster Kampf gegen den Boss ist kein Rekord", Array.isArray(up1j.records) && up1j.records.length === 0, JSON.stringify(up1j.records));
