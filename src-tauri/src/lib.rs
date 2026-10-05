@@ -43,4 +43,7 @@ pub mod stream_overlay;
 mod app;
 
 #[cfg(feature = "desktop")]
+mod blocking;
+
+#[cfg(feature = "desktop")]
 pub use app::run;
