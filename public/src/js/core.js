@@ -1,3 +1,14 @@
+const SETTING_CHOICES = {
+  defaultMeterMode: { allowed: ["bossTargets", "lastHitByMe", "allTargets", "trainTargets"], fallback: "bossTargets" },
+  allTargetsWindowMs: { allowed: ["30000", "60000", "120000", "180000", "300000"], fallback: "120000" },
+  targetSelectionWindowMs: { allowed: ["5000", "10000", "15000", "20000", "30000"], fallback: "5000" },
+  trainSelectionMode: { allowed: ["all", "highestDamage"], fallback: "all" },
+};
+const pickSettingChoice = (name, value) => {
+  const { allowed, fallback } = SETTING_CHOICES[name];
+  return allowed.includes(String(value)) ? String(value) : fallback;
+};
+
 // Settings whose change in the Settings window must redraw the meter, mapped to
 // the control that applies them. See DpsApp.applyRemoteSettingChange().
 const REMOTE_APPLIED_SETTING_CONTROLS = {
@@ -226,6 +237,24 @@ class DpsApp {
 
   start() {
     window._dpsApp = this;
+    if (window.A2_VIEW === "settings") {
+      // Opening settings must not construct or lay out the hidden combat views.
+      this.showPing = this.safeGetSetting(this.storageKeys.showPing) !== "false";
+      this.showTotalDps = this.safeGetSetting(this.storageKeys.showTotalDps) !== "false";
+      this.roundDps = this.safeGetSetting(this.storageKeys.roundDps) !== "false";
+      const savedLimit = parseInt(this.safeGetSetting(this.storageKeys.playerLimit), 10);
+      this.playerLimit = Number.isFinite(savedLimit) && savedLimit >= 1 ? savedLimit : 6;
+      this.setupSettingsPanel();
+      this.refreshSettingsStatus();
+      this.i18n?.onChange?.((lang) => {
+        this.settingsSelections.language = lang;
+        this.initializeSettingsDropdowns();
+        this.refreshConnectionInfo();
+        this.updateSupportPrimaryAction(lang);
+        this.updateSupportQrImage(this.supportPrimaryButton?.dataset.support || "afdian");
+      });
+      return;
+    }
     this.elList = document.querySelector(".list");
     this.elBossName = document.querySelector(".bossName");
     this.elBossName.textContent = this.getDefaultTargetLabel();
@@ -354,7 +383,7 @@ class DpsApp {
     this.showPing = this.safeGetSetting(this.storageKeys.showPing) !== "false";
     // Ping is pushed immediately from PingTracker via window._dpsApp.updatePing().
     // A slow fallback poll handles edge cases (e.g. push not wired yet on startup).
-    this._pingTimer = setInterval(() => this.updatePing(), 30000);
+    if (window.A2_VIEW !== "settings") this._pingTimer = setInterval(() => this.updatePing(), 30000);
 
     this.showTotalDps = this.safeGetSetting(this.storageKeys.showTotalDps) !== "false";
     // Defaults on: `!== "false"` treats "never set" as enabled.
@@ -502,7 +531,7 @@ class DpsApp {
     // window of its own so several can be compared, and the list stays put.
     // Only the in-overlay fallback closes itself, because there the list and
     // the fight would otherwise be stacked in the same 30px-row window.
-    this.historyUI = typeof createHistoryUI === "function"
+    this.historyUI = window.A2_VIEW !== "settings" && typeof createHistoryUI === "function"
       ? createHistoryUI({
           onOpenFight: (record) => {
             const inPlace = () => {
@@ -519,9 +548,11 @@ class DpsApp {
         })
       : null;
 
-    this.startPolling();
-    this.startWindowTitlePolling();
-    this.fetchDps();
+    if (window.A2_VIEW !== "settings") {
+      this.startPolling();
+      this.startWindowTitlePolling();
+      this.fetchDps();
+    }
   }
 
   bindNativeHotkeyBridge() {
@@ -904,6 +935,7 @@ class DpsApp {
   }
 
   fetchDps() {
+    if (window.A2_VIEW === "settings") return;
     if (this.isCollapse || this._windowHidden) return;
     if (this.isWindowDragging) {
       this.deferFetchUntilDragEnd = true;
@@ -2130,6 +2162,9 @@ class DpsApp {
       targetSelectionWindowMs: "5000",
     };
 
+    // The meter already applied these settings. Opening a form must not change
+    // the live combat selection or resend saved parameters to the backend.
+    const syncBackend = window.A2_VIEW !== "settings";
     const storedName = this.safeGetStorage(this.storageKeys.userName) || "";
     const storedAllTargetsWindowMs = this.safeGetSetting(this.storageKeys.allTargetsWindowMs) ||
       this.safeGetStorage(this.storageKeys.allTargetsWindowMs) ||
@@ -2142,7 +2177,7 @@ class DpsApp {
       "5000";
     let storedMeterOpacity = this.safeGetSetting(this.storageKeys.meterFillOpacity) ||
       this.safeGetStorage(this.storageKeys.meterFillOpacity);
-    if (this.safeGetSetting("dpsMeter.migration.opacityReset1") !== "done") {
+    if (syncBackend && this.safeGetSetting("dpsMeter.migration.opacityReset1") !== "done") {
       storedMeterOpacity = "80";
       this.safeSetSetting(this.storageKeys.meterFillOpacity, "80");
       this.safeSetSetting("dpsMeter.migration.opacityReset1", "done");
@@ -2162,32 +2197,30 @@ class DpsApp {
     const storedLanguage = this.safeGetStorage(this.storageKeys.language);
     const storedTheme = this.safeGetSetting(this.storageKeys.theme);
 
-    this.setUserName(storedName, { persist: false, syncBackend: true });
+    this.setUserName(storedName, { persist: false, syncBackend });
     this.setOnlyShowUser(false, { persist: false });
-    this.setDebugLogging(storedDebugLogging, { persist: false, syncBackend: true });
+    this.setDebugLogging(storedDebugLogging, { persist: false, syncBackend });
     this.setPinMeToTop(storedPinMeToTop, { persist: false });
     this.setBetaUi(this.safeGetSetting(this.storageKeys.betaUi) !== "false", { persist: false });
     const storedSlimMode = this.safeGetSetting(this.storageKeys.slimMode) === "true";
     this.setSlimMode(storedSlimMode, { persist: false });
     this.setMainPlayerNamesBold(storedMainPlayerNamesBold, { persist: false });
     this.setMainPlayerDpsBold(storedMainPlayerDpsBold, { persist: false });
-    if (mainPlayerNamesBoldSetting === null || mainPlayerNamesBoldSetting === undefined || mainPlayerNamesBoldSetting === "") {
+    if (syncBackend && (mainPlayerNamesBoldSetting === null || mainPlayerNamesBoldSetting === undefined || mainPlayerNamesBoldSetting === "")) {
       this.safeSetSetting(this.storageKeys.mainPlayerNamesBold, "true");
     }
-    if (mainPlayerDpsBoldSetting === null || mainPlayerDpsBoldSetting === undefined || mainPlayerDpsBoldSetting === "") {
+    if (syncBackend && (mainPlayerDpsBoldSetting === null || mainPlayerDpsBoldSetting === undefined || mainPlayerDpsBoldSetting === "")) {
       this.safeSetSetting(this.storageKeys.mainPlayerDpsBold, "true");
     }
-    const validModes = ["bossTargets", "lastHitByMe", "allTargets", "trainTargets"];
-    const normalizedDefaultMode = validModes.includes(storedDefaultMeterMode)
-      ? storedDefaultMeterMode : "bossTargets";
+    const normalizedDefaultMode = pickSettingChoice("defaultMeterMode", storedDefaultMeterMode);
     this.settingsSelections.defaultMeterMode = normalizedDefaultMode;
     this.setTargetSelection(normalizedDefaultMode, {
       persist: false,
-      syncBackend: true,
+      syncBackend,
       reason: "default meter mode setting",
     });
     this.applyTheme(storedTheme || this.theme, { persist: false });
-    if (storedLanguage) {
+    if (storedLanguage && storedLanguage !== this.i18n?.getLanguage?.()) {
       this.i18n?.setLanguage?.(storedLanguage, { persist: false });
     }
 
@@ -2231,6 +2264,9 @@ class DpsApp {
       window.addEventListener("beforeunload", () => {
         if (saveTimer) saveTypedName();
       });
+      if (window.A2_VIEW === "settings") window.addEventListener("settings-hidden", () => {
+        if (saveTimer) saveTypedName();
+      });
     }
     if (this.localActorIdInput) {
       this.localActorIdInput.value = this.localPlayerId ? String(this.localPlayerId) : "";
@@ -2255,30 +2291,27 @@ class DpsApp {
       });
     }
 
-    const allowedWindows = ["30000", "60000", "120000", "180000", "300000"];
-    const selectedWindow = allowedWindows.includes(String(storedAllTargetsWindowMs))
-      ? String(storedAllTargetsWindowMs)
-      : "120000";
+    const selectedWindow = pickSettingChoice("allTargetsWindowMs", storedAllTargetsWindowMs);
     this.settingsSelections.allTargetsWindowMs = selectedWindow;
-    this.safeSetSetting(this.storageKeys.allTargetsWindowMs, selectedWindow);
-    window.javaBridge?.setAllTargetsWindowMs?.(selectedWindow);
+    if (syncBackend) {
+      this.safeSetSetting(this.storageKeys.allTargetsWindowMs, selectedWindow);
+      window.javaBridge?.setAllTargetsWindowMs?.(selectedWindow);
+    }
 
-    const allowedTargetWindows = ["5000", "10000", "15000", "20000", "30000"];
-    const selectedTargetWindow = allowedTargetWindows.includes(String(storedTargetSelectionWindowMs))
-      ? String(storedTargetSelectionWindowMs)
-      : "5000";
+    const selectedTargetWindow = pickSettingChoice("targetSelectionWindowMs", storedTargetSelectionWindowMs);
     this.settingsSelections.targetSelectionWindowMs = selectedTargetWindow;
-    this.safeSetSetting(this.storageKeys.targetSelectionWindowMs, selectedTargetWindow);
-    window.javaBridge?.setTargetSelectionWindowMs?.(selectedTargetWindow);
+    if (syncBackend) {
+      this.safeSetSetting(this.storageKeys.targetSelectionWindowMs, selectedTargetWindow);
+      window.javaBridge?.setTargetSelectionWindowMs?.(selectedTargetWindow);
+    }
 
-    const allowedModes = ["all", "highestDamage"];
-    const selectedMode = allowedModes.includes(String(storedTrainSelectionMode))
-      ? String(storedTrainSelectionMode)
-      : "all";
+    const selectedMode = pickSettingChoice("trainSelectionMode", storedTrainSelectionMode);
     this.trainSelectionMode = selectedMode;
     this.settingsSelections.trainSelectionMode = selectedMode;
-    this.safeSetSetting(this.storageKeys.trainSelectionMode, selectedMode);
-    window.javaBridge?.setTrainSelectionMode?.(selectedMode);
+    if (syncBackend) {
+      this.safeSetSetting(this.storageKeys.trainSelectionMode, selectedMode);
+      window.javaBridge?.setTrainSelectionMode?.(selectedMode);
+    }
 
     if (this.bossLogsCheckbox) {
       const storedBossLogs = this.safeGetSetting(this.storageKeys.bossLogs) === "true";
@@ -2554,7 +2587,7 @@ class DpsApp {
     this.refreshMonitorList().then(() => {
       this.initializeSettingsDropdowns();
       // Re-open the Details window if it was left enabled last session.
-      if (this.detailsMonitor !== "off" && window.A2_VIEW !== "details") {
+      if (this.detailsMonitor !== "off" && window.A2_VIEW === "main") {
         this.applyDetailsMonitor(this.detailsMonitor, { persist: false });
       }
     });
@@ -2801,6 +2834,8 @@ class DpsApp {
 
   initializeSettingsDropdowns() {
     const previewThemeVars = (themeId) => {
+      this._themePreviewCache ||= new Map();
+      if (this._themePreviewCache.has(themeId)) return this._themePreviewCache.get(themeId);
       const root = document.documentElement;
       const previous = root.dataset.theme;
       root.dataset.theme = themeId;
@@ -2809,7 +2844,9 @@ class DpsApp {
       const nameShadow = computed.getPropertyValue("--player-name-shadow").trim() || "none";
       const rowFill = computed.getPropertyValue("--row-fill").trim() || "#2f2f2f";
       root.dataset.theme = previous || "aion2";
-      return { textColor, nameShadow, rowFill };
+      const preview = { textColor, nameShadow, rowFill };
+      this._themePreviewCache.set(themeId, preview);
+      return preview;
     };
 
     const closeAll = () => {
@@ -3835,13 +3872,80 @@ class DpsApp {
   // visible, so its markup and wiring are reused rather than duplicated.
   enterSettingsWindowMode() {
     document.body.classList.add("isSettingsWindow");
-    this.refreshMonitorList().then(() => this.initializeSettingsDropdowns());
+    // setupSettingsPanel already requested monitors; reuse that result.
     this._loadDeviceDropdown();
     this.settingsPanel?.classList.add("isOpen");
     // Closing is wired in startApp, before anything that can be slow.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => window.javaBridge?.toolWindowReady?.("settings"));
     });
+  }
+
+  // Settings has no title poll; the bridge calls this after each status read,
+  // which happens only while the window is shown.
+  refreshSettingsStatus() {
+    const title = window.javaBridge?.getAion2WindowTitle?.();
+    this.aionRunning = typeof title === "string" && title.trim().length > 0;
+    this.refreshConnectionInfo();
+  }
+
+  // A reused Settings window is shown again without start(). Re-read the form
+  // from stored settings; the controls keep the handlers setupSettingsPanel wired.
+  syncSettingsForm() {
+    const get = (name) => this.safeGetSetting(this.storageKeys[name]);
+    const isSet = (value) => value !== null && value !== undefined && String(value).trim() !== "";
+    const storedName = this.safeGetStorage(this.storageKeys.userName);
+    if (storedName !== null) this.applyRemoteSettingChange(this.storageKeys.userName, storedName);
+    for (const key of Object.keys(REMOTE_APPLIED_SETTING_CONTROLS)) {
+      const value = this.safeGetSetting(key);
+      if (isSet(value)) this.applyRemoteSettingChange(key, value);
+    }
+    for (const [box, name, defaultOn] of [
+      [this.bossLogsCheckbox, "bossLogs", false],
+      [this.autoHideMeterCheckbox, "autoHideMeter", true],
+      [this.saveRawPacketsCheckbox, "saveRawPackets", false],
+      [document.querySelector(".discordActivityCheckbox"), "discordActivity", false],
+    ]) {
+      if (box) box.checked = defaultOn ? get(name) !== "false" : get(name) === "true";
+    }
+    this.setDebugLogging(get("debugLogging") === "true");
+    // The input handlers normalize, label, apply and fill the track.
+    for (const [input, value] of [
+      [this.meterOpacityInput, get("meterFillOpacity")],
+      [this.windowOpacityInput, this.safeGetStorage(this.storageKeys.windowOpacity)],
+    ]) {
+      if (!input || !isSet(value) || String(input.value) === String(value)) continue;
+      input.value = String(value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    const limit = parseInt(get("playerLimit"), 10);
+    if (Number.isFinite(limit) && limit >= 1) this.playerLimit = limit;
+    const limitWrapper = document.querySelector(".playerLimitDropdownWrapper");
+    const limitText = limitWrapper?.querySelector(".playerLimitDropdownBtn .settingsDropdownText");
+    if (limitText) limitText.textContent = String(this.playerLimit);
+    limitWrapper?.querySelectorAll(".settingsDropdownItem").forEach((el) =>
+      el.classList.toggle("isActive", el.dataset.value === String(this.playerLimit))
+    );
+
+    this.setBetaUi(get("betaUi") !== "false");
+    this.setSlimMode(get("slimMode") === "true");
+    this.applyTheme(get("theme") || this.theme);
+    this.settingsSelections.language = this.i18n?.getLanguage?.() || this.settingsSelections.language;
+    for (const name of Object.keys(SETTING_CHOICES)) {
+      this.settingsSelections[name] = pickSettingChoice(name, get(name));
+    }
+    this.trainSelectionMode = this.settingsSelections.trainSelectionMode;
+    this.detailsMonitor = this.getDetailsMonitorSetting();
+
+    this._autoDetectDevice = !this.safeGetSetting("dpsMeter.manualDevice");
+    if (this.autoDetectDeviceCheckbox) this.autoDetectDeviceCheckbox.checked = this._autoDetectDevice;
+    this._updateDeviceDropdownState();
+    this._loadDeviceDropdown();
+
+    this.initializeSettingsDropdowns();
+    // Displays may have been plugged in or removed while the window was hidden.
+    return this.refreshMonitorList().then(() => this.initializeSettingsDropdowns());
   }
 
   // The Battle History window: this bundle again, showing only the history
@@ -5542,7 +5646,7 @@ const startApp = async ({ forced = false } = {}) => {
     } else if (window.A2_VIEW === "history") {
       dpsApp.enterHistoryWindowMode();
     }
-    window.javaBridge?.notifyUiReady?.();
+    await window.javaBridge?.notifyUiReady?.();
 
   } catch (err) {
     debug?.log?.("startApp.error", err);
