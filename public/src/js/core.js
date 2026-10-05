@@ -11,6 +11,8 @@ const REMOTE_APPLIED_SETTING_CONTROLS = {
   "dpsMeter.showSupporterColors": ".showSupporterColorsCheckbox",
   "dpsMeter.showSuspendBtn": ".showSuspendBtnCheckbox",
   "dpsMeter.showLockBtn": ".showLockBtnCheckbox",
+  // Set from the main window by the account offer.
+  "dpsMeter.autoUpload": ".autoUploadCheckbox",
 };
 
 class DpsApp {
@@ -65,6 +67,8 @@ class DpsApp {
       saveRawPackets: "dpsMeter.saveRawPackets",
       autoUpload: "dpsMeter.autoUpload",
       discordActivity: "dpsMeter.discordActivity",
+      discordPromoShown: "dpsMeter.discordPromoShown",
+      accountPromoShown: "dpsMeter.accountPromoShown",
       windowOpacity: "dpsMeter.windowOpacity",
       bossNameSize: "dpsMeter.bossNameSize",
       betaUi: "dpsMeter.betaUi",
@@ -383,6 +387,7 @@ class DpsApp {
       dpsFormatter: this.dpsFormatter,
       getDetails: (row, options) => this.getDetails(row, options),
       getDetailsContext: () => this.getDetailsContext(),
+      getDungeonId: () => this.lastDungeonId,
       onPinnedRowChange: (rowId) => {
         const nextId = Number(rowId);
         this.pinnedDetailsRowId = Number.isFinite(nextId) && nextId > 0 ? nextId : null;
@@ -422,10 +427,13 @@ class DpsApp {
         const meterRect = !ownWindow ? document.querySelector(".meter")?.getBoundingClientRect?.() : null;
         const rects = [detailsRect, includeMeter ? meterRect : null].filter(Boolean);
         if (!rects.length) return;
-        const left = Math.min(...rects.map((r) => r.left));
-        const top = Math.min(...rects.map((r) => r.top));
-        const right = Math.max(...rects.map((r) => r.right));
-        const bottom = Math.max(...rects.map((r) => r.bottom));
+        // Kept inside the window: in its own window the panel's side and
+        // bottom padding overhang the edges by 10px, and the capture took
+        // whatever was behind the window there (issue #6).
+        const left = Math.max(0, Math.min(...rects.map((r) => r.left)));
+        const top = Math.max(0, Math.min(...rects.map((r) => r.top)));
+        const right = Math.min(window.innerWidth, Math.max(...rects.map((r) => r.right)));
+        const bottom = Math.min(window.innerHeight, Math.max(...rects.map((r) => r.bottom)));
         const saveFile = !!this.saveScreenshotToFolder;
         const result = await window.javaBridge?.captureScreenshot?.({
           x: left,
@@ -758,6 +766,7 @@ class DpsApp {
     }
     // Skip redundant tooltip renders when still hovering the same row
     if (isSameRow && this.hoverTooltipEl?.classList.contains("isVisible")) {
+      this.positionHoverTooltip();
       return;
     }
     this.detailsUI?.close?.({ keepPinned: false });
@@ -771,8 +780,13 @@ class DpsApp {
   renderHoverTooltip(details, row, rowEl) {
     if (!this.hoverTooltipEl || !rowEl) return;
     const skills = Array.isArray(details?.skills) ? details.skills.slice(0, 5) : [];
-    let top = 0;
-    let left = 372;
+    const tooltipState = details?.state || "empty";
+    const stateFallback = {
+      loading: "Loading...",
+      empty: "No skill data for this fight",
+      error: "Could not load skills",
+    }[tooltipState] || "No skill data for this fight";
+    const stateText = this.i18n?.t(`details.hoverTooltip.${tooltipState}`, stateFallback) ?? stateFallback;
     const dps = Number(row?.dps) || 0;
     const dpsText = `${this.dpsFormatter.format(dps)}${this.i18n?.t("meter.dpsSuffix", "/s") ?? "/s"}`;
     const totalDamage = Number(row?.totalDamage) || 0;
@@ -802,7 +816,7 @@ class DpsApp {
         <span>${this.i18n?.t("header.display.dps", "DPS") ?? "DPS"}: ${dpsText}</span>
         <span>${this.i18n?.t("details.stats.totalDamage", "Total Damage") ?? "Total Damage"}: ${totalDamageText}</span>
       </div>
-      <div class="hoverDetailsTooltipSkills">${skillsHtml || `<div class="hoverDetailsTooltipSkill muted">${this.i18n?.t("details.refresh.loading", "Loading...") ?? "Loading..."}</div>`}</div>
+      <div class="hoverDetailsTooltipSkills">${skillsHtml || `<div class="hoverDetailsTooltipSkill muted">${stateText}</div>`}</div>
     `;
     // Apply cached skill icons to tooltip img elements
     if (window.skillIcons?.applyIconToImage && skills.length) {
@@ -811,14 +825,37 @@ class DpsApp {
         if (skills[i]) window.skillIcons.applyIconToImage(img, skills[i]);
       });
     }
-    const maxLeft = Math.max(372, (this.elList?.clientWidth || 0) - (this.hoverTooltipEl.offsetWidth || 0) - 8);
-    const maxTop = Math.max(8, (this.elList?.clientHeight || 0) - (this.hoverTooltipEl.offsetHeight || 0) - 8);
-    left = Math.max(372, Math.min(maxLeft, left));
-    top = Math.max(0, Math.min(maxTop, top));
-
-    this.hoverTooltipEl.style.left = `${left}px`;
-    this.hoverTooltipEl.style.top = `${top}px`;
     this.hoverTooltipEl.classList.add("isVisible");
+    this.positionHoverTooltip(rowEl);
+  }
+
+  positionHoverTooltip(rowEl = null) {
+    const tooltip = this.hoverTooltipEl;
+    if (!tooltip) return;
+    const container = tooltip.offsetParent;
+    const origin = container?.getBoundingClientRect?.() || { left: 0, top: 0 };
+    const screen = window.screen || {};
+    const availableWidth = Math.max(32, (screen.availLeft || 0) + (screen.availWidth || window.innerWidth)
+      - (window.screenX || 0) - origin.left);
+    const availableHeight = Math.max(32, (screen.availTop || 0) + (screen.availHeight || window.innerHeight)
+      - (window.screenY || 0) - origin.top);
+    const margin = 8;
+    const gap = 12;
+    tooltip.style.maxWidth = `${Math.min(380, availableWidth - margin * 2)}px`;
+    tooltip.style.minWidth = `${Math.min(200, availableWidth - margin * 2)}px`;
+    tooltip.style.maxHeight = `${availableHeight - margin * 2}px`;
+    const rowBounds = rowEl?.getBoundingClientRect?.();
+    const x = (this.hoverMousePos?.x ?? rowBounds?.left ?? origin.left) - origin.left;
+    const y = (this.hoverMousePos?.y ?? rowBounds?.bottom ?? origin.top) - origin.top;
+    const width = tooltip.offsetWidth;
+    const height = tooltip.offsetHeight;
+    let left = x + gap;
+    let top = y + gap;
+    if (left + width + margin > availableWidth) left = x - width - gap;
+    if (top + height + margin > availableHeight) top = y - height - gap;
+    tooltip.style.left = `${Math.max(margin, Math.min(availableWidth - width - margin, left))}px`;
+    tooltip.style.top = `${Math.max(margin, Math.min(availableHeight - height - margin, top))}px`;
+    window.javaBridge?.updateOverlaySize?.();
   }
 
   applyHoverTooltip(row, { forceRefresh = false } = {}) {
@@ -833,7 +870,7 @@ class DpsApp {
       if (!forceRefresh) return;
     }
 
-    this.renderHoverTooltip({ skills: [] }, row, rowEl);
+    this.renderHoverTooltip({ skills: [], state: "loading" }, row, rowEl);
     if (!forceRefresh && this.hoverTooltipPendingRowIds.has(rowId)) {
       return;
     }
@@ -850,11 +887,12 @@ class DpsApp {
         this.hoverTooltipCacheByRowId.set(rowId, lightweightDetails);
         this.renderHoverTooltip(lightweightDetails, row, rowEl);
       })
-      .catch(() => {
+      .catch((error) => {
         this.hoverTooltipPendingRowIds.delete(rowId);
         const currentSeq = this.hoverTooltipRequestSeqByRowId.get(rowId);
         if (currentSeq !== requestSeq || this.hoveredDetailsRowId !== rowId) return;
-        this.renderHoverTooltip({ skills: [] }, row, rowEl);
+        window.javaBridge?.logToDebug?.(`Hover skill details failed: ${error?.message || error}`);
+        this.renderHoverTooltip({ skills: [], state: "error" }, row, rowEl);
       });
   }
 
@@ -943,6 +981,15 @@ class DpsApp {
       targetCurrentHp,
       dungeonId,
     } = this.buildRowsFromPayload(raw);
+    // Boss mode with no boss engaged: say what it is waiting for. The rows of
+    // the last fight can still be on screen (the meter keeps them), so this
+    // goes by the target alone. Set before anything below can return early,
+    // so switching back to Boss mode shows it again on the next update.
+    const waitingForBoss = targetMode === "bossTargets" && !(Number(targetId) > 0);
+    if (waitingForBoss !== Boolean(this._waitingForBoss)) {
+      this._waitingForBoss = waitingForBoss;
+      this.updateConnectionStatusUi();
+    }
     if (this.refreshPending) {
       const pendingAgeMs = Math.max(0, now - (Number(this.refreshPendingStartedAt) || 0));
       const allowFallbackResume = rows.length > 0 && pendingAgeMs >= 1000;
@@ -1015,6 +1062,7 @@ class DpsApp {
       else {
         this._battleTimeVisible = false;
         this.battleTime.setVisible(false);
+        this.updateConnectionStatusUi();
         return;
       }
     } else if (!isOutOfCombat) {
@@ -1934,7 +1982,12 @@ class DpsApp {
   }
 
   setAccountState(text) {
-    if (this.accountStateEl) this.accountStateEl.textContent = text;
+    if (!this.accountStateEl) return;
+    this.accountStateEl.textContent = text;
+    // A short state stays on one line beside its button; a long one (an
+    // error saying why sign-in failed) wraps rather than being cut off.
+    this.accountStateEl.title = text || "";
+    this.accountStateEl.classList.toggle("isLong", String(text || "").length > 40);
   }
 
   // Reflects whatever the backend reports. Called on open, after sign-out, and
@@ -1964,10 +2017,20 @@ class DpsApp {
     let who = null;
     try {
       who = await window.javaBridge?.accountStatus?.();
-    } catch {
-      who = null;
+    } catch (err) {
+      // A token is stored but could not be checked (keyring locked, server
+      // down): say why, and do not ask for a new sign-in.
+      this.paintAccountUnavailable(typeof err === "string" ? err : err?.message || String(err));
+      return;
     }
     this.paintAccount(who);
+  }
+
+  paintAccountUnavailable(message) {
+    if (this.accountCodeBox?.style.display === "block") return;
+    if (this.accountConnectBtn) this.accountConnectBtn.style.display = "none";
+    if (this.accountSignOutBtn) this.accountSignOutBtn.style.display = "";
+    this.setAccountState(message);
   }
 
   paintAccount(who) {
@@ -2025,6 +2088,8 @@ class DpsApp {
     this.debugLoggingCheckbox = document.querySelector(".debugLoggingCheckbox");
     this.showPingCheckbox = document.querySelector(".showPingCheckbox");
     this.saveRawPacketsCheckbox = document.querySelector(".saveRawPacketsCheckbox");
+    this.sendLogsBtn = document.querySelector(".sendLogsBtn");
+    this.sendLogsStatus = document.querySelector(".sendLogsStatus");
     this.pinMeToTopCheckbox = document.querySelector(".pinMeToTopCheckbox");
     this.detailsMonitorDropdownBtn = document.querySelector(".detailsMonitorDropdownBtn");
     this.detailsMonitorDropdownMenu = document.querySelector(".detailsMonitorDropdownMenu");
@@ -2307,6 +2372,7 @@ class DpsApp {
         window.javaBridge?.setSaveRawPackets?.(isChecked);
       });
     }
+    this.initSendLogs();
     if (this.pinMeToTopCheckbox) {
       this.pinMeToTopCheckbox.checked = this.pinMeToTop;
       this.pinMeToTopCheckbox.addEventListener("change", (event) => {
@@ -2353,13 +2419,15 @@ class DpsApp {
       discordCheckbox.addEventListener("change", (event) => {
         this.safeSetSetting(this.storageKeys.discordActivity, String(!!event.target?.checked));
       });
-      Promise.resolve(window.javaBridge?.discordActivityAvailable?.())
-        .then((ok) => {
-          const group = document.querySelector(".discordActivityGroup");
-          if (group && ok) group.style.display = "";
-        })
-        .catch(() => {});
     }
+    Promise.resolve(window.javaBridge?.discordActivityAvailable?.())
+      .catch(() => false)
+      .then((ok) => {
+        const group = document.querySelector(".discordActivityGroup");
+        if (group && ok) group.style.display = "";
+        if (window.A2_VIEW !== "main") return;
+        // fork: no Discord or a2tools.app sign-in offers.
+      });
 
     if (this.autoUploadCheckbox) {
       // Off unless turned on: an upload publishes a fight.
@@ -4015,6 +4083,12 @@ class DpsApp {
       );
       this._lastTargetSelection = this.targetSelection;
     }
+    // Leaving Boss mode drops "Waiting for a boss" at once, rather than on
+    // the next update from the backend.
+    if (this.targetSelection !== "bossTargets" && this._waitingForBoss) {
+      this._waitingForBoss = false;
+      this.updateConnectionStatusUi();
+    }
     this.updateTargetModeButton();
   }
 
@@ -4257,6 +4331,45 @@ class DpsApp {
     if (this.meterTotalDmgEl) {
       this.meterTotalDmgEl.textContent = this.formatAbbreviatedNumber(totalDmg);
     }
+  }
+
+  // "Send logs to dev": the newest packet captures, for a bug report. Packet
+  // logs are raw game traffic, names included, so it asks first, every time.
+  initSendLogs() {
+    const btn = this.sendLogsBtn;
+    const status = this.sendLogsStatus;
+    if (!btn || btn.dataset.wired) return;
+    btn.dataset.wired = "1";
+    const t = (key, fallback, vars) =>
+      vars ? (window.i18n?.format?.(key, vars, fallback) ?? fallback)
+           : (window.i18n?.t?.(key, fallback) ?? fallback);
+    const show = (text) => {
+      if (!status) return;
+      status.removeAttribute("data-i18n");
+      status.textContent = text;
+    };
+    btn.addEventListener("click", async () => {
+      const ok = window.confirm(t("settings.sendLogs.confirm",
+        "Send your 3 newest packet logs to the A2 Tools developer?\n\n" +
+        "Packet logs are raw game traffic recorded while packet logging was on, " +
+        "including character names. Only the developer can open them, and they " +
+        "are deleted after 30 days."));
+      if (!ok) return;
+      btn.disabled = true;
+      show(t("settings.sendLogs.sending", "Sending..."));
+      try {
+        const result = await window.javaBridge?.sendLogsToDev?.();
+        const code = result?.code || "?";
+        show(t("settings.sendLogs.sent",
+          `Sent. Your report code is ${code}: give it to the developer on Discord.`,
+          { code }));
+      } catch (err) {
+        const msg = String(err?.message || err || "");
+        show(t("settings.sendLogs.failed", `Could not send: ${msg}`, { error: msg }));
+      } finally {
+        btn.disabled = false;
+      }
+    });
   }
 
   initPlayerLimitDropdown() {
@@ -4567,6 +4680,12 @@ class DpsApp {
       );
       return;
     }
+    if (this._waitingForBoss && this.targetSelection === "bossTargets" && !this._captureSuspended) {
+      this.applyConnectionStatusOverride(
+        this.i18n?.t("battleTime.waitingBoss", "Waiting for a boss") ?? "Waiting for a boss"
+      );
+      return;
+    }
     this.clearConnectionStatusOverride();
   }
 
@@ -4669,13 +4788,23 @@ class DpsApp {
   }
 
   getTargetLabel({ targetId = 0, targetName = "", targetMode = "", dungeonId = 0 } = {}) {
-    // In a party instance the title names the dungeon rather than whatever mob
-    // happens to be selected — it is the more useful heading, and it is stable
-    // across pulls. Falls back to the target label outside a dungeon.
+    // In a party instance the title is the boss being fought, and the dungeon
+    // between pulls. It used to stay on the dungeon throughout, so a whole run
+    // read "Urugugu Canyon" past every boss. The modes that track no single
+    // target (all targets, training) keep the dungeon.
     const dungeonLabel = Number(dungeonId) > 0
       ? (this.i18n?.getDungeonLabel?.(Number(dungeonId)) ?? "")
       : "";
-    if (dungeonLabel) return dungeonLabel;
+    if (dungeonLabel) {
+      const tracksOne = targetMode !== "allTargets" && targetMode !== "trainTargets";
+      const numericId = Number(targetId);
+      if (tracksOne && Number.isFinite(numericId) && numericId > 0) {
+        const cleanName = typeof targetName === "string" ? targetName.trim() : "";
+        const bossName = this.i18n?.getNpcName?.(numericId, cleanName) ?? cleanName;
+        if (bossName) return bossName;
+      }
+      return dungeonLabel;
+    }
     if (targetMode === "trainTargets" && !this.isLocalUserIdentified()) {
       return this.i18n?.t("target.identifying", "Identifying you...") ?? "Identifying you...";
     }
@@ -4881,8 +5010,13 @@ class DpsApp {
     // shifts clientX/Y and made the size jump past the cursor (issue #11).
     const onMouseMove = (event) => {
       if (!isResizing) return;
-      // The button came up outside the window, where no mouseup arrives.
-      if ((event.buttons & 1) === 0) {
+      // The button came up outside the window, where no mouseup arrives; the
+      // next move inside shows it. A move outside is not trusted: a fast drag
+      // leaves the window before it has grown (KWin, XWayland) and those moves
+      // can report no button held, which cut the resize short.
+      const inside = event.clientX >= 0 && event.clientY >= 0
+        && event.clientX < window.innerWidth && event.clientY < window.innerHeight;
+      if ((event.buttons & 1) === 0 && inside) {
         onMouseUp();
         return;
       }
@@ -5022,6 +5156,157 @@ class DpsApp {
     window.lucide?.createIcons?.({ root: this.suspendBtn });
   }
 
+  // A one-time popup offering Discord activity, with the toggle already on.
+  // Done keeps what the toggle says; closing it any other way (×, Escape, a
+  // click outside) leaves it off. Not shown to anyone who has already chosen
+  // either way in Settings, and never again once answered. True if it opens.
+  maybeShowDiscordPromo() {
+    const promo = document.querySelector("#discordPromo");
+    if (!promo) return false;
+    if (this.safeGetSetting(this.storageKeys.discordPromoShown) === "true") return false;
+    const current = this.safeGetSetting(this.storageKeys.discordActivity);
+    if (current === "true" || current === "false") return false;
+
+    const checkbox = promo.querySelector(".discordPromoCheckbox");
+    let answered = false;
+    const onKey = (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        answer(false);
+      }
+    };
+    const answer = (enabled) => {
+      if (answered) return;
+      answered = true;
+      this.safeSetSetting(this.storageKeys.discordActivity, String(enabled));
+      this.safeSetSetting(this.storageKeys.discordPromoShown, "true");
+      const settingsCheckbox = document.querySelector(".discordActivityCheckbox");
+      if (settingsCheckbox) settingsCheckbox.checked = enabled;
+      promo.classList.remove("isOpen");
+      promo.setAttribute("aria-hidden", "true");
+      document.removeEventListener("keydown", onKey, true);
+    };
+    promo.querySelector(".discordPromoDone")?.addEventListener("click", () => answer(!!checkbox?.checked));
+    promo.querySelector(".discordPromoClose")?.addEventListener("click", () => answer(false));
+    promo.addEventListener("click", (event) => {
+      if (event.target === promo) answer(false);
+    });
+
+    // A moment after start, so it does not land on top of the first paint.
+    setTimeout(() => {
+      if (answered) return;
+      if (checkbox) checkbox.checked = true;
+      promo.classList.add("isOpen");
+      promo.setAttribute("aria-hidden", "false");
+      document.addEventListener("keydown", onKey, true);
+    }, 2500);
+    return true;
+  }
+
+  // A one-time popup offering an a2tools.app account, with automatic upload
+  // already ticked. Sign in starts the same browser approval as Settings and
+  // keeps the code on the card; the tick is applied only once the account is
+  // connected, so a sign-in abandoned halfway leaves uploads off. Not now, ×,
+  // Escape or a click outside close it for good. Not shown to anyone signed in
+  // or who has already set uploads either way.
+  async maybeShowAccountPromo() {
+    const promo = document.querySelector("#accountPromo");
+    if (!promo) return;
+    if (this.safeGetSetting(this.storageKeys.accountPromoShown) === "true") return;
+    const current = this.safeGetSetting(this.storageKeys.autoUpload);
+    if (current === "true" || current === "false") return;
+    try {
+      const seen = await window.javaBridge?.accountStatusCached?.();
+      if (seen?.who) return;
+      if (await window.javaBridge?.accountStatus?.()) return;
+    } catch {
+      return; // a token is stored but could not be checked: signed in
+    }
+
+    const checkbox = promo.querySelector(".accountPromoCheckbox");
+    const signInBtn = promo.querySelector(".accountPromoSignIn");
+    const codeBox = promo.querySelector(".accountPromoCodeBox");
+    const codeEl = promo.querySelector(".accountPromoCode");
+    const stateEl = promo.querySelector(".accountPromoState");
+    let open = false;
+    const onKey = (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        close();
+      }
+    };
+    const close = () => {
+      if (!open) return;
+      open = false;
+      this.safeSetSetting(this.storageKeys.accountPromoShown, "true");
+      promo.classList.remove("isOpen");
+      promo.setAttribute("aria-hidden", "true");
+      document.removeEventListener("keydown", onKey, true);
+    };
+
+    // What Sign in chose, applied when the browser approval arrives (on
+    // "account-changed", even after the card was closed).
+    let pendingUpload = null;
+    this.onAccountPromoResult = (result) => {
+      if (pendingUpload === null) return;
+      if (result?.connected) {
+        this.safeSetSetting(this.storageKeys.autoUpload, String(pendingUpload));
+        if (this.autoUploadCheckbox) this.autoUploadCheckbox.checked = pendingUpload;
+        pendingUpload = null;
+        close();
+      } else if (result?.error) {
+        const msg = String(result.error);
+        if (stateEl) {
+          stateEl.textContent = window.i18n?.format?.(
+            "settings.account.failed", { error: msg }, `Sign-in failed: ${msg}`);
+        }
+        if (codeBox) codeBox.style.display = "none";
+        if (signInBtn) signInBtn.disabled = false;
+        pendingUpload = null;
+      }
+    };
+
+    signInBtn?.addEventListener("click", async () => {
+      signInBtn.disabled = true;
+      if (stateEl) stateEl.textContent = "";
+      try {
+        const prompt = await window.javaBridge?.accountBeginLink?.();
+        if (!prompt?.userCode) {
+          signInBtn.disabled = false;
+          return;
+        }
+        pendingUpload = !!checkbox?.checked;
+        this.safeSetSetting(this.storageKeys.accountPromoShown, "true");
+        if (codeEl) codeEl.textContent = prompt.userCode;
+        if (codeBox) codeBox.style.display = "block";
+        if (stateEl) {
+          stateEl.textContent = window.i18n?.t?.("settings.account.working", "Waiting for approval…");
+        }
+      } catch (err) {
+        const msg = typeof err === "string" ? err : err?.message || String(err);
+        if (stateEl) {
+          stateEl.textContent = window.i18n?.format?.(
+            "settings.account.failed", { error: msg }, `Sign-in failed: ${msg}`);
+        }
+        signInBtn.disabled = false;
+      }
+    });
+    promo.querySelector(".accountPromoLater")?.addEventListener("click", close);
+    promo.querySelector(".accountPromoClose")?.addEventListener("click", close);
+    promo.addEventListener("click", (event) => {
+      if (event.target === promo) close();
+    });
+
+    // A moment after start, so it does not land on top of the first paint.
+    setTimeout(() => {
+      if (checkbox) checkbox.checked = true;
+      open = true;
+      promo.classList.add("isOpen");
+      promo.setAttribute("aria-hidden", "false");
+      document.addEventListener("keydown", onKey, true);
+    }, 2500);
+  }
+
   _updateSuspendStatusMessage() {
     const el = this.analysisStatusEl || document.querySelector(".battleTime .analysisStatus");
     if (!el) return;
@@ -5129,19 +5414,9 @@ const startApp = async ({ forced = false } = {}) => {
     hasJavaBridge: !!window.javaBridge,
     forced,
   });
-  // Window controls answer at once: the translations below load first, and
-  // until they had, Quit and closing the settings window did nothing.
-  document.querySelector(".quitButton")?.addEventListener("click", () => {
-    window.javaBridge?.exitApp?.();
-  });
-  if (window.A2_VIEW === "settings") {
-    const close = () => window.javaBridge?.closeSettingsWindow?.();
-    document.querySelector(".settingsClose")?.addEventListener("click", close);
-    document.querySelector(".settingsWindowClose")?.addEventListener("click", close);
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") close();
-    });
-  }
+  // Quit, Close and Escape in the Settings window are answered by a script
+  // the window runs before this page (SETTINGS_WINDOW_SCRIPT in app.rs), so
+  // they work before any of this has loaded.
   try {
     await window.i18n?.init?.();
     window.lucide?.createIcons?.();

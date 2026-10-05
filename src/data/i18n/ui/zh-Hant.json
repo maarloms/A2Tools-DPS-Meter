@@ -119,6 +119,7 @@
     "filterPlayer": "玩家職業...",
     "filterDate": "日期 (YYYY-MM-DD)...",
     "viewList": "清單檢視",
+    "viewDungeon": "依副本分組",
     "viewGrouped": "依王分組",
     "fightCount": "{n} 場",
     "fightCountOne": "1 場",
@@ -130,7 +131,8 @@
     "uploadOpen": "在 a2tools.app 開啟這場戰鬥的紀錄",
     "uploadWorking": "上傳中…",
     "uploadDonePublic": "已上傳。連結已複製：{url}",
-    "uploadDonePrivate": "已以私人方式上傳。連結已複製：{url}"
+    "uploadDonePrivate": "已以私人方式上傳。連結已複製：{url}",
+    "openWorld": "野外"
   },
   "settings": {
     "title": "設定",
@@ -191,7 +193,7 @@
     "discord": {
       "title": "Discord",
       "activity": "在 Discord 顯示我正在玩的內容",
-      "activityHint": "AION2 開啟時，你的 Discord 狀態會顯示職業、等級、伺服器，以及正在對戰的首領。透過這台電腦上的 Discord 應用程式顯示，不需要帳號。"
+      "activityHint": "AION2 開啟時，你的 Discord 狀態會顯示角色名稱、職業、等級、伺服器，以及正在對戰的首領。透過這台電腦上的 Discord 應用程式顯示，不需要帳號。"
     },
     "version": "版本",
     "theme": {
@@ -285,6 +287,14 @@
       "supporter": "贊助者",
       "autoUpload": "自動上傳首領戰",
       "autoUploadHint": "首領戰結束時會以你在 a2tools.app 選擇的公開設定上傳到你的帳號。其他玩家的名稱會被遮蔽。木樁戰鬥不會上傳。"
+    },
+    "sendLogs": {
+      "hint": "將最新的 3 個封包紀錄傳送給開發者，用於回報問題。",
+      "button": "傳送紀錄給開發者",
+      "confirm": "要將最新的 3 個封包紀錄傳送給 A2 Tools 開發者嗎？\n\n封包紀錄是開啟封包紀錄期間錄下的原始遊戲通訊，包含角色名稱。只有開發者能開啟，並會在 30 天後刪除。",
+      "sending": "傳送中...",
+      "sent": "已傳送。你的回報代碼是 {code}，請在 Discord 上告訴開發者。",
+      "failed": "無法傳送：{error}"
     }
   },
   "support": {
@@ -314,7 +324,8 @@
     "analysing": "正在監控資料...",
     "idle": "閒置",
     "notRunning": "AION2 not running",
-    "suspended": "應用程式已暫停"
+    "suspended": "應用程式已暫停",
+    "waitingBoss": "等待首領"
   },
   "meter": {
     "identifyingPlayer": "#{id}",
@@ -360,7 +371,8 @@
     "difficulty": {
       "exploration": "探索",
       "normal": "普通",
-      "hard": "困難"
+      "hard": "困難",
+      "level": "第 {n} 階"
     }
   },
   "presence": {
@@ -374,5 +386,20 @@
     "tierExpedition": "遠征",
     "tierConquestNormal": "征服（普通）",
     "tierConquestHard": "征服（困難）"
+  },
+  "discordPromo": {
+    "title": "新功能：Discord 狀態顯示",
+    "text": "在 Discord 狀態中向好友顯示你的角色、職業、等級、伺服器，以及所在的首領戰或副本。",
+    "hint": "透過這台電腦上的 Discord 應用程式顯示，不需要帳號。可隨時在設定中變更。",
+    "done": "完成",
+    "close": "關閉"
+  },
+  "accountPromo": {
+    "title": "將首領戰紀錄保存在 a2tools.app",
+    "text": "建立免費帳號或登入，每場首領戰都會保存在線上：每場都有可分享的連結，任何裝置都能查看紀錄，還能登上排行榜。",
+    "hint": "其他玩家的名稱會被遮蔽，訓練假人的戰鬥不會上傳。可隨時在設定中變更。",
+    "signIn": "登入",
+    "later": "稍後再說",
+    "close": "關閉"
   }
 }

@@ -32,15 +32,16 @@ const ENTROPY: &[u8] = b"a2tools.account.v1";
 /// `platform::secret` refuses rather than degrading quietly: storing a token in
 /// the clear would be worse than not storing one.
 use crate::platform::secret as imp;
+use crate::platform::UnsealError;
 
 /// Encrypt and write the token. Returns false if it could not be stored, in
 /// which case the caller must treat the account as not connected rather than
 /// keeping a token only in memory and appearing connected until restart.
-pub fn save(app_data_dir: &Path, token: &str) -> bool {
-    let Some(sealed) = imp::protect(token.as_bytes(), ENTROPY) else {
-        tracing::error!("Could not encrypt the account token; refusing to store it");
-        return false;
-    };
+pub fn save(app_data_dir: &Path, token: &str) -> Result<(), String> {
+    let sealed = imp::protect(token.as_bytes(), ENTROPY).map_err(|why| {
+        tracing::error!("Could not encrypt the account token ({why}); refusing to store it");
+        why
+    })?;
     let path = token_path(app_data_dir);
     let previous = std::fs::read(&path).ok();
     match std::fs::write(&path, &sealed) {
@@ -50,37 +51,59 @@ pub fn save(app_data_dir: &Path, token: &str) -> bool {
             if let Some(previous) = previous {
                 imp::forget(&previous);
             }
-            true
+            Ok(())
         }
         Err(e) => {
             tracing::error!("Could not write the account token: {e}");
-            false
+            Err(format!("the token file could not be written ({e})"))
         }
     }
 }
 
-/// Read the token back, or `None` if there is not a usable one.
-///
-/// A file that will not decrypt is deleted rather than retried forever: it means
-/// the Windows profile changed or the file was copied from elsewhere, and no
-/// amount of retrying will fix either.
+/// What `load_stored` found.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Stored {
+    Token(String),
+    /// No token on this machine.
+    Missing,
+    /// A token is stored, but the keyring did not hand it over now: not
+    /// running yet, locked, unlock dismissed, or the item not visible. The
+    /// file is kept for the next try.
+    Locked,
+}
+
+/// Read the token back, or `None` if there is not a usable one now.
 pub fn load(app_data_dir: &Path) -> Option<String> {
-    let path = token_path(app_data_dir);
-    let sealed = std::fs::read(&path).ok()?;
-    match imp::unprotect(&sealed, ENTROPY).and_then(|b| String::from_utf8(b).ok()) {
-        Some(token) if !token.is_empty() => Some(token),
-        // A Linux keyring that is not running yet (the meter can start before
-        // it at login) is not a dead token: keep the file for next time.
-        _ if !imp::available() => None,
-        _ => {
-            tracing::warn!(
-                "{} could not be decrypted for this user; removing it",
-                path.display()
-            );
-            let _ = std::fs::remove_file(&path);
-            None
-        }
+    match load_stored(app_data_dir) {
+        Stored::Token(token) => Some(token),
+        Stored::Missing | Stored::Locked => None,
     }
+}
+
+/// Read the token back, and say why when there is none.
+///
+/// A file that can never decrypt is deleted rather than retried forever: it
+/// means the Windows profile changed or the file was copied from elsewhere.
+pub fn load_stored(app_data_dir: &Path) -> Stored {
+    let path = token_path(app_data_dir);
+    let Ok(sealed) = std::fs::read(&path) else { return Stored::Missing };
+    match imp::unprotect(&sealed, ENTROPY) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(token) if !token.is_empty() => Stored::Token(token),
+            _ => discard(&path),
+        },
+        Err(UnsealError::Unavailable) => {
+            tracing::info!("The keyring did not hand over the account token; keeping it");
+            Stored::Locked
+        }
+        Err(UnsealError::Invalid) => discard(&path),
+    }
+}
+
+fn discard(path: &Path) -> Stored {
+    tracing::warn!("{} could not be decrypted for this user; removing it", path.display());
+    let _ = std::fs::remove_file(path);
+    Stored::Missing
 }
 
 /// Forget the token. Used on sign-out and whenever the server says it is dead.
@@ -124,7 +147,7 @@ mod tests {
             return;
         }
         let dir = temp("roundtrip");
-        assert!(save(&dir, "tok_abc123"));
+        assert!(save(&dir, "tok_abc123").is_ok());
         assert_eq!(load(&dir).as_deref(), Some("tok_abc123"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -136,7 +159,7 @@ mod tests {
         }
         // The whole point: `settings.json` is readable, this must not be.
         let dir = temp("opaque");
-        assert!(save(&dir, "tok_supersecret"));
+        assert!(save(&dir, "tok_supersecret").is_ok());
         let raw = std::fs::read(token_path(&dir)).unwrap();
         assert!(
             !raw.windows(15).any(|w| w == b"tok_supersecret"),
@@ -151,7 +174,7 @@ mod tests {
             return;
         }
         let dir = temp("clear");
-        assert!(save(&dir, "tok_x"));
+        assert!(save(&dir, "tok_x").is_ok());
         clear(&dir);
         assert!(load(&dir).is_none());
         let _ = std::fs::remove_dir_all(&dir);

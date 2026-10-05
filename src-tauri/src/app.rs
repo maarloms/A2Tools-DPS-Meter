@@ -213,6 +213,9 @@ fn load_fight(state: tauri::State<'_, AppState>, id: String) -> Result<FightReco
 
 #[tauri::command]
 fn delete_fight(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    if !crate::history::fight_history::is_plain_name(&id) {
+        return Err(format!("Invalid fight id: {id:?}"));
+    }
     share::forget_slice(&state.app_data_dir, &id);
     state.fight_history.delete_fight(&id)
 }
@@ -231,20 +234,96 @@ async fn upload_fight(
 ///
 /// Failure is quiet on purpose: not being signed in, or being offline, is not
 /// something to interrupt a fight about. The fight keeps its slice, and the
-/// upload button in History still works.
+/// upload button in History still works. A failure that waiting could fix
+/// (offline, a server error, a rate limit) is tried again later, on the
+/// schedule in `share::note_auto_upload_failure`.
 fn auto_upload(app: tauri::AppHandle, record: FightRecord) {
+    let Some(in_flight) = InFlight::start(&record.id) else { return };
     tauri::async_runtime::spawn(async move {
+        let _in_flight = in_flight;
         let Some(state) = app.try_state::<AppState>() else { return };
-        match share::upload(&state.http, &state.app_data_dir, &record).await {
+        match share::upload_detailed(&state.http, &state.app_data_dir, &record).await {
             Ok(result) => {
                 tracing::info!("Auto-uploaded {} -> {}", record.id, result.url);
                 let _ = app.emit("fight-uploaded", serde_json::json!({
                     "fightId": record.id, "url": result.url, "visibility": result.visibility,
                 }));
             }
-            Err(e) => tracing::info!("Auto-upload of {} skipped: {e}", record.id),
+            Err(failure) => {
+                share::note_auto_upload_failure(
+                    &state.app_data_dir, &record.id, &failure, crate::clock::now_ms());
+                tracing::info!(
+                    "Auto-upload of {} failed{}: {}",
+                    record.id,
+                    if failure.retryable { ", will retry" } else { "" },
+                    failure.message
+                );
+            }
         }
     });
+}
+
+/// Save fights to History, with the packets behind each so it can be uploaded
+/// and verified later (training dummies are not logs), and auto-upload the
+/// finished ones when that is on.
+fn save_fight_records(app: &tauri::AppHandle, state: &AppState, records: Vec<FightRecord>) {
+    for record in &records {
+        let _ = state.fight_history.save_fight(record);
+        if !record.is_train {
+            if let Err(e) = share::save_slice(&state.app_data_dir, record, &state.data_storage) {
+                tracing::debug!("No slice for {}: {e}", record.id);
+            }
+        }
+    }
+    if !records.is_empty() {
+        share::prune_slices(&state.app_data_dir);
+    }
+    crate::fork::cloud::on_fights_saved(app, &records); // fork
+    if state.settings.get(share::AUTO_UPLOAD_KEY).as_deref() == Some("true") {
+        let now = crate::clock::now_ms();
+        for record in records.into_iter()
+            .filter(|r| share::wants_auto_upload(&state.app_data_dir, r, now))
+        {
+            auto_upload(app.clone(), record);
+        }
+    }
+}
+
+/// Save every fight on the meter now, before its combat data is cleared: a
+/// zone change, the end of a party, the reset button, the reload hotkey or
+/// quitting. Each cleared it unsaved, and leaving an instance right after a
+/// kill lost everything since the last 30-second save (issue #19).
+fn save_fights_before_reset(app: &tauri::AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else { return };
+    if state.data_storage.damage_generation() <= 0 {
+        return;
+    }
+    let records = state.dps_calculator.lock().snapshot_boss_fights_force();
+    if !records.is_empty() {
+        tracing::info!("Saving {} fight(s) before combat data is cleared", records.len());
+    }
+    save_fight_records(app, &state, records);
+}
+
+/// Fights with an automatic upload running. One upload of a fight at a time:
+/// a retry must not start while the first try is still waiting on the network.
+static IN_FLIGHT: std::sync::LazyLock<Mutex<HashSet<String>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// A fight's place in `IN_FLIGHT`, given up on drop: every way out of the
+/// upload task clears it, a panic included.
+struct InFlight(String);
+
+impl InFlight {
+    fn start(id: &str) -> Option<Self> {
+        IN_FLIGHT.lock().insert(id.to_string()).then(|| Self(id.to_string()))
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        IN_FLIGHT.lock().remove(&self.0);
+    }
 }
 
 /// Which fights have a slice to upload, and which already have a link.
@@ -298,7 +377,11 @@ async fn preview_share(
 async fn account_status(
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<crate::account::AccountSummary>, String> {
-    let who = crate::account::whoami(&state.http, &state.app_data_dir).await;
+    let who = match crate::account::whoami(&state.http, &state.app_data_dir).await {
+        crate::account::AccountState::SignedIn(summary) => Some(summary),
+        crate::account::AccountState::SignedOut => None,
+        crate::account::AccountState::Unavailable(why) => return Err(why),
+    };
     *state.account_seen.lock() = Some(who.clone());
     Ok(who)
 }
@@ -335,7 +418,11 @@ async fn account_begin_link(
 
     // Open the browser straight onto the filled-in code. If it fails the player
     // still has the code and the URL in front of them.
-    open_url(grant.verification_uri_complete.clone());
+    if crate::account::is_site_url(&grant.verification_uri_complete) {
+        open_url(grant.verification_uri_complete.clone());
+    } else {
+        tracing::warn!("Not opening the sign-in page: the server sent a link outside a2tools.app");
+    }
 
     let http = state.http.clone();
     let app_data_dir = state.app_data_dir.clone();
@@ -487,10 +574,14 @@ fn bind_local_nickname(state: tauri::State<'_, AppState>, actor_id: i64, nicknam
     {
         return;
     }
-    // Same as set_character_name: the game's name for the local player wins.
-    if state.data_storage.local_identity_from_self_record()
-        && state.data_storage.local_character_name().as_deref() != Some(nickname.trim())
-    {
+    // A party placeholder row is no entity.
+    if actor_id >= 90_000_000 {
+        return;
+    }
+    // Once the game's self record has named the player, it alone says who
+    // they are: a window binding by name kept an id from before a zone change
+    // and sent it back, and uploads then named a stale uploader (issue #19).
+    if state.data_storage.local_identity_from_self_record() {
         return;
     }
     tracing::info!("bind_local_nickname: {} -> '{}' (was {:?})", actor_id, nickname, current);
@@ -500,7 +591,8 @@ fn bind_local_nickname(state: tauri::State<'_, AppState>, actor_id: i64, nicknam
 }
 
 #[tauri::command]
-fn reset_combat(state: tauri::State<'_, AppState>) {
+fn reset_combat(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
+    save_fights_before_reset(&app);
     state.dps_calculator.lock().restart_target_selection(true);
     // Don't reset port detector or ping — keep the network connection alive
     // Only clear combat data and re-learn nicknames from future packets
@@ -536,6 +628,17 @@ fn set_packet_logging(state: tauri::State<'_, AppState>, enabled: bool) {
     state.settings.set("dpsMeter.saveRawPackets", if enabled { "true" } else { "false" });
 }
 
+/// Send the newest packet captures to the developer (Settings, beside packet
+/// logging). Returns the report code the player passes on.
+/// fork: off. Packet captures hold names and raw traffic; this fork sends
+/// none to the upstream developer (the button is hidden as well).
+#[tauri::command]
+async fn send_logs_to_dev(
+    _state: tauri::State<'_, AppState>,
+) -> Result<share::dev_logs::SendResult, String> {
+    Err("Sending logs to the developer is turned off in this build".into())
+}
+
 #[tauri::command]
 fn reset_auto_detection(state: tauri::State<'_, AppState>) {
     state.port_detector.reset();
@@ -559,11 +662,15 @@ fn set_manual_device(state: tauri::State<'_, AppState>, device: String) {
 
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
+    save_fights_before_reset(&app);
     app.exit(0);
 }
 
 #[tauri::command]
 fn read_cached_icon(state: tauri::State<'_, AppState>, key: String) -> Option<String> {
+    if !crate::history::fight_history::is_plain_name(&key) {
+        return None;
+    }
     let path = state.app_data_dir.join("icon_cache").join(&key);
     std::fs::read_to_string(&path).ok()
 }
@@ -617,6 +724,9 @@ fn log_from_ui(message: String) {
 
 #[tauri::command]
 fn write_cached_icon(state: tauri::State<'_, AppState>, key: String, data: String) {
+    if !crate::history::fight_history::is_plain_name(&key) {
+        return;
+    }
     let cache_dir = state.app_data_dir.join("icon_cache");
     let _ = std::fs::create_dir_all(&cache_dir);
     let path = cache_dir.join(&key);
@@ -633,6 +743,10 @@ async fn show_update_window(
     arch_url: Option<String>,
     deb_url: Option<String>,
     rpm_url: Option<String>,
+    msi_sha256: Option<String>,
+    arch_sha256: Option<String>,
+    deb_sha256: Option<String>,
+    rpm_sha256: Option<String>,
 ) -> Result<bool, String> {
     // The manifest names a package per platform (the MSI; the Arch, Debian
     // and RPM packages). Where this install cannot update itself, or the
@@ -644,6 +758,14 @@ async fn show_update_window(
         rpm: rpm_url.as_deref().unwrap_or(""),
     };
     let package_url = platform::updater::package_url(&packages).to_string();
+    // The manifest's SHA-256 for that same package, picked the same way.
+    let hashes = platform::UpdatePackages {
+        msi: msi_sha256.as_deref().unwrap_or(""),
+        arch: arch_sha256.as_deref().unwrap_or(""),
+        deb: deb_sha256.as_deref().unwrap_or(""),
+        rpm: rpm_sha256.as_deref().unwrap_or(""),
+    };
+    let package_sha256 = platform::updater::package_url(&hashes).to_string();
     if !platform::updater::supported() || package_url.is_empty() {
         tracing::info!("Update {} available (running {}); this install updates through its package manager", latest, current);
         return Ok(false);
@@ -659,7 +781,7 @@ async fn show_update_window(
         let app2 = app.clone();
         let url = package_url;
         tauri::async_runtime::spawn(async move {
-            if let Err(e) = download_and_install_update(&app2, &url).await {
+            if let Err(e) = download_and_install_update(&app2, &url, &package_sha256).await {
                 tracing::error!("Update download failed: {}", e);
                 // Show error dialog
                 let _ = tokio::task::spawn_blocking(move || {
@@ -675,15 +797,38 @@ async fn show_update_window(
     Ok(accepted)
 }
 
-async fn download_and_install_update(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
+/// Whether a downloaded package is the one the manifest names: its SHA-256,
+/// in hex, equals the manifest's. A manifest without a hash matches nothing.
+fn package_hash_matches(expected: &str, actual_hex: &str) -> bool {
+    let expected = expected.trim();
+    expected.len() == 64
+        && expected.bytes().all(|b| b.is_ascii_hexdigit())
+        && expected.eq_ignore_ascii_case(actual_hex)
+}
+
+async fn download_and_install_update(app: &tauri::AppHandle, url: &str, expected_sha256: &str) -> Result<(), String> {
     use tokio::io::AsyncWriteExt;
     use futures_util::StreamExt;
+    use sha2::{Digest, Sha256};
+
+    // Only a package the manifest vouches for is installed.
+    if expected_sha256.trim().is_empty() {
+        tracing::warn!("Update manifest has no SHA-256 for {url}; not installing it");
+        return Err("the update manifest has no checksum for this package".into());
+    }
 
     // Show progress dialog on a blocking thread
     let app_clone = app.clone();
     let url_owned = url.to_string();
 
-    let response = reqwest::get(&url_owned).await.map_err(|e| e.to_string())?;
+    let response = app
+        .state::<AppState>()
+        .http
+        .get(&url_owned)
+        .timeout(Duration::from_secs(600))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status()));
     }
@@ -695,9 +840,11 @@ async fn download_and_install_update(app: &tauri::AppHandle, url: &str) -> Resul
     let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
     let mut last_pct: u64 = 0;
+    let mut hasher = Sha256::new();
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| e.to_string())?;
+        hasher.update(&chunk);
         file.write_all(&chunk).await.map_err(|e| e.to_string())?;
         downloaded += chunk.len() as u64;
         if total_size > 0 {
@@ -711,6 +858,13 @@ async fn download_and_install_update(app: &tauri::AppHandle, url: &str) -> Resul
     }
     file.flush().await.map_err(|e| e.to_string())?;
     drop(file);
+
+    let actual: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    if !package_hash_matches(expected_sha256, &actual) {
+        let _ = tokio::fs::remove_file(&msi_path).await;
+        tracing::warn!("Update package {} has SHA-256 {actual}, the manifest says {}; deleted, not installed", msi_path.display(), expected_sha256.trim());
+        return Err("the downloaded package does not match the checksum in the update manifest".into());
+    }
 
     tracing::info!("Download complete, launching installer: {}", msi_path.display());
 
@@ -733,9 +887,17 @@ async fn download_and_install_update(app: &tauri::AppHandle, url: &str) -> Resul
 }
 
 #[tauri::command]
-async fn fetch_url(url: String) -> Result<String, String> {
-    reqwest::get(&url).await.map_err(|e| e.to_string())?
-        .text().await.map_err(|e| e.to_string())
+async fn fetch_url(state: tauri::State<'_, AppState>, url: String) -> Result<String, String> {
+    state
+        .http
+        .get(&url)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .text()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Where the supporter roster lives. The same bucket the installer is served
@@ -795,7 +957,12 @@ fn load_supporter_override(app_data_dir: &std::path::Path) -> Option<crate::supp
 /// a cosmetic, and there is no version of "the CDN is down" that should produce
 /// a visible error, a retry storm, or a wrong answer.
 async fn fetch_supporter_roster(client: &reqwest::Client) -> Option<crate::supporters::Roster> {
-    let response = client.get(SUPPORTER_ROSTER_URL).send().await.ok()?;
+    let response = client
+        .get(SUPPORTER_ROSTER_URL)
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .ok()?;
     if !response.status().is_success() {
         return None;
     }
@@ -830,7 +997,7 @@ fn resize_window(app: tauri::AppHandle, width: f64, height: f64, scale: Option<f
         }),
         None => tauri::Size::Logical(tauri::LogicalSize { width, height }),
     };
-    let _ = window.set_size(size);
+    platform::window::set_size(&window, size);
 }
 
 /// Displays as reported by the OS, for the "Show Details on Monitor" picker.
@@ -957,7 +1124,7 @@ fn open_details_on_monitor_inner(
         if force_place {
             let _ = existing.unmaximize();
             let _ = existing.set_position(tauri::Position::Physical(pos));
-            let _ = existing.set_size(tauri::Size::Physical(size));
+            platform::window::set_size(&existing, tauri::Size::Physical(size));
         }
         let _ = existing.show();
         let _ = existing.unminimize();
@@ -993,6 +1160,7 @@ fn open_details_on_monitor_inner(
     .background_color(tauri::window::Color(10, 14, 22, 255))
     .build()
     .map_err(|e| e.to_string())?;
+    platform::window::set_size(&window, tauri::Size::Logical(tauri::LogicalSize { width: lw, height: lh }));
 
     // An explicit monitor pick always wins; otherwise fall back to wherever the
     // user last dragged the window.
@@ -1000,7 +1168,7 @@ fn open_details_on_monitor_inner(
         // Re-assert in physical units: the builder's logical values round on
         // fractional-scale displays.
         let _ = window.set_position(tauri::Position::Physical(pos));
-        let _ = window.set_size(tauri::Size::Physical(size));
+        platform::window::set_size(&window, tauri::Size::Physical(size));
     }
 
     // Announced once the window reports ready (see details_window_ready); a
@@ -1125,7 +1293,7 @@ fn restore_window_geometry(app: &tauri::AppHandle, window: &tauri::WebviewWindow
     }
     if let (Some(w), Some(h)) = (get("w"), get("h")) {
         if w > 200 && h > 150 {
-            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+            platform::window::set_size(window, tauri::Size::Physical(tauri::PhysicalSize {
                 width: w as u32,
                 height: h as u32,
             }));
@@ -1161,6 +1329,32 @@ async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
     build_settings_window(&app)
 }
 
+/// Runs in the Settings window before the page. Besides naming the view, it
+/// answers Quit, Close and Escape the moment they are on screen. They used to
+/// be wired when the page's scripts had run (about 800 KB, lucide first), so
+/// on every open both buttons sat dead for a while: the window is rebuilt each
+/// time it opens (see `close_settings_window`). A listener on `document` is
+/// there before the buttons are, and catches clicks on them as they appear.
+const SETTINGS_WINDOW_SCRIPT: &str = r#"
+window.__A2_VIEW__ = 'settings';
+(function () {
+  const call = (cmd) => window.__TAURI_INTERNALS__.invoke(cmd).catch(() => {});
+  document.addEventListener('click', (event) => {
+    const el = event.target instanceof Element ? event.target : null;
+    if (el?.closest('.quitButton')) {
+      event.stopPropagation();
+      call('quit_app');
+    } else if (el?.closest('.settingsClose')) {
+      event.stopPropagation();
+      call('close_settings_window');
+    }
+  }, true);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') call('close_settings_window');
+  }, true);
+})();
+"#;
+
 fn build_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
     let window = tauri::WebviewWindowBuilder::new(
         app,
@@ -1169,7 +1363,7 @@ fn build_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
     )
     // Injected before any page script. WebviewUrl::App is a path, so a ?query
     // gets percent-encoded — this is the one channel that is reliable.
-    .initialization_script("window.__A2_VIEW__ = 'settings';")
+    .initialization_script(SETTINGS_WINDOW_SCRIPT)
     .title("A2Tools DPS Meter — Settings")
     .decorations(false)
     .transparent(false)
@@ -1187,6 +1381,7 @@ fn build_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
     .background_color(tauri::window::Color(10, 14, 22, 255))
     .build()
     .map_err(|e| e.to_string())?;
+    platform::window::set_size(&window, tauri::Size::Logical(tauri::LogicalSize { width: 760.0, height: 820.0 }));
 
     if !restore_window_geometry(app, &window, "settings") {
         let _ = window.center();
@@ -1197,8 +1392,9 @@ fn build_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn close_settings_window(app: tauri::AppHandle) {
     // Closed, not hidden: a hidden WebView2 window came back blank when shown
-    // again. Rebuilding it costs little now that Quit is wired before the
-    // page loads and the account line starts from the last check.
+    // again. Rebuilding it costs little now that Quit and Close are answered
+    // before the page loads (SETTINGS_WINDOW_SCRIPT) and the account line
+    // starts from the last check.
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.close();
     }
@@ -1412,6 +1608,7 @@ fn open_fight_window(app: &tauri::AppHandle, label: &str) -> Result<(), String> 
     .background_color(tauri::window::Color(10, 14, 22, 255))
     .build()
     .map_err(|e| e.to_string())?;
+    platform::window::set_size(&window, tauri::Size::Logical(tauri::LogicalSize { width: 1180.0, height: 760.0 }));
 
     center_on_overlay_monitor(app, &window);
     if offset > 0.0 {
@@ -1446,6 +1643,7 @@ fn open_history_window_inner(app: &tauri::AppHandle) -> Result<(), String> {
     .background_color(tauri::window::Color(10, 14, 22, 255))
     .build()
     .map_err(|e| e.to_string())?;
+    platform::window::set_size(&window, tauri::Size::Logical(tauri::LogicalSize { width: 1100.0, height: 720.0 }));
 
     if !restore_window_geometry(app, &window, "history") {
         center_on_overlay_monitor(app, &window);
@@ -1484,6 +1682,7 @@ fn open_details_windowed(app: &tauri::AppHandle) -> Result<(), String> {
     .background_color(tauri::window::Color(10, 14, 22, 255))
     .build()
     .map_err(|e| e.to_string())?;
+    platform::window::set_size(&window, tauri::Size::Logical(tauri::LogicalSize { width: 1180.0, height: 760.0 }));
 
     // A remembered position still wins, but only one the user actually chose.
     if !details_geometry_is_user_placed(app)
@@ -1595,6 +1794,90 @@ fn start_drag(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
     }
 }
 
+/// Drag a tool window (Details, History, Settings) by its header. Their CSS
+/// marks the header `-webkit-app-region: drag`, which WebView2 honours and
+/// WebKitGTK does not, so on Linux the page asks for the drag instead.
+#[tauri::command]
+fn start_tool_drag(window: tauri::WebviewWindow) {
+    if window.label() == "main" {
+        return;
+    }
+    platform::window::start_drag(&window);
+}
+
+/// Whether this backend supports compositor-driven window resizing.
+#[tauri::command]
+fn compositor_resize_supported(window: tauri::WebviewWindow) -> bool {
+    platform::window::compositor_resize_supported(&window)
+}
+
+/// Unpin the window before a compositor resize gesture.
+#[tauri::command]
+async fn begin_window_resize(
+    window: tauri::WebviewWindow,
+    min_width: f64,
+    min_height: f64,
+    scale: f64,
+) -> Result<bool, String> {
+    if !platform::window::compositor_resize_supported(&window) {
+        return Err("Compositor resize is unavailable".into());
+    }
+    if ![min_width, min_height, scale].iter().all(|v| v.is_finite() && *v > 0.0) {
+        return Err("Invalid resize dimensions".into());
+    }
+    let display_scale = window.scale_factor().map_err(|e| e.to_string())?;
+    platform::window::prepare_resize(&window, tauri::LogicalSize::new(
+        min_width * scale / display_scale,
+        min_height * scale / display_scale,
+    )).await?;
+    Ok(platform::window::resize_pointer_down(&window) == Some(true))
+}
+
+#[tauri::command]
+fn finish_window_resize(window: tauri::WebviewWindow, cancel: bool) -> Result<bool, String> {
+    if platform::window::compositor_resize_supported(&window) {
+        if !cancel && platform::window::resize_pointer_down(&window) != Some(false) {
+            return Ok(false);
+        }
+        let size = window.inner_size().map_err(|e| e.to_string())?;
+        platform::window::set_size(&window, tauri::Size::Physical(size));
+    }
+    Ok(true)
+}
+
+/// Compatibility path for backends without compositor resize support.
+#[tauri::command]
+fn begin_tool_resize(window: tauri::WebviewWindow, min_width: f64, min_height: f64) {
+    if window.label() == "main" {
+        return;
+    }
+    platform::window::release_size(&window, tauri::LogicalSize::new(min_width, min_height));
+    std::thread::spawn(move || {
+        // Wait for release; use stable size only if the X11 pointer query fails.
+        std::thread::sleep(Duration::from_millis(150));
+        let mut last = window.inner_size().ok();
+        let mut still = 0;
+        for _ in 0..1200 {
+            std::thread::sleep(Duration::from_millis(50));
+            match platform::window::primary_button_down() {
+                Some(true) => continue,
+                Some(false) => break,
+                None => {
+                    let now = window.inner_size().ok();
+                    still = if now == last { still + 1 } else { 0 };
+                    last = now;
+                    if still >= 10 {
+                        break;
+                    }
+                }
+            }
+        }
+        if let Ok(size) = window.inner_size() {
+            platform::window::set_size(&window, tauri::Size::Physical(size));
+        }
+    });
+}
+
 #[tauri::command]
 fn get_aion2_window_title() -> Option<String> {
     platform::window_detector::find_aion2_window_title()
@@ -1633,6 +1916,7 @@ async fn replay_file(state: tauri::State<'_, AppState>, file_path: String) -> Re
     // Reset existing data before replay
     state.dps_calculator.lock().restart_target_selection(true);
     state.data_storage.reset_nicknames();
+    state.data_storage.forget_summon_links();
 
     // Feed packets directly to StreamProcessor, bypassing CaptureDispatcher
     // (no AION2 window check, no port detection needed for replay)
@@ -1917,6 +2201,7 @@ pub fn run() {
                 i18n_data_dir: found_data_dir.clone(),
                 http: reqwest::Client::builder()
                     .user_agent(concat!("A2Tools-DPS-Meter/", env!("CARGO_PKG_VERSION")))
+                    .connect_timeout(Duration::from_secs(10))
                     .timeout(Duration::from_secs(30))
                     .build()
                     .unwrap_or_default(),
@@ -1927,6 +2212,11 @@ pub fn run() {
             let capture_suspended = state.capture_suspended.clone();
 
             app.manage(state);
+            {
+                let handle = app.handle().clone();
+                app.state::<AppState>().data_storage
+                    .set_before_reset(move || save_fights_before_reset(&handle));
+            }
             crate::presence::spawn(app.handle().clone());
 
             // Reopen the Details window if it was left enabled. Done here rather
@@ -1964,6 +2254,9 @@ pub fn run() {
                     }
                 }
                 let _ = window.set_always_on_top(true);
+                if let Ok(size) = window.inner_size() {
+                    platform::window::set_size(&window, tauri::Size::Physical(size));
+                }
             }
 
             // Check if Npcap is available before starting capture
@@ -2028,6 +2321,7 @@ pub fn run() {
                     let h = hotkey_handle.clone();
                     move || {
                         tracing::info!("Hotkey: reload triggered");
+                        save_fights_before_reset(&h);
                         if let Some(state) = h.try_state::<AppState>() {
                             state.dps_calculator.lock().restart_target_selection(true);
                             state.data_storage.reset_nicknames();
@@ -2218,29 +2512,17 @@ pub fn run() {
                             if let Some(mut calc) = state.dps_calculator.try_lock() {
                                 let records = calc.snapshot_boss_fights();
                                 drop(calc);
-                                for record in &records {
-                                    let _ = state.fight_history.save_fight(record);
-                                    // The packets behind it, so it can be
-                                    // uploaded and verified later. Training
-                                    // dummies are not logs.
-                                    if !record.is_train {
-                                        if let Err(e) = share::save_slice(
-                                            &state.app_data_dir, record, &state.data_storage) {
-                                            tracing::debug!("No slice for {}: {e}", record.id);
-                                        }
-                                    }
-                                }
-                                if !records.is_empty() {
-                                    share::prune_slices(&state.app_data_dir);
-                                }
-                                crate::fork::cloud::on_fights_saved(&handle_save, &records); // fork
-                                if state.settings.get(share::AUTO_UPLOAD_KEY).as_deref() == Some("true") {
-                                    let now = crate::clock::now_ms();
-                                    for record in records.into_iter()
-                                        .filter(|r| share::wants_auto_upload(&state.app_data_dir, r, now))
-                                    {
-                                        auto_upload(handle_save.clone(), record);
-                                    }
+                                save_fight_records(&handle_save, &state, records);
+                            }
+                        }
+                        // Automatic uploads that failed and are due again,
+                        // fighting or not: a meter left open after the
+                        // connection came back catches up on its own.
+                        if state.settings.get(share::AUTO_UPLOAD_KEY).as_deref() == Some("true") {
+                            let now = crate::clock::now_ms();
+                            for id in share::auto_upload_retries_due(&state.app_data_dir, now) {
+                                if let Ok(record) = state.fight_history.load_fight(&id) {
+                                    auto_upload(handle_save.clone(), record);
                                 }
                             }
                         }
@@ -2348,6 +2630,7 @@ pub fn run() {
             set_language,
             set_debug_logging,
             set_packet_logging,
+            send_logs_to_dev,
             get_aion2_window_title,
             debug_status,
             quit_app,
@@ -2376,6 +2659,11 @@ pub fn run() {
             default_screenshot_folder,
             choose_screenshot_folder,
             start_drag,
+            start_tool_drag,
+            begin_tool_resize,
+            compositor_resize_supported,
+            begin_window_resize,
+            finish_window_resize,
             reset_auto_detection,
             get_available_devices,
             set_manual_device,
@@ -2386,4 +2674,66 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_panicking_upload_still_frees_its_fight() {
+        let held = InFlight::start("in-flight-test").unwrap();
+        assert!(InFlight::start("in-flight-test").is_none(), "one upload of a fight at a time");
+        drop(held);
+        let outcome = std::panic::catch_unwind(|| {
+            let _held = InFlight::start("in-flight-test").unwrap();
+            panic!("upload task panicked");
+        });
+        assert!(outcome.is_err());
+        assert!(InFlight::start("in-flight-test").is_some());
+    }
+
+    #[test]
+    fn only_a_package_with_the_manifest_hash_is_installed() {
+        let actual = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+        assert!(super::package_hash_matches(actual, actual));
+        assert!(super::package_hash_matches(&format!(" {} ", actual.to_uppercase()), actual));
+        assert!(!super::package_hash_matches(&actual.replace('9', "8"), actual));
+        assert!(!super::package_hash_matches("", actual));
+        assert!(!super::package_hash_matches("9f86d081", "9f86d081"));
+    }
+
+    #[test]
+    fn the_csp_allows_every_inline_handler() {
+        use sha2::{Digest, Sha256};
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let read = |p: std::path::PathBuf| std::fs::read_to_string(p).unwrap();
+        let conf: serde_json::Value =
+            serde_json::from_str(&read(root.join("src-tauri/tauri.conf.json"))).unwrap();
+        let mut pages = vec![read(root.join("index.html"))];
+        for entry in std::fs::read_dir(root.join("public/src/js")).unwrap() {
+            pages.push(read(entry.unwrap().path()));
+        }
+        // `onload="..."` and the like, in the page and in HTML the scripts build.
+        let mut handlers = Vec::new();
+        for page in &pages {
+            let mut rest = page.as_str();
+            while let Some(at) = rest.find(" on") {
+                rest = &rest[at + 3..];
+                let name = rest.bytes().take_while(|b| b.is_ascii_lowercase()).count();
+                if name > 0 && rest[name..].starts_with("=\"") {
+                    let body = &rest[name + 2..];
+                    handlers.push(body[..body.find('"').unwrap()].to_string());
+                }
+            }
+        }
+        assert!(handlers.len() >= 5);
+        for key in ["csp", "devCsp"] {
+            let script_src = conf["app"]["security"][key]["script-src"].as_str().unwrap();
+            for handler in &handlers {
+                let hash = format!("'sha256-{}'", crate::share::base64(&Sha256::digest(handler.as_bytes())));
+                assert!(script_src.contains(&hash), "{key} script-src has no {hash} for {handler}");
+            }
+        }
+    }
 }

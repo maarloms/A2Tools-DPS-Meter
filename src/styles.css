@@ -438,6 +438,10 @@ html:lang(zh-Hant), html:lang(zh-Hant) body {
   animation: detailsFlash 1s ease-out;
 }
 
+body.linuxOverlay .meter {
+  box-shadow: none;
+}
+
 /* ---------- header ---------- */
 
 .header {
@@ -893,6 +897,8 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   position: static;
   padding: 0;
   margin: 0;
+  min-width: 64px;
+  flex: 1 1 0;
 }
 .battleTime.isVisible { display: flex; margin-right: auto; }
 .battleTime .status {
@@ -917,6 +923,7 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 .battleTime.state-ended .status { background: var(--indicator-end); }
 .battleTime.state-idle .status { background: var(--indicator-idle); }
 .battleTime .tick {
+  flex: 0 0 auto;
   font-family: var(--hud-tech);
   font-variation-settings: "wght" 600, "wdth" 87.5;
   font-variant-numeric: tabular-nums;
@@ -925,6 +932,8 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   color: rgba(255, 255, 255, 0.8);
 }
 .battleTime .analysisStatus {
+  min-width: 0;
+  flex: 1 1 auto;
   font-family: var(--hud-tech);
   font-variation-settings: "wght" 400, "wdth" 87.5;
   font-size: 12px;
@@ -936,6 +945,9 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 
 .meterTotalBar {
   display: flex;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
   align-items: baseline;
   gap: 5px;
   padding: 0;
@@ -952,6 +964,7 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 .footerBtns {
   position: static;
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 4px;
   cursor: pointer;
@@ -1353,6 +1366,10 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.settingsPanel .accountRow .accountState.isLong {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .settingsPanel .settingsRowStacked .localActorIdInput {
   flex: 0 0 68px;
@@ -2206,10 +2223,13 @@ body.mainPlayerNamesBold .settingsPanel .themeDropdownMenu .settingsDropdownItem
    is still gold and still legible rather than turning invisible. */
 .meter .item .content .name.isSupporter,
 body.legacyUi .meter .item .content .name.isSupporter,
-.detailsPartyBarName.isSupporter,
+.detailsPanel .detailsPartyBarName.isSupporter,
 .hoverDetailsTooltipHeader .isSupporter {
   /* !important for the details party bars, which set colour inline from
-     jobColorMap and would otherwise win. */
+     jobColorMap and would otherwise win. Their selector carries .detailsPanel
+     because `.detailsPanel .detailsPartyBarName` comes later with the same
+     weight: its name shadow then showed through the transparent glyphs of
+     the sweep and the name turned dark instead of gold. */
   color: var(--supporter-name, #ffcf5c) !important;
   text-shadow:
     0 0 6px rgba(255, 191, 60, 0.45),
@@ -2272,7 +2292,7 @@ body.legacyUi .meter .item .content .name.isSupporter,
 @supports ((background-clip: text) or (-webkit-background-clip: text)) {
   .meter .item .content .name.isSupporter,
   body.legacyUi .meter .item .content .name.isSupporter,
-  .detailsPartyBarName.isSupporter,
+  .detailsPanel .detailsPartyBarName.isSupporter,
   .hoverDetailsTooltipHeader .isSupporter {
     /* Two highlight bands, not one. The element only ever shows about a third of
        the gradient at a time, so with a single band most of the cycle is flat
@@ -2319,7 +2339,7 @@ body.legacyUi .meter .item .content .name.isSupporter,
 @media (prefers-reduced-motion: reduce) {
   .meter .item .content .name.isSupporter,
   body.legacyUi .meter .item .content .name.isSupporter,
-  .detailsPartyBarName.isSupporter,
+  .detailsPanel .detailsPartyBarName.isSupporter,
   .hoverDetailsTooltipHeader .isSupporter {
     animation: none;
     background-position: 50% 50%;
@@ -4175,6 +4195,141 @@ body.legacyUi .meter .item .content .name.isSupporter,
   text-align: center;
   font-size: 14px;
 }
+/* One-time Discord activity popup (core.js maybeShowDiscordPromo). */
+.discordPromo {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 9;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+.discordPromo.isOpen {
+  display: flex;
+}
+.discordPromo .discordPromoCard {
+  width: min(360px, 95vw);
+  border-radius: 18px;
+  background: rgb(12, 22, 40);
+  padding: 20px;
+  color: white;
+  position: relative;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.discordPromo .discordPromoTitle {
+  font-size: 18px;
+  font-weight: 700;
+  padding: 0 28px;
+}
+.discordPromo .discordPromoText,
+.discordPromo .discordPromoHint {
+  font-size: 13px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.85);
+}
+.discordPromo .discordPromoHint {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.6);
+}
+.discordPromo .discordPromoPreview {
+  width: 100%;
+  max-width: 304px;
+  border-radius: 10px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+}
+.discordPromo .discordPromoToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.discordPromo .discordPromoToggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: #5865f2;
+  cursor: pointer;
+}
+.discordPromo .discordPromoDone {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 28px;
+  font-size: 15px;
+  font-weight: 700;
+  color: white;
+  background: #5865f2;
+  cursor: pointer;
+}
+.discordPromo .discordPromoDone:hover {
+  background: #4752c4;
+}
+.discordPromo .discordPromoClose {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+/* The account offer borrows the Discord card, in the site's own blue. */
+.accountPromo .accountPromoActions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.accountPromo .accountPromoSignIn {
+  background: #2f7cf6;
+}
+.accountPromo .accountPromoSignIn:hover {
+  background: #1f66d6;
+}
+.accountPromo .accountPromoSignIn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.accountPromo .discordPromoToggle input {
+  accent-color: #2f7cf6;
+}
+.accountPromo .accountPromoLater {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+}
+.accountPromo .accountPromoLater:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.accountPromo .accountPromoCode {
+  font-family: Consolas, "SF Mono", ui-monospace, monospace;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: #cfe6ff;
+  margin-top: 4px;
+  user-select: text;
+}
+.accountPromo .accountPromoState:empty {
+  display: none;
+}
+
 .supportModal {
   display: none;
   position: fixed;
@@ -4331,7 +4486,9 @@ body.legacyUi .meter .item .content .name.isSupporter,
   position: absolute;
   z-index: 40;
   min-width: 200px;
-  max-width: min(380px, calc(100vw - 20px));
+  max-width: 380px;
+  box-sizing: border-box;
+  overflow: hidden;
   padding: 10px 12px;
   border: 1px solid var(--panel-border);
   border-radius: 8px;
@@ -5542,6 +5699,30 @@ body.legacyUi .list .item .dps .dpsContribution {
   width: 14px;
   height: 14px;
 }
+/* The Battle History window, which is read rather than glanced at: its text
+   a size up, and its header buttons larger than the overlay's. Zoom rather
+   than a font-size for every rule, so the whole panel keeps its proportions. */
+body.isHistoryWindow .historyPanel {
+  zoom: 1.1;
+}
+body.isHistoryWindow .historyPanel .historyViewBtn,
+body.isHistoryWindow .historyPanel .historyTrainToggle,
+body.isHistoryWindow .historyPanel .historyDeleteToggle,
+body.isHistoryWindow .historyPanel .historyHeader .closeX {
+  width: 27px;
+  height: 27px;
+  min-width: 27px;
+}
+body.isHistoryWindow .historyPanel .historyViewBtn svg,
+body.isHistoryWindow .historyPanel .historyTrainToggle svg,
+body.isHistoryWindow .historyPanel .historyDeleteToggle svg {
+  width: 17px;
+  height: 17px;
+}
+body.isHistoryWindow .historyPanel .historyHeader .closeX {
+  font-size: 20px;
+}
+
 /* The × glyph is optically taller than an icon; drop it a hair so it
    centres in the same 23px box. */
 .historyPanel .historyHeader .closeX,
@@ -5843,6 +6024,30 @@ body.legacyUi .list .item .dps .dpsContribution {
   background: color-mix(in srgb, var(--error-fill) 30%, transparent);
   border: 1px solid color-mix(in srgb, var(--error-fill) 68%, transparent);
 }
+/* Dungeon tier, in History rows and the Details title: green Exploration,
+   blue Normal, red Hard, violet Level n. */
+.difficultyBadge {
+  --tier: #8a94a6;
+  display: inline-block;
+  margin-left: 0;
+  padding: 1px 5px;
+  border-radius: 3px;
+  vertical-align: middle;
+  font-family: var(--hud-tech);
+  font-variation-settings: "wght" 700, "wdth" 75;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1.5;
+  color: #fff;
+  background: color-mix(in srgb, var(--tier) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tier) 68%, transparent);
+}
+.difficulty-exploration { --tier: #4caf72; }
+.difficulty-normal { --tier: #4a8fe0; }
+.difficulty-hard { --tier: #e0524a; }
+.difficulty-level { --tier: #a07ae0; }
 
 /* ---------- scrollbars: hairline, not hardware ---------- */
 

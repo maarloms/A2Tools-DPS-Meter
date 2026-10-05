@@ -12,6 +12,7 @@ Every package needs a 64-bit (x86_64) system with WebKitGTK 4.1: Ubuntu 22.04, D
 - **[Update](#update):** [how each install updates](#how-each-install-updates) · [the update prompt](#the-update-prompt) · [by hand](#update-by-hand) · [which version do I have?](#which-version-do-i-have)
 - **[Start and remove](#start-and-remove)**
 - **[What works on Linux](#what-works-on-linux)**
+- **[GNOME: keep the meter above other windows](#gnome-keep-the-meter-above-other-windows)**
 - **[Build from source](#build-from-source-other-distributions)**, for distributions with no package
 - **[Sending us your logs](#sending-us-your-logs)**
 - **[Tiling desktops](#tiling-desktops-hyprland-sway-i3)** (Hyprland, Sway, i3)
@@ -216,6 +217,34 @@ To remove it:
 | Screenshots | Works from 2.0.41, to the clipboard and a folder (`~/Pictures/A2Tools DPS Meter` by default). On Linux the meter pictures itself on a plain background, since Wayland lets no app copy the screen |
 | Auto-hide when the game loses focus | Not yet (the meter stays visible) |
 
+## GNOME: keep the meter above other windows
+
+In a GNOME Wayland session, the meter automatically prefers XWayland when an X11 display is available. This lets its always-on-top request work without installing a GNOME Shell component. Only the meter uses XWayland; the desktop session stays on Wayland. KDE and other desktops keep their default backend.
+
+An explicit `GDK_BACKEND` takes precedence. To select XWayland manually:
+
+```sh
+GDK_BACKEND=x11 a2tools-dps-meter
+```
+
+Depending on GNOME's fractional-scaling configuration, XWayland text may look softer at 125% or 150%. If text looks blurry, try native Wayland:
+
+```sh
+GDK_BACKEND=wayland a2tools-dps-meter
+```
+
+If XWayland is unavailable, the meter also falls back to native Wayland. GTK's native Wayland keep-above request has no effect in GNOME: focus the meter, press **Alt+Space**, and select **Always on Top**. Repeat for Details or other meter windows as needed. Close the focused window with **Alt+F4**, or use **Settings > Quit** to exit the meter.
+
+### Resizing on GNOME
+
+Drag the meter's bottom-right resize handle, or the edges of a tool window. On GNOME with X11, XWayland or native Wayland, the compositor resizes the actual window instead of temporarily expanding a transparent viewport. This avoids the expansion moving the meter back onto the screen. The application detects its actual display backend, including XWayland inside a Wayland session.
+
+KDE Plasma, Hyprland, Sway, i3 and other desktops retain the existing overlay viewport resizing and tool-window edge resizing from 2.0.45. The GNOME path is not enabled on those desktops.
+
+The meter's minimum height is measured from its current content, so shrinking removes empty space without letting the frame overlap the header, rows or footer.
+
+Pausing with the mouse button held does not end the resize. If you release outside the window, move the pointer back over it to resume automatic sizing to the meter's content.
+
 ## Build from source (other distributions)
 
 ### 1. Install the build tools
@@ -362,15 +391,15 @@ That is Hyprland's Lua configuration. If you use `hyprland.conf` instead, set th
 | --- | --- |
 | No update question, though a new version is out | Updates come only to an installed package. A build from source updates with `git pull` and a rebuild. |
 | The update asked for no password, or the meter did not come back | Install the current package [by hand](#update-by-hand). |
-| Sign-in says the token could not be stored securely | No keyring is running. Install and enable KWallet (KDE) or GNOME Keyring, then sign in again. |
+| Sign-in says the token could not be stored securely | The meter keeps your sign-in in the desktop keyring and never in a plain file. The message says what went wrong. **No desktop keyring is running**: install and start GNOME Keyring (`gnome-keyring`) or KWallet, or turn on Secret Service in KeePassXC; on Hyprland, Sway or i3 start the keyring with your session (for example `exec-once = gnome-keyring-daemon --start --components=secrets`). **Stayed locked**: accept the keyring's unlock prompt. **No collection**: accept the prompt to create a keyring (from 2.0.49 the meter asks for one). Then sign in again. |
 | Build fails mentioning `webkit2gtk-4.1`, `pkg-config` or a missing library | Re-run the install line for your distribution. Distributions older than Ubuntu 22.04 lack `webkit2gtk-4.1` and cannot build it. |
 | `debug.log` says it failed to load libpcap | Install libpcap (`libpcap0.8` on Debian and Ubuntu, `libpcap` elsewhere), then start the meter again. |
 | The meter warns it is not running as admin, or `debug.log` has no `Capture active` lines | The capture permission is missing. Package: reinstall it. Build from source: run the `setcap` line again (a rebuild loses it). |
 | `debug.log` says `No AION2 window found` while the game is running | The meter did not find the game process. Send us the output of `ps aux \| grep -i aion` along with your logs. |
 | `debug.log` says `Not locked yet` with `0 with game markers` while you fight | Capture sees traffic but not the game's. Tell us if you use a VPN or ping reducer. |
-| The window never opens, and the terminal says `Error 71 (Protocol error) dispatching to Wayland display`; or the window is blank or white | A WebKit renderer some Wayland setups reject (NVIDIA drivers especially). From 2.0.38 the meter turns it off itself. On an older version, start it with `WEBKIT_DISABLE_DMABUF_RENDERER=1 a2tools-dps-meter`. If that does not help, try `GDK_BACKEND=x11 a2tools-dps-meter`, which runs it through XWayland, and tell us. |
-| The meter goes behind the game | Run the game borderless or windowed. On Wayland an app cannot force itself on top of a fullscreen game. On KDE Plasma, KWin can count a borderless game as fullscreen anyway: add a window rule for the meter (System Settings → Window Management → Window Rules) with **Layer** set to **Overlay**, forced. Thanks to Seralth for this. |
-| After a WebKitGTK update the meter's window draws only in pieces, or only while you hover or drag it | A rendering regression in WebKitGTK 2.54 (2.52 was fine). Try starting it with `WEBKIT_DISABLE_COMPOSITING_MODE=1 a2tools-dps-meter`, or through XWayland with `GDK_BACKEND=x11 a2tools-dps-meter`. Rolling WebKitGTK back to 2.52 also works. Tell us which helps. |
+| The window never opens, and the terminal says `Error 71 (Protocol error) dispatching to Wayland display`; or the window is blank or white | WebKit handed its frames to the compositor as GPU buffers, which some setups reject (NVIDIA drivers especially). The meter now has WebKit hand them over in shared memory instead (`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`). Remove `WEBKIT_DISABLE_DMABUF_RENDERER=1` if you added it to a launcher: on WebKitGTK 2.54 it leaves the window mostly blank. If the window is still wrong, try `GDK_BACKEND=x11 a2tools-dps-meter`, which runs it through XWayland, and tell us. |
+| The meter goes behind the game | Run the game borderless or windowed. On GNOME, see [automatic pinning through XWayland and the native Wayland workaround](#gnome-keep-the-meter-above-other-windows). On Wayland an app cannot force itself on top of a fullscreen game. On KDE Plasma, KWin can count a borderless game as fullscreen anyway: add a window rule for the meter (System Settings → Window Management → Window Rules) with **Layer** set to **Overlay**, forced. Thanks to Seralth for this. |
+| After a WebKitGTK update the meter's window draws only in pieces, or only while you hover or drag it | WebKitGTK 2.54 no longer draws the transparent overlay fully without its DMA-BUF renderer, which older versions of the meter turned off. Update the meter, or start an older version with `WEBKIT_DISABLE_DMABUF_RENDERER=0 WEBKIT_DMABUF_RENDERER_FORCE_SHM=1 a2tools-dps-meter`. |
 | On a tiling desktop the meter is tiled beside the game, or its tooltips appear in the wrong place | See [Tiling desktops](#tiling-desktops-hyprland-sway-i3). |
 
 Stuck on something not listed? Send what you have so far, logs included.

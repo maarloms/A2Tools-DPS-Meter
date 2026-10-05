@@ -11,6 +11,77 @@
 
 use x11_dl::xlib;
 
+/// GNOME uses compositor resizing on both native Wayland and X11.
+pub fn compositor_resize_supported(window: &tauri::WebviewWindow) -> bool {
+    if !super::process::is_gnome() {
+        return false;
+    }
+    use gtk::prelude::*;
+    let window = window.clone();
+    super::dialog::on_gtk_thread(move || {
+        window.gtk_window().ok().is_some_and(|w| {
+            matches!(w.display().type_().name(), "GdkWaylandDisplay" | "GdkX11Display")
+        })
+    }).unwrap_or(false)
+}
+
+/// Compositor grabs clear client pointer focus. Reject synthetic WebKit
+/// hover events until the pointer returns to this window.
+pub fn resize_pointer_down(window: &tauri::WebviewWindow) -> Option<bool> {
+    use gtk::{gdk, prelude::*};
+    let window = window.clone();
+    super::dialog::on_gtk_thread(move || {
+        let gtk_window = window.gtk_window().ok()?;
+        let surface = gtk_window.window()?;
+        let pointer = gtk_window.display().default_seat()?.pointer()?;
+        let hit = pointer.window_at_position().0?;
+        if hit.toplevel() != surface.toplevel() {
+            return None;
+        }
+        Some(surface.device_position(&pointer).3.contains(gdk::ModifierType::BUTTON1_MASK))
+    }).flatten()
+}
+
+/// Commit unpinned size hints before requesting a compositor resize.
+/// WebKit animation frames do not guarantee a GTK surface commit.
+pub async fn prepare_resize(
+    window: &tauri::WebviewWindow,
+    min: tauri::LogicalSize<f64>,
+) -> Result<(), String> {
+    use gtk::{gdk, glib, prelude::*};
+    let window = window.clone();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let (clock, signal) = super::dialog::on_gtk_thread(move || {
+        let gtk_window = window.gtk_window().map_err(|e| e.to_string())?;
+        let clock = gtk_window.frame_clock().ok_or("Window has no frame clock")?;
+        let geometry = gdk::Geometry::new(
+            min.width.ceil() as i32, min.height.ceil() as i32,
+            0, 0, 0, 0, 0, 0, 0.0, 0.0, gdk::Gravity::NorthWest,
+        );
+        gtk_window.set_geometry_hints(None::<&gtk::Widget>, Some(&geometry), gdk::WindowHints::MIN_SIZE);
+        let sender = std::cell::RefCell::new(Some(tx));
+        let signal = clock.connect_local("after-paint", true, move |_| {
+            if let Some(tx) = sender.borrow_mut().take() {
+                let _ = tx.send(());
+            }
+            None
+        });
+        gtk_window.queue_resize();
+        gtk_window.queue_draw();
+        clock.request_phase(gdk::FrameClockPhase::LAYOUT | gdk::FrameClockPhase::PAINT | gdk::FrameClockPhase::AFTER_PAINT);
+        Ok::<_, String>((glib::SendWeakRef::from(clock.downgrade()), signal))
+    }).ok_or("GTK thread unavailable")??;
+    // Hidden windows may never paint; detach the handler even on timeout.
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), rx).await;
+    super::dialog::on_gtk_thread(move || {
+        if let Some(clock) = clock.upgrade() {
+            clock.disconnect(signal);
+        }
+    });
+    result.map_err(|_| "Timed out applying resize hints".to_string())?
+        .map_err(|_| "Window closed before resize".to_string())
+}
+
 /// One X connection per thread that asks, closed when the thread ends. The
 /// pointer watch runs on its own thread; gdk's pointer calls would need the
 /// GTK main thread.
@@ -49,6 +120,16 @@ fn on_x11() -> bool {
 /// The root coordinates are the space tao's `inner_position()` uses on X11,
 /// so the lock button's hit test lines up.
 pub fn cursor_position() -> Option<(i32, i32)> {
+    query_pointer().map(|(x, y, _)| (x, y))
+}
+
+/// Whether the left mouse button is held: on the X11 backend only. Ends a
+/// window-manager resize of a tool window (see `release_size`).
+pub fn primary_button_down() -> Option<bool> {
+    query_pointer().map(|(_, _, mask)| mask & xlib::Button1Mask != 0)
+}
+
+fn query_pointer() -> Option<(i32, i32, u32)> {
     if !on_x11() {
         return None;
     }
@@ -62,7 +143,7 @@ pub fn cursor_position() -> Option<(i32, i32)> {
                 c.display, root, &mut root_ret, &mut child, &mut rx, &mut ry, &mut wx, &mut wy, &mut mask,
             )
         };
-        (ok != 0).then_some((rx, ry))
+        (ok != 0).then_some((rx, ry, mask))
     })
 }
 
@@ -78,4 +159,59 @@ pub fn show_on_top_without_focus(window: &tauri::WebviewWindow) {
 pub fn minimize_off_top(window: &tauri::WebviewWindow) {
     let _ = window.set_always_on_top(false);
     let _ = window.minimize();
+}
+
+/// Size a meter window and pin its size hints to that size. Window managers
+/// only edge-tile or maximize a window whose minimum size is below its maximum
+/// (KWin: `X11Window::isResizable`), so pinned hints keep KDE, GNOME and the
+/// rest from snapping the overlay or its tool windows into a tile. The meter
+/// still sizes its windows itself: every size change goes through here. Min
+/// and max go in one call; set one at a time, the window manager sees a
+/// minimum above the maximum in between and the window flickers.
+pub fn set_size(window: &tauri::WebviewWindow, size: tauri::Size) {
+    if window.label() == "main" && super::process::is_gnome() {
+        let window = window.clone();
+        super::dialog::on_gtk_thread(move || {
+            use gtk::prelude::*;
+            let Ok(window) = window.gtk_window() else { return };
+            let context = window.style_context();
+            if context.has_class("a2tools-overlay") { return; }
+            let provider = gtk::CssProvider::new();
+            if provider.load_from_data(b"window.a2tools-overlay decoration { box-shadow: none; margin: 0; border: 0; }").is_ok() {
+                gtk::StyleContext::add_provider_for_screen(
+                    &window.display().default_screen(), &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                );
+                context.add_class("a2tools-overlay");
+            }
+        });
+    }
+    let (w, h) = match size {
+        tauri::Size::Physical(s) => (
+            tauri::PixelUnit::Physical(tauri::PhysicalUnit::new(s.width as i32)),
+            tauri::PixelUnit::Physical(tauri::PhysicalUnit::new(s.height as i32)),
+        ),
+        tauri::Size::Logical(s) => (
+            tauri::PixelUnit::Logical(tauri::LogicalUnit::new(s.width)),
+            tauri::PixelUnit::Logical(tauri::LogicalUnit::new(s.height)),
+        ),
+    };
+    let _ = window.set_size_constraints(tauri::WindowSizeConstraints {
+        min_width: Some(w),
+        min_height: Some(h),
+        max_width: Some(w),
+        max_height: Some(h),
+    });
+    let _ = window.set_size(size);
+}
+
+/// Unpin a tool window's size so the window manager can resize it, down to
+/// `min` logical pixels. Window managers tile on a move, not on a resize, so
+/// this is safe for the length of a resize; `set_size` pins it again after.
+pub fn release_size(window: &tauri::WebviewWindow, min: tauri::LogicalSize<f64>) {
+    let _ = window.set_size_constraints(tauri::WindowSizeConstraints {
+        min_width: Some(tauri::PixelUnit::Logical(tauri::LogicalUnit::new(min.width))),
+        min_height: Some(tauri::PixelUnit::Logical(tauri::LogicalUnit::new(min.height))),
+        max_width: None,
+        max_height: None,
+    });
 }

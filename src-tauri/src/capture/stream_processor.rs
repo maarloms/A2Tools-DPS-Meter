@@ -171,15 +171,14 @@ impl StreamProcessor {
                 i += 1;
                 continue;
             }
-            // `<varint len> FF FF <size u32> <lz4>`, an outer bundle being one
-            // byte longer than its length says (see `framing`).
+            // `<varint len> FF FF <size u32> <lz4>`, sized as `framing` does.
             let bundle = (1..=3usize).rev().find_map(|n| {
                 let at = i.checked_sub(n)?;
                 let len = read_varint(packet, at);
-                if len.length != n as i32 || len.value <= 4 {
+                if len.length != n as i32 {
                     return None;
                 }
-                let end = at + (len.value as usize - 3) + 1;
+                let end = at + super::framing::frame_size(len.value, len.length)?;
                 let data = super::framing::decompress_bundle(packet.get(i..end)?)?;
                 Some((end, data))
             });
@@ -657,6 +656,14 @@ impl StreamProcessor {
             // only counts when the owner id sits wholly after the fixed field and
             // the whole name field is a name.
             let after_fixed = fixed_field_start + 4;
+            // A zero there is no owner: the record a summon gets as it
+            // despawns, all zeros. The scan below then ran on into whatever
+            // followed, and found an "owner" in the next damage records: a
+            // Cleric's Divine Aura went to entity 10210, named "M", and showed
+            // as its own row (2026-10-04, Divine Auldor).
+            if data.get(after_fixed).is_none_or(|&b| b == 0) {
+                continue;
+            }
             let scan_end = std::cmp::min(data.len().saturating_sub(2), after_fixed + 128);
             let mut found = None;
             for server_idx in after_fixed + 1..scan_end {
@@ -1032,6 +1039,7 @@ impl StreamProcessor {
         };
         // 45/44 36 player spawn is an authoritative id↔name source.
         self.data_storage.note_low_id_entity(actor_id);
+        self.data_storage.note_player_spawn(actor_id);
         self.data_storage
             .append_nickname_authoritative(actor_id, &sanitized);
     }
@@ -1194,15 +1202,17 @@ impl StreamProcessor {
             return true;
         }
 
-        // Last resort for summons: the caster recorded on the entity's own buff
-        // block. It reads back as the summon itself for some skills, so `!= self`
-        // plus the known-player check keeps that from creating a bogus link.
-        if is_summon {
+        // Last resort for spirits: the caster recorded on the entity's own buff
+        // block, which is its owner. It reads back as the spirit itself for
+        // some skills, hence `!= self`. Other players' spirits (`0x1F`, `0x1D`,
+        // `0x5D`) spawn with no parent_key and no name, so this is their link
+        // at spawn. Checked against the spirit/owner link records in five
+        // captures (2026-10-04): 1,292 of 1,295 spirit spawns named the right
+        // owner, none a wrong one, the rest none; mobs and effect entities
+        // read back as themselves.
+        if matches!(kind, 0x5F | 0x1F | 0x1D | 0x5D) {
             let owner_id = self.extract_summon_owner_from_spawn(packet, offset);
-            if owner_id > 0
-                && owner_id != real_actor_id
-                && self.data_storage.is_known_player(owner_id)
-            {
+            if owner_id > 0 && owner_id != real_actor_id {
                 self.data_storage
                     .register_confirmed_summon_by_id(real_actor_id, owner_id);
                 return true;
@@ -1245,8 +1255,7 @@ impl StreamProcessor {
         for i in start_offset..=max_search {
             if packet[i..].starts_with(&anchor) {
                 let owner_info = read_varint(packet, i + anchor.len());
-                // Low ids are real (see `is_plausible_entity_id`); the caller
-                // additionally requires the result to be a known player.
+                // Low ids are real (see `is_plausible_entity_id`).
                 if owner_info.length > 0 && (1..=9_999_999).contains(&owner_info.value) {
                     return owner_info.value;
                 }
@@ -2700,6 +2709,25 @@ fn unicode_script(ch: char) -> UnicodeScript {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn another_players_spirit_is_linked_at_spawn_by_its_caster() {
+        let storage = Arc::new(DataStorage::new());
+        let mut p = StreamProcessor::new(storage.clone(), Arc::new(SkillLookup::new()), Arc::new(NpcLookup::new()));
+        // `41 36 <47324> <mask, kind 0x1F> … <caster anchor> <6332>`, no parent_key, no name.
+        let mut spirit = vec![0x41, 0x36, 0xdc, 0xf1, 0x02, 0x1f, 0x10, 0x00, 0xc6];
+        spirit.extend([0x22; 24]);
+        spirit.extend([0x80, 0x75, 0xd5, 0x2a, 0xbb, 0x03, 0x00, 0x00, 0xbc, 0x31, 0x0c, 0x02]);
+        assert!(p.parse_summon_spawn_at(&spirit, 2));
+        assert_eq!(storage.get_summon_data().get(&47324), Some(&6332));
+
+        // A mob's caster field is no owner.
+        let mut mob = spirit.clone();
+        mob[2] = 0xdd;
+        mob[5] = 0x0c;
+        assert!(!p.parse_summon_spawn_at(&mob, 2));
+        assert!(!storage.is_summon(47325));
+    }
 
     #[test]
     fn names_are_one_to_twelve_letters_or_digits_in_any_script() {

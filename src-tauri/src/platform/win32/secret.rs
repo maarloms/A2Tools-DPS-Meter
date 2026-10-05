@@ -2,6 +2,8 @@
 //! `account::secret` for what that does and does not protect against.
 
 use windows::Win32::Foundation::{HLOCAL, LocalFree};
+
+use crate::platform::UnsealError;
 use windows::Win32::Security::Cryptography::{
     CRYPT_INTEGER_BLOB, CryptProtectData, CryptUnprotectData,
 };
@@ -32,7 +34,7 @@ unsafe fn take(out: &CRYPT_INTEGER_BLOB) -> Vec<u8> {
     owned
 }
 
-pub fn protect(plaintext: &[u8], entropy: &[u8]) -> Option<Vec<u8>> {
+pub fn protect(plaintext: &[u8], entropy: &[u8]) -> Result<Vec<u8>, String> {
     let mut input = plaintext.to_vec();
     let mut extra = entropy.to_vec();
     let mut out = CRYPT_INTEGER_BLOB::default();
@@ -46,12 +48,12 @@ pub fn protect(plaintext: &[u8], entropy: &[u8]) -> Option<Vec<u8>> {
             0,
             &mut out,
         )
-        .ok()?;
-        Some(take(&out))
+        .map_err(|e| format!("Windows could not encrypt it ({e})"))?;
+        Ok(take(&out))
     }
 }
 
-pub fn unprotect(ciphertext: &[u8], entropy: &[u8]) -> Option<Vec<u8>> {
+pub fn unprotect(ciphertext: &[u8], entropy: &[u8]) -> Result<Vec<u8>, UnsealError> {
     let mut input = ciphertext.to_vec();
     let mut extra = entropy.to_vec();
     let mut out = CRYPT_INTEGER_BLOB::default();
@@ -65,7 +67,7 @@ pub fn unprotect(ciphertext: &[u8], entropy: &[u8]) -> Option<Vec<u8>> {
             0,
             &mut out,
         )
-        .ok()?;
-        Some(take(&out))
+        .map_err(|_| UnsealError::Invalid)?;
+        Ok(take(&out))
     }
 }

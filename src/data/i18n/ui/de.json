@@ -119,13 +119,15 @@
     "filterPlayer": "Spielerklasse...",
     "filterDate": "Datum (JJJJ-MM-TT)...",
     "viewList": "Listenansicht",
+    "viewDungeon": "Nach Dungeon gruppieren",
     "viewGrouped": "Nach Boss gruppieren",
     "fightCount": "{n} Kämpfe",
     "fightCountOne": "1 Kampf",
     "previewUpload": "Upload-Vorschau",
     "previewUploadTip": "Schreibt, was das Teilen dieses Kampfes hochladen würde. Es wird nichts gesendet.",
     "previewWorking": "Vorschau wird erstellt…",
-    "previewDone": "{slice} KB geschrieben ({sent} KB komprimiert — so viel würde ein Upload senden). {kept} von {seen} Paketen behalten, {blinded} Namen unkenntlich gemacht. Es wurde nichts hochgeladen. Gespeichert unter {dir}"
+    "previewDone": "{slice} KB geschrieben ({sent} KB komprimiert — so viel würde ein Upload senden). {kept} von {seen} Paketen behalten, {blinded} Namen unkenntlich gemacht. Es wurde nichts hochgeladen. Gespeichert unter {dir}",
+    "openWorld": "Offene Welt"
   },
   "settings": {
     "title": "Einstellungen",
@@ -186,7 +188,7 @@
     "discord": {
       "title": "Discord",
       "activity": "In Discord anzeigen, was ich spiele",
-      "activityHint": "Solange AION2 läuft, zeigt dein Discord-Status deine Klasse, Stufe und deinen Server sowie den Boss, gegen den du kämpfst. Das läuft über die Discord-App auf diesem Computer; ein Konto ist nicht nötig."
+      "activityHint": "Solange AION2 läuft, zeigt dein Discord-Status deinen Charakternamen, deine Klasse, Stufe und deinen Server sowie den Boss, gegen den du kämpfst. Das läuft über die Discord-App auf diesem Computer; ein Konto ist nicht nötig."
     },
     "version": "Version",
     "theme": {
@@ -278,6 +280,14 @@
       "working": "Warte auf Bestätigung…",
       "failed": "Anmeldung fehlgeschlagen: {error}",
       "supporter": "Unterstützer"
+    },
+    "sendLogs": {
+      "hint": "Sendet deine 3 neuesten Paket-Logs für einen Fehlerbericht an den Entwickler.",
+      "button": "Logs an Entwickler senden",
+      "confirm": "Deine 3 neuesten Paket-Logs an den A2-Tools-Entwickler senden?\n\nPaket-Logs sind der rohe Spielverkehr, aufgezeichnet während die Paketaufzeichnung an war, einschließlich Charakternamen. Nur der Entwickler kann sie öffnen, und sie werden nach 30 Tagen gelöscht.",
+      "sending": "Wird gesendet...",
+      "sent": "Gesendet. Dein Berichtscode ist {code}: gib ihn dem Entwickler auf Discord.",
+      "failed": "Senden fehlgeschlagen: {error}"
     }
   },
   "support": {
@@ -307,7 +317,8 @@
     "analysing": "Daten werden überwacht...",
     "idle": "Inaktiv",
     "notRunning": "AION2 läuft nicht",
-    "suspended": "App pausiert"
+    "suspended": "App pausiert",
+    "waitingBoss": "Warte auf einen Boss"
   },
   "meter": {
     "identifyingPlayer": "#{id}",
@@ -353,7 +364,8 @@
     "difficulty": {
       "exploration": "Erkundung",
       "normal": "Normal",
-      "hard": "Schwer"
+      "hard": "Schwer",
+      "level": "Stufe {n}"
     }
   },
   "presence": {
@@ -367,5 +379,20 @@
     "tierExpedition": "Expedition",
     "tierConquestNormal": "Eroberung (Normal)",
     "tierConquestHard": "Eroberung (Schwer)"
+  },
+  "discordPromo": {
+    "title": "Neu: Discord-Aktivität",
+    "text": "Zeige Freunden in deinem Discord-Status deinen Charakter, deine Klasse, Stufe und deinen Server sowie den Boss oder Dungeon, in dem du gerade bist.",
+    "hint": "Läuft über die Discord-App auf diesem PC, kein Konto nötig. Du kannst das jederzeit in den Einstellungen ändern.",
+    "done": "Fertig",
+    "close": "Schließen"
+  },
+  "accountPromo": {
+    "title": "Deine Bosskämpfe auf a2tools.app",
+    "text": "Erstelle ein kostenloses Konto oder melde dich an, und jeder Bosskampf wird online gespeichert: ein Link zum Teilen für jeden Kampf, deine Logs auf jedem Gerät und dein Platz in der Bestenliste.",
+    "hint": "Namen anderer Spieler bleiben verborgen, Trainingspuppen werden nie hochgeladen. Du kannst das jederzeit in den Einstellungen ändern.",
+    "signIn": "Anmelden",
+    "later": "Nicht jetzt",
+    "close": "Schließen"
   }
 }

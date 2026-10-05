@@ -119,13 +119,15 @@
     "filterPlayer": "Classe du joueur...",
     "filterDate": "Date (AAAA-MM-JJ)...",
     "viewList": "Vue en liste",
+    "viewDungeon": "Grouper par donjon",
     "viewGrouped": "Grouper par boss",
     "fightCount": "{n} combats",
     "fightCountOne": "1 combat",
     "previewUpload": "Aperçu de l'envoi",
     "previewUploadTip": "Écrit ce que le partage de ce combat enverrait. Rien n'est envoyé.",
     "previewWorking": "Création de l'aperçu…",
-    "previewDone": "{slice} Ko écrits ({sent} Ko compressés — ce qu'un envoi transmettrait). {kept} paquets conservés sur {seen}, {blinded} noms masqués. Rien n'a été envoyé. Enregistré dans {dir}"
+    "previewDone": "{slice} Ko écrits ({sent} Ko compressés — ce qu'un envoi transmettrait). {kept} paquets conservés sur {seen}, {blinded} noms masqués. Rien n'a été envoyé. Enregistré dans {dir}",
+    "openWorld": "Monde ouvert"
   },
   "settings": {
     "title": "Paramètres",
@@ -186,7 +188,7 @@
     "discord": {
       "title": "Discord",
       "activity": "Afficher dans Discord ce à quoi je joue",
-      "activityHint": "Tant qu'AION2 est ouvert, votre statut Discord affiche votre classe, votre niveau, votre serveur et le boss que vous combattez. Cela passe par l'application Discord de cet ordinateur ; aucun compte n'est nécessaire."
+      "activityHint": "Tant qu'AION2 est ouvert, votre statut Discord affiche le nom de votre personnage, sa classe, son niveau, votre serveur et le boss que vous combattez. Cela passe par l'application Discord de cet ordinateur ; aucun compte n'est nécessaire."
     },
     "version": "Version",
     "theme": {
@@ -278,6 +280,14 @@
       "working": "En attente de validation…",
       "failed": "Échec de la connexion : {error}",
       "supporter": "Soutien"
+    },
+    "sendLogs": {
+      "hint": "Envoie tes 3 derniers journaux de paquets au développeur, pour un rapport de bug.",
+      "button": "Envoyer les journaux au dev",
+      "confirm": "Envoyer tes 3 derniers journaux de paquets au développeur d'A2 Tools ?\n\nLes journaux de paquets sont le trafic brut du jeu enregistré pendant que la journalisation était activée, noms de personnages compris. Seul le développeur peut les ouvrir, et ils sont supprimés au bout de 30 jours.",
+      "sending": "Envoi...",
+      "sent": "Envoyé. Ton code de rapport est {code} : donne-le au développeur sur Discord.",
+      "failed": "Envoi impossible : {error}"
     }
   },
   "support": {
@@ -307,7 +317,8 @@
     "analysing": "Surveillance des données...",
     "idle": "Inactif",
     "notRunning": "AION2 n'est pas lancé",
-    "suspended": "Application en pause"
+    "suspended": "Application en pause",
+    "waitingBoss": "En attente d'un boss"
   },
   "meter": {
     "identifyingPlayer": "#{id}",
@@ -353,7 +364,8 @@
     "difficulty": {
       "exploration": "Exploration",
       "normal": "Normal",
-      "hard": "Difficile"
+      "hard": "Difficile",
+      "level": "Niveau {n}"
     }
   },
   "presence": {
@@ -367,5 +379,20 @@
     "tierExpedition": "Expédition",
     "tierConquestNormal": "Conquête (normal)",
     "tierConquestHard": "Conquête (difficile)"
+  },
+  "discordPromo": {
+    "title": "Nouveau : activité Discord",
+    "text": "Montrez à vos amis, dans votre statut Discord, votre personnage, votre classe, votre niveau et votre serveur, ainsi que le boss ou le donjon où vous êtes.",
+    "hint": "Passe par l'application Discord de ce PC, sans compte. Vous pouvez changer cela à tout moment dans les Paramètres.",
+    "done": "Terminé",
+    "close": "Fermer"
+  },
+  "accountPromo": {
+    "title": "Gardez vos combats de boss sur a2tools.app",
+    "text": "Créez un compte gratuit ou connectez-vous, et chaque combat de boss est enregistré en ligne : un lien à partager pour chacun, vos logs sur tous vos appareils et votre place au classement.",
+    "hint": "Les noms des autres joueurs restent masqués et les mannequins d'entraînement ne sont jamais envoyés. Vous pouvez changer cela à tout moment dans les Paramètres.",
+    "signIn": "Se connecter",
+    "later": "Plus tard",
+    "close": "Fermer"
   }
 }

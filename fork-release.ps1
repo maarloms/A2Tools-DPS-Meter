@@ -36,10 +36,13 @@ $stage = Join-Path $env:TEMP "aion2-dps-release-$version"
 New-Item -ItemType Directory -Force $stage | Out-Null
 $asset = "AION2-DPS-Meter_${version}_x64.msi"
 Copy-Item $msi.FullName (Join-Path $stage $asset) -Force
+# The app installs an update only when the package matches this hash.
+$sha = (Get-FileHash (Join-Path $stage $asset) -Algorithm SHA256).Hash.ToLower()
 [ordered]@{
-    version = $version
-    msiUrl  = "https://github.com/$Repo/releases/download/$tag/$asset"
-    notes   = $Notes
+    version   = $version
+    msiUrl    = "https://github.com/$Repo/releases/download/$tag/$asset"
+    msiSha256 = $sha
+    notes     = $Notes
 } | ConvertTo-Json | ForEach-Object {
     # No BOM: the app's JSON.parse rejects one, and Windows PowerShell 5 writes it.
     [IO.File]::WriteAllText((Join-Path $stage "latest.json"), $_, (New-Object Text.UTF8Encoding $false))

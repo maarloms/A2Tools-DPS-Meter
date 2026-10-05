@@ -61,3 +61,25 @@ pub fn minimize_off_top(window: &tauri::WebviewWindow) {
         let _ = ShowWindow(hwnd, SW_MINIMIZE);
     }
 }
+
+pub fn set_size(window: &tauri::WebviewWindow, size: tauri::Size) {
+    let _ = window.set_size(size);
+}
+
+pub fn release_size(_window: &tauri::WebviewWindow, _min: tauri::LogicalSize<f64>) {}
+
+pub fn primary_button_down() -> Option<bool> {
+    None
+}
+
+pub fn compositor_resize_supported(_window: &tauri::WebviewWindow) -> bool {
+    false
+}
+
+pub fn resize_pointer_down(_window: &tauri::WebviewWindow) -> Option<bool> {
+    None
+}
+
+pub async fn prepare_resize(_window: &tauri::WebviewWindow, _min: tauri::LogicalSize<f64>) -> Result<(), String> {
+    Err("Compositor resize is unavailable".into())
+}

@@ -67,7 +67,10 @@ pub struct DpsCalculator {
     last_known_local_id: Option<i64>,
     all_targets_window_ms: i64,
     nickname_job_cache: HashMap<String, String>,
-    saved_boss_targets: HashSet<i32>,
+    /// Boss targets saved as ended, with the time of their last hit then. A
+    /// target hit again after that is saved again, so a fight with a long
+    /// pause keeps its second half.
+    saved_boss_targets: HashMap<i32, i64>,
 }
 
 impl DpsCalculator {
@@ -89,14 +92,20 @@ impl DpsCalculator {
             last_known_local_id: None,
             all_targets_window_ms: 120_000,
             nickname_job_cache: HashMap::new(),
-            saved_boss_targets: HashSet::new(),
+            saved_boss_targets: HashMap::new(),
         }
     }
 
     pub fn set_target_selection_mode(&mut self, id: &str) {
-        self.target_selection_mode = TargetSelectionMode::from_id(id);
-        // fork: recompute on the next tick, not only once the next hit lands.
-        self.last_damage_gen = -1;
+        let mode = TargetSelectionMode::from_id(id);
+        if mode != self.target_selection_mode {
+            // Recompute on the next update even without new damage: the
+            // cached result still names the old mode and its target, so the
+            // meter went on as if nothing had changed until someone hit
+            // something.
+            self.last_damage_gen = -1;
+        }
+        self.target_selection_mode = mode;
     }
 
     pub fn set_all_targets_window_ms(&mut self, ms: i64) {
@@ -105,8 +114,8 @@ impl DpsCalculator {
 
     pub fn mark_all_targets_saved(&mut self) {
         let combat = self.data_storage.get_combat_snapshot_light();
-        for &tid in combat.keys() {
-            self.saved_boss_targets.insert(tid);
+        for (&tid, td) in &combat {
+            self.saved_boss_targets.insert(tid, td.last_damage_time);
         }
     }
 
@@ -165,6 +174,8 @@ impl DpsCalculator {
         dps_data.target_mode = self.target_selection_mode.id().to_string();
         self.current_target = tracking_id;
         dps_data.target_id = self.current_target;
+        dps_data.detail_target_ids = target_ids.iter().copied().collect();
+        dps_data.detail_target_ids.sort_unstable();
         self.data_storage.set_current_target(self.current_target);
 
         // Boss HP bar source: spawn-time max HP of the single boss target. Only
@@ -385,6 +396,24 @@ impl DpsCalculator {
                 orphan_merges.push((uid, owners[0]));
             }
         }
+        // The instance rule from `get_target_details`: an actor of a class
+        // only one party member has is that member, or their summon.
+        let rows: Vec<(i32, String, usize, i64)> = dps_data.map.iter()
+            .map(|(&id, d)| (id, d.job.clone(), skill_counts.get(&id).copied().unwrap_or(0), d.amount as i64))
+            .collect();
+        if let Some(owners) = self.instance_class_owners(self.target_dungeon(self.current_target), &rows) {
+            let merged: HashSet<i32> = orphan_merges.iter().map(|(o, _)| *o).collect();
+            for (id, job, _, _) in &rows {
+                if merged.contains(id) {
+                    continue;
+                }
+                if let Some(&owner) = owners.get(job) {
+                    if owner != *id {
+                        orphan_merges.push((*id, owner));
+                    }
+                }
+            }
+        }
         for (orphan, owner) in orphan_merges {
             if let Some(orphan_data) = dps_data.map.remove(&orphan) {
                 if let Some(owner_data) = dps_data.map.get_mut(&owner) {
@@ -540,7 +569,7 @@ impl DpsCalculator {
     fn decide_target(
         &mut self,
         combat_data: &HashMap<i32, TargetCombatData>,
-        _nickname_data: &HashMap<i32, String>,
+        nickname_data: &HashMap<i32, String>,
         summon_data: &HashMap<i32, i32>,
     ) -> (HashSet<i32>, String, i32) {
         let mob_data = self.data_storage.get_mob_data();
@@ -585,10 +614,31 @@ impl DpsCalculator {
                 {
                     let name = self.resolve_target_name(best);
                     (HashSet::from([best]), name, best)
+                } else if self.data_storage.current_dungeon_id() > 0 {
+                    // No boss yet in a dungeon: show nothing. Every mob in an
+                    // instance is on the way to a boss, so the fallback below
+                    // put the first trash pull of each run on the meter.
+                    (HashSet::new(), String::new(), 0)
                 } else {
-                    // Fall back to most damage
-                    let best = combat_data.iter()
-                        .max_by_key(|(_, td)| td.total_damage);
+                    // No boss: the mob with the most damage that you or your
+                    // party hit, and nothing until the meter knows who you
+                    // are. Any mob within range used to count then, and in
+                    // the open world that put strangers fighting their own
+                    // mobs on your meter (2026-10-04: one player, then
+                    // another, each alone on a mob you never touched), and
+                    // still did for the seconds after opening the meter or
+                    // entering a zone, before you were identified.
+                    let ours = self.resolve_local_ids(summon_data).map(|mut ids| {
+                        let party = self.data_storage.get_party_members();
+                        ids.extend(nickname_data.iter()
+                            .filter(|(_, name)| party.contains_key(name.as_str()))
+                            .map(|(&id, _)| id));
+                        ids
+                    });
+                    let best = ours.as_ref().and_then(|ids| combat_data.iter()
+                        .filter(|(_, td)| td.actors.keys()
+                            .any(|&a| ids.contains(&summon_resolver::resolve(a, summon_data))))
+                        .max_by_key(|(_, td)| td.total_damage));
                     match best {
                         Some((&id, _)) => {
                             let name = self.resolve_target_name(id);
@@ -660,6 +710,57 @@ impl DpsCalculator {
         }
     }
 
+    /// In an instance the party roster names each member's class. For a class
+    /// only one member has, every actor of that class in the fight is that
+    /// member, under an older entity id (meters before 2.0.42 lost track of
+    /// the local player's), or one of their summons whose owner the capture
+    /// never named. Returns each such class with the actor to credit: the one
+    /// with the most distinct skills (a player's rotation, against a summon's
+    /// one or two), then the most damage.
+    ///
+    /// None outside an instance, when the roster leaves a member's class
+    /// unknown, or when more actors run a rotation than the party has members:
+    /// then another party is in the fight and a class says nothing.
+    ///
+    /// `dungeon_id`: the fight's, from `target_dungeon`.
+    /// `actors`: (row id, class name, distinct skills, damage).
+    fn instance_class_owners(&self, dungeon_id: i32, actors: &[(i32, String, usize, i64)]) -> Option<HashMap<String, i32>> {
+        const ROTATION_SKILLS: usize = 5;
+        if dungeon_id <= 0 {
+            return None;
+        }
+        let party = self.data_storage.get_party_members();
+        if party.len() < 2 {
+            return None;
+        }
+        let mut members_of: HashMap<String, usize> = HashMap::new();
+        for member in party.values() {
+            *members_of.entry(member.job?.class_name().to_string()).or_default() += 1;
+        }
+        if actors.iter().filter(|a| a.2 >= ROTATION_SKILLS).count() > party.len() {
+            return None;
+        }
+        let mut best: HashMap<String, (i32, usize, i64)> = HashMap::new();
+        for (id, job, skills, damage) in actors {
+            if members_of.get(job) != Some(&1) {
+                continue;
+            }
+            if best.get(job).is_none_or(|&(_, s, d)| (*skills, *damage) > (s, d)) {
+                best.insert(job.clone(), (*id, *skills, *damage));
+            }
+        }
+        Some(best.into_iter().map(|(job, (id, _, _))| (job, id)).collect())
+    }
+
+    /// The instance a fight on `target_id` was in; see `fight_dungeon`.
+    fn target_dungeon(&self, target_id: i32) -> i32 {
+        let roster = self.data_storage.current_dungeon_id();
+        match self.data_storage.mob_code(target_id) {
+            Some(code) => fight_dungeon(&self.npc_lookup, code, roster),
+            None => roster,
+        }
+    }
+
     fn resolve_target_name(&self, target_id: i32) -> String {
         let mob_data = self.data_storage.get_mob_data();
         if let Some(&code) = mob_data.get(&target_id) {
@@ -720,6 +821,33 @@ impl DpsCalculator {
         self.nickname_job_cache.insert(key, job.to_string());
     }
 
+    /// Whether the local player, one of their summons or a party member hit
+    /// this target. Every boss and training dummy in range used to be saved,
+    /// whoever fought it, and a field boss fought only by two strangers was
+    /// auto-uploaded under the local player's account (issue #19). Without
+    /// either a local id or a party to go on, every fight counts, as before.
+    fn is_our_fight(&self, target: &TargetCombatData) -> bool {
+        // An instance holds only the party: every fight in it is ours. Slices
+        // from older meters often lack the self record and tie the party's
+        // names to stale ids, and the checks below refused the uploader's
+        // own dungeon runs when re-derived (2026-10-05).
+        if self.target_dungeon(target.target_id) > 0 {
+            return true;
+        }
+        let summon_data = self.data_storage.get_summon_data();
+        let nicknames = self.data_storage.get_nicknames();
+        let party = self.data_storage.get_party_members();
+        let local = self.resolve_local_ids(&summon_data);
+        if local.is_none() && party.is_empty() {
+            return true;
+        }
+        target.actors.keys().any(|&actor| {
+            let owner = summon_resolver::resolve(actor, &summon_data);
+            local.as_ref().is_some_and(|ids| ids.contains(&actor) || ids.contains(&owner))
+                || nicknames.get(&owner).is_some_and(|name| party.contains_key(name))
+        })
+    }
+
     pub fn snapshot_boss_fights(&mut self) -> Vec<FightRecord> {
         self.snapshot_boss_fights_inner(false)
     }
@@ -737,14 +865,16 @@ impl DpsCalculator {
         // behind a lock, and it does not change between targets here.
         let party_members = self.data_storage.get_party_members();
         let supporters = self.data_storage.supporters();
-        let dungeon_id = self.data_storage.current_dungeon_id();
+        let roster_dungeon = self.data_storage.current_dungeon_id();
         let now_ms = crate::clock::now_ms();
 
         let mut records = Vec::new();
 
         let boss_target_ids: Vec<i32> = combat_data.keys()
             .filter(|&&tid| {
-                if self.saved_boss_targets.contains(&tid) {
+                // Saved as ended and not hit since: nothing new to save.
+                let last_hit = combat_data.get(&tid).map(|td| td.last_damage_time).unwrap_or(0);
+                if self.saved_boss_targets.get(&tid).is_some_and(|&saved| saved >= last_hit) {
                     return false;
                 }
                 if let Some(&code) = mob_data.get(&tid) {
@@ -768,6 +898,9 @@ impl DpsCalculator {
 
             let battle_time = (target_data.last_damage_time - target_data.first_damage_time).max(0);
             if battle_time < 5_000 || target_data.total_damage <= 0 {
+                continue;
+            }
+            if !self.is_our_fight(target_data) {
                 continue;
             }
 
@@ -883,14 +1016,14 @@ impl DpsCalculator {
                 is_train,
                 app_version: crate::entity::fight_record::APP_VERSION.to_string(),
                 mob_code,
-                dungeon_id,
+                dungeon_id: fight_dungeon(&self.npc_lookup, mob_code, roster_dungeon),
                 killed: self.data_storage.is_entity_dead(target_id)
                     || self.data_storage.get_mob_current_hp(target_id) == Some(0),
                 server_id: self.data_storage.fight_server_id(),
             };
 
             if is_ended {
-                self.saved_boss_targets.insert(target_id);
+                self.saved_boss_targets.insert(target_id, target_data.last_damage_time);
             }
             records.push(record);
         }
@@ -905,6 +1038,7 @@ impl DpsCalculator {
         let nickname_data = self.data_storage.get_nicknames();
         let summon_data = self.data_storage.get_summon_data();
         let supporters = self.data_storage.supporters();
+        let party_members = self.data_storage.get_party_members();
         let mob_hp_data = self.data_storage.get_mob_hp_data();
         let mob_data = self.data_storage.get_mob_data();
 
@@ -1024,15 +1158,17 @@ impl DpsCalculator {
                     regen,
                     damage_received: dmg_recv,
                     hits_received: hits_recv,
-                    // The live view is never uploaded, and this runs on every
-                    // refresh — not worth taking the roster lock for identity
-                    // nothing here reads.
+                    // The live view is never uploaded: nothing here reads the
+                    // identity a saved record keeps.
                     dbid: 0,
                     server_id: 0,
-                    // By name only, for the same reason: a name-keyed roster
-                    // needs no dbid, and a dbid-keyed one is a later state that
-                    // will come with the party join it needs.
-                    is_supporter: supporters.contains(nick, 0),
+                    // Joined to the party roster as the meter rows are: the
+                    // published roster is keyed by dbid, and by name alone no
+                    // supporter ever turned gold here (2026-10-05).
+                    is_supporter: supporters.contains(
+                        nick,
+                        party_members.get(nick.as_str()).map(|m| m.dbid).unwrap_or(0),
+                    ),
                     // Same reason again: the live rows already show combat
                     // power from the roster; the saved record is where it
                     // has to persist.
@@ -1134,6 +1270,39 @@ impl DpsCalculator {
                     .collect();
                 if owners.len() == 1 {
                     orphan_to_owner.insert(raw_uid, owners[0]);
+                }
+            }
+
+            // In an instance, an actor of a class only one party member has
+            // is that member or their summon. Slices from older meters carry
+            // no spawn packets, lost track of the local player's id, and tie
+            // names to stale ids, so neither the names nor the scalar above can
+            // place them: one Vakron log kept 14 rows of a Sorcerer's summons
+            // and the uploader split in two (2026-10-05).
+            let mut rows: HashMap<i32, (String, HashSet<i32>, i64)> = HashMap::new();
+            for (&actor_id, actor_data) in &target_data.actors {
+                let raw_uid = summon_resolver::resolve(actor_id, &summon_data);
+                if raw_uid <= 0 || orphan_to_owner.contains_key(&raw_uid) { continue; }
+                let job = actor_data.job
+                    .or_else(|| actor_data.skills.keys()
+                        .find_map(|&(sc, _)| JobClass::convert_from_skill_loose(sc)))
+                    .map(|j| j.class_name().to_string())
+                    .unwrap_or_default();
+                let row = rows.entry(raw_uid).or_insert_with(|| (String::new(), HashSet::new(), 0));
+                if row.0.is_empty() { row.0 = job; }
+                row.1.extend(actor_data.skills.keys().map(|k| k.0));
+                row.2 += actor_data.total_damage;
+            }
+            let rows: Vec<(i32, String, usize, i64)> = rows.into_iter()
+                .map(|(id, (job, skills, damage))| (id, job, skills.len(), damage))
+                .collect();
+            if let Some(owners) = self.instance_class_owners(self.target_dungeon(target_id), &rows) {
+                for (id, job, _, _) in &rows {
+                    if let Some(&owner) = owners.get(job) {
+                        if owner != *id {
+                            orphan_to_owner.insert(*id, owner);
+                        }
+                    }
                 }
             }
         }
@@ -1349,6 +1518,26 @@ fn resolve_nickname(uid: i32, nicknames: &HashMap<i32, String>, summon_data: &Ha
     uid.to_string()
 }
 
+/// The instance a fight on NPC `mob_code` was in, given the one the party
+/// roster last named (`roster`, 0 for none).
+///
+/// The NPC table names the instance of 563 bosses, and that wins: the roster
+/// is not sent again after a load inside an instance until well after a fight
+/// can be over, and it never says when you have left one. Any other boss
+/// keeps the roster's id.
+///
+/// Checked on replays (2026-10-05): the last boss of a 600011 run, fought
+/// after a teleport and before the roster came back, keeps 600011, which
+/// clearing the id on every load (PR #25) lost. On the 2,080 uploaded logs it
+/// gives 134 a dungeon they lacked and moves 57 off a stale one (Urugugu
+/// bosses filed under Vakron Sky Island). It does not clear a dungeon for a
+/// boss the table leaves unplaced: the table misses bosses of instances it
+/// otherwise covers (Vakron, in 175 logs of Vakron Sky Island), so "not one
+/// of that instance's bosses" cannot be told from "not in an instance".
+fn fight_dungeon(npcs: &NpcLookup, mob_code: i32, roster: i32) -> i32 {
+    npcs.dungeon_of(mob_code).unwrap_or(roster)
+}
+
 fn build_nickname_canonical_map_from_aggregates(
     actor_damage: &HashMap<i32, i64>,
     summon_data: &HashMap<i32, i32>,
@@ -1383,4 +1572,210 @@ fn build_nickname_canonical_map_from_aggregates(
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entity::damage_packet::ParsedDamagePacket;
+
+    fn hit(actor: i32, target: i32, at: i64) -> ParsedDamagePacket {
+        let mut p = ParsedDamagePacket::new();
+        p.set_actor_id(actor);
+        p.set_target_id(target);
+        p.set_skill_code(11010000);
+        p.set_damage(500);
+        p.set_timestamp(at);
+        p
+    }
+
+    fn meter(storage: &Arc<DataStorage>) -> DpsCalculator {
+        DpsCalculator::new(storage.clone(), Arc::new(SkillLookup::new()),
+            Arc::new(NpcLookup::new()), Arc::new(PingTracker::new()))
+    }
+
+    #[test]
+    fn displayed_rows_keep_their_detail_targets_until_reset() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2259));
+        storage.append_damage(hit(2259, 50_000, 1_000));
+        let mut calc = meter(&storage);
+        let shown = calc.get_dps();
+        assert_eq!(shown.detail_target_ids, vec![50_000]);
+        assert!(!calc.get_target_details(50_000, Some(&[2259])).skills.is_empty());
+
+        calc.set_target_selection_mode("trainTargets");
+        let retained = calc.get_dps();
+        assert_eq!(retained.target_id, 0);
+        assert!(!retained.map.is_empty());
+        assert_eq!(retained.detail_target_ids, vec![50_000]);
+
+        calc.restart_target_selection(true);
+        let reset = calc.get_dps();
+        assert!(reset.map.is_empty());
+        assert!(reset.detail_target_ids.is_empty());
+    }
+
+    #[test]
+    fn all_targets_exposes_each_target_behind_the_displayed_damage() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2259));
+        storage.append_damage(hit(2259, 50_000, 1_000));
+        storage.append_damage(hit(2259, 60_000, 2_000));
+        let mut calc = meter(&storage);
+        calc.set_target_selection_mode("allTargets");
+        let shown = calc.get_dps();
+        assert_eq!(shown.target_id, 0);
+        assert!(!shown.map.is_empty());
+        assert_eq!(shown.detail_target_ids, vec![50_000, 60_000]);
+    }
+
+    /// A party of a Spiritmaster, a Cleric and two Gladiators, by class.
+    fn roster(storage: &DataStorage) {
+        use crate::combat::data_storage::PartyMember;
+        use crate::entity::job_class::JobClass;
+        let member = |slot, job| PartyMember { slot, job: Some(job), ..Default::default() };
+        storage.set_party_roster(vec![
+            ("TieuPhung".into(), member(1, JobClass::Elementalist)),
+            ("Bong".into(), member(2, JobClass::Cleric)),
+            ("Glad1".into(), member(3, JobClass::Gladiator)),
+            ("Glad2".into(), member(4, JobClass::Gladiator)),
+        ], true);
+    }
+
+    /// `skills` distinct skills of a class (prefix: 16 Spiritmaster, 17 Cleric,
+    /// 11 Gladiator) from `actor` on `target`.
+    fn rotation(storage: &DataStorage, actor: i32, target: i32, prefix: i32, skills: i32) {
+        for i in 0..skills {
+            let mut p = hit(actor, target, 1_000 + i as i64);
+            p.set_skill_code(prefix * 1_000_000 + (i + 1) * 10_000);
+            storage.append_damage(p);
+        }
+    }
+
+    #[test]
+    fn in_an_instance_an_actor_goes_to_the_one_party_member_of_its_class() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_current_dungeon(600_072);
+        roster(&storage);
+        rotation(&storage, 1490, 50_000, 16, 8);           // the Spiritmaster
+        rotation(&storage, 5886, 50_000, 17, 8);           // the Cleric, under a new id
+        rotation(&storage, 5844, 50_000, 17, 1);           // ...and its old one
+        rotation(&storage, 7001, 50_000, 11, 8);           // two Gladiators
+        rotation(&storage, 7002, 50_000, 11, 8);
+        let mut spirit = hit(34_784, 50_000, 1_500);        // a spirit, owner never seen
+        spirit.set_skill_code(16_130_004);
+        storage.append_damage(spirit);
+        let mut aura = hit(17_001, 50_000, 1_600);          // a Divine Aura
+        aura.set_skill_code(17_150_000);
+        storage.append_damage(aura);
+        let mut stray = hit(119, 50_000, 1_700);            // a Gladiator-class summon
+        stray.set_skill_code(11_390_000);
+        storage.append_damage(stray);
+
+        let details = meter(&storage).get_target_details(50_000, None);
+        let rows: HashSet<i32> = details.skills.iter().map(|s| s.actor_id).collect();
+        assert_eq!(rows, HashSet::from([1490, 5886, 7001, 7002, 119]),
+            "spirit to the Spiritmaster; the old id and the aura to the Cleric; two Gladiators: unknown");
+    }
+
+    #[test]
+    fn the_class_rule_stays_off_outside_an_instance_and_with_another_party() {
+        // Open world: an actor of the class may be a stranger.
+        let open = Arc::new(DataStorage::new());
+        roster(&open);
+        rotation(&open, 1490, 50_000, 16, 8);
+        rotation(&open, 34_784, 50_000, 16, 1);
+        let rows: HashSet<i32> = meter(&open).get_target_details(50_000, None)
+            .skills.iter().map(|s| s.actor_id).collect();
+        assert!(rows.contains(&34_784));
+
+        // More players running a rotation than the party has: another party.
+        let raid = Arc::new(DataStorage::new());
+        raid.set_current_dungeon(600_072);
+        roster(&raid);
+        for (i, id) in [1490, 1491, 5886, 7001, 7002].into_iter().enumerate() {
+            rotation(&raid, id, 50_000, [16, 16, 17, 11, 11][i], 8);
+        }
+        let rows: HashSet<i32> = meter(&raid).get_target_details(50_000, None)
+            .skills.iter().map(|s| s.actor_id).collect();
+        assert!(rows.contains(&1490) && rows.contains(&1491), "two Spiritmasters: both kept");
+    }
+
+    #[test]
+    fn a_fight_only_strangers_had_is_not_ours() {
+        let storage = Arc::new(DataStorage::new());
+        storage.append_damage(hit(11_345, 60_000, 1_000));     // a stranger alone on a boss
+        let calc = meter(&storage);
+        let combat = storage.get_combat_snapshot_light();
+        assert!(calc.is_our_fight(&combat[&60_000]), "not knowing who we are, everything counts");
+
+        storage.set_local_player_id(Some(2259));
+        storage.append_damage(hit(2259, 50_000, 1_000));        // ours
+        let combat = storage.get_combat_snapshot_light();
+        assert!(calc.is_our_fight(&combat[&50_000]));
+        assert!(!calc.is_our_fight(&combat[&60_000]), "a stranger's boss is not saved or uploaded");
+
+        // In an instance only the party is there, whatever ids say.
+        storage.set_current_dungeon(600_021);
+        assert!(calc.is_our_fight(&combat[&60_000]));
+    }
+
+    #[test]
+    fn boss_mode_shows_your_trash_mob_in_the_open_world_only() {
+        let open_world = Arc::new(DataStorage::new());
+        open_world.set_local_player_id(Some(2259));
+        open_world.append_damage(hit(2259, 50_000, 1_000));
+        // A stranger alone on a bigger fight of their own stays off the meter.
+        for t in 0..5 {
+            open_world.append_damage(hit(11_345, 60_000, 1_000 + t));
+        }
+        let shown = meter(&open_world).get_dps();
+        assert_eq!(shown.target_id, 50_000);
+        assert_eq!(shown.map.keys().copied().collect::<Vec<_>>(), vec![2259]);
+
+        // Before you are identified (a meter just opened, a new zone), no
+        // mob is anyone's: a stranger's fight is not put up in your place.
+        let unknown = Arc::new(DataStorage::new());
+        unknown.append_damage(hit(2259, 50_000, 1_000));
+        for t in 0..5 {
+            unknown.append_damage(hit(11_345, 60_000, 1_000 + t));
+        }
+        let shown = meter(&unknown).get_dps();
+        assert_eq!(shown.target_id, 0);
+        assert!(shown.map.is_empty());
+
+        // In a dungeon, a mob that is not a boss is not shown at all.
+        let dungeon = Arc::new(DataStorage::new());
+        dungeon.set_local_player_id(Some(2259));
+        dungeon.set_current_dungeon(600_011);
+        dungeon.append_damage(hit(2259, 50_000, 1_000));
+        let shown = meter(&dungeon).get_dps();
+        assert_eq!(shown.target_id, 0);
+        assert!(shown.map.is_empty());
+    }
+
+    #[test]
+    fn a_fight_takes_its_dungeon_from_the_boss_when_the_table_names_it() {
+        let npcs = NpcLookup::new();
+        npcs.load_from_json(r#"{
+            "2310218": {"name": "Divine Auldor", "isBoss": true, "dungeonId": 600011},
+            "2310206": {"name": "Guardian Captain Raur", "isBoss": true, "dungeonId": 600011},
+            "2300475": {"name": "Gargaum", "isBoss": true},
+            "2701090": {"name": "Mutated Bargott", "isBoss": true},
+            "2310219": {"name": "Auldor Sanctum Gatekeeper"}
+        }"#);
+        // After a teleport, before the roster names the instance again.
+        assert_eq!(fight_dungeon(&npcs, 2310218, 0), 600011);
+        assert_eq!(fight_dungeon(&npcs, 2310206, 600011), 600011);
+        // A stale roster id gives way to the boss's own instance.
+        assert_eq!(fight_dungeon(&npcs, 2310206, 600072), 600011);
+        // A boss the table does not place keeps the roster's id: Gargaum in
+        // its instance, or a boss of a covered instance the table misses.
+        assert_eq!(fight_dungeon(&npcs, 2300475, 610073), 610073);
+        assert_eq!(fight_dungeon(&npcs, 2701090, 600011), 600011);
+        assert_eq!(fight_dungeon(&npcs, 2701090, 0), 0);
+        // Trash keeps the roster's.
+        assert_eq!(fight_dungeon(&npcs, 2310219, 600011), 600011);
+    }
 }

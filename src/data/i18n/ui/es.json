@@ -119,13 +119,15 @@
     "filterPlayer": "Clase del jugador...",
     "filterDate": "Fecha (AAAA-MM-DD)...",
     "viewList": "Vista de lista",
+    "viewDungeon": "Agrupar por mazmorra",
     "viewGrouped": "Agrupar por jefe",
     "fightCount": "{n} combates",
     "fightCountOne": "1 combate",
     "previewUpload": "Vista previa del envío",
     "previewUploadTip": "Escribe lo que se enviaría al compartir este combate. No se envía nada.",
     "previewWorking": "Creando la vista previa…",
-    "previewDone": "{slice} KB escritos ({sent} KB comprimidos — lo que enviaría una subida). Se conservaron {kept} de {seen} paquetes y se ocultaron {blinded} nombres. No se subió nada. Guardado en {dir}"
+    "previewDone": "{slice} KB escritos ({sent} KB comprimidos — lo que enviaría una subida). Se conservaron {kept} de {seen} paquetes y se ocultaron {blinded} nombres. No se subió nada. Guardado en {dir}",
+    "openWorld": "Mundo abierto"
   },
   "settings": {
     "title": "Ajustes",
@@ -186,7 +188,7 @@
     "discord": {
       "title": "Discord",
       "activity": "Mostrar en Discord a qué estoy jugando",
-      "activityHint": "Mientras AION2 está abierto, tu estado de Discord muestra tu clase, nivel y servidor, y el jefe contra el que luchas. Se hace a través de la aplicación de Discord de este equipo; no hace falta cuenta."
+      "activityHint": "Mientras AION2 está abierto, tu estado de Discord muestra el nombre de tu personaje, su clase, nivel y servidor, y el jefe contra el que luchas. Se hace a través de la aplicación de Discord de este equipo; no hace falta cuenta."
     },
     "version": "Versión",
     "theme": {
@@ -278,6 +280,14 @@
       "working": "Esperando aprobación…",
       "failed": "Error al iniciar sesión: {error}",
       "supporter": "Mecenas"
+    },
+    "sendLogs": {
+      "hint": "Envía tus 3 registros de paquetes más recientes al desarrollador, para un informe de errores.",
+      "button": "Enviar registros al dev",
+      "confirm": "¿Enviar tus 3 registros de paquetes más recientes al desarrollador de A2 Tools?\n\nLos registros de paquetes son el tráfico del juego en bruto grabado mientras el registro de paquetes estaba activado, incluidos los nombres de personajes. Solo el desarrollador puede abrirlos y se eliminan a los 30 días.",
+      "sending": "Enviando...",
+      "sent": "Enviado. Tu código de informe es {code}: dáselo al desarrollador en Discord.",
+      "failed": "No se pudo enviar: {error}"
     }
   },
   "support": {
@@ -307,7 +317,8 @@
     "analysing": "Supervisando datos...",
     "idle": "Inactivo",
     "notRunning": "AION2 no está en ejecución",
-    "suspended": "Aplicación en pausa"
+    "suspended": "Aplicación en pausa",
+    "waitingBoss": "Esperando a un jefe"
   },
   "meter": {
     "identifyingPlayer": "#{id}",
@@ -353,7 +364,8 @@
     "difficulty": {
       "exploration": "Exploración",
       "normal": "Normal",
-      "hard": "Difícil"
+      "hard": "Difícil",
+      "level": "Nivel {n}"
     }
   },
   "presence": {
@@ -367,5 +379,20 @@
     "tierExpedition": "Expedición",
     "tierConquestNormal": "Conquista (normal)",
     "tierConquestHard": "Conquista (difícil)"
+  },
+  "discordPromo": {
+    "title": "Nuevo: actividad en Discord",
+    "text": "Muestra a tus amigos en tu estado de Discord tu personaje, clase, nivel y servidor, y el jefe o la mazmorra en la que estás.",
+    "hint": "Usa la app de Discord de este PC; no hace falta cuenta. Puedes cambiarlo cuando quieras en Ajustes.",
+    "done": "Listo",
+    "close": "Cerrar"
+  },
+  "accountPromo": {
+    "title": "Guarda tus combates contra jefes en a2tools.app",
+    "text": "Crea una cuenta gratuita o inicia sesión, y cada combate contra un jefe se guarda en línea: un enlace para compartir cada uno, tus registros en cualquier dispositivo y tu lugar en la clasificación.",
+    "hint": "Los nombres de otros jugadores se ocultan y los muñecos de entrenamiento nunca se suben. Puedes cambiarlo cuando quieras en Ajustes.",
+    "signIn": "Iniciar sesión",
+    "later": "Ahora no",
+    "close": "Cerrar"
   }
 }

@@ -140,7 +140,7 @@
 
   const getTheostoneNameColor = (skill = {}) => parseTheostone(skill)?.nameColor || "";
 
-  const getIconCandidates = (skill = {}) => {
+  const resolveIconCandidates = (skill = {}) => {
     const theostone = parseTheostone(skill);
     if (theostone) {
       return [theostone.iconUrl];
@@ -185,11 +185,10 @@
   // of the same URL needs no CORS and works. Those go straight to <img>, and
   // are not fetched again on every redraw.
   const fetchFailed = new Set();
+  const unavailable = new Set();
+  const getIconCandidates = (skill = {}) => resolveIconCandidates(skill).filter((url) => !unavailable.has(url));
 
-  // The first few icon failures go to debug.log, so a player's log tells
-  // "the CDN refused the download" (handled: a direct load follows) apart from
-  // "the image could not be loaded at all" (the CDN is blocked or unreachable
-  // on their network).
+  // Warn only when an icon is missing or its direct image load also fails.
   let failuresLogged = 0;
   const logFailure = (what) => {
     if (failuresLogged >= 5) return;
@@ -206,6 +205,7 @@
   const fetchAsBlob = (url) => {
     if (blobCache.has(url)) return Promise.resolve(blobCache.get(url));
     if (blobPending.has(url)) return blobPending.get(url);
+    if (unavailable.has(url)) return Promise.resolve(null);
     if (fetchFailed.has(url)) return Promise.resolve(null);
     // Only cache CDN URLs (not data: URIs)
     if (!url.startsWith("http")) return Promise.resolve(null);
@@ -232,7 +232,11 @@
         // Fetch from CDN and persist to disk cache
         return fetch(url, { mode: "cors", credentials: "omit" })
           .then((r) => {
-            if (!r.ok) throw new Error(r.status);
+            if (!r.ok) {
+              const error = new Error(r.status);
+              error.status = r.status;
+              throw error;
+            }
             return r.blob();
           })
           .then((blob) => {
@@ -257,7 +261,12 @@
       })
       .catch((err) => {
         fetchFailed.add(url);
-        logFailure(`download refused (${err?.message || err}); loading it directly instead: ${url}`);
+        if (err?.status === 404 || err?.status === 410) {
+          unavailable.add(url);
+          logFailure(`not found (${err.status}); using fallback: ${url}`);
+        } else {
+          console.debug(`[A2Tools] Skill icon: cache download failed (${err?.message || err}); trying direct image: ${url}`);
+        }
         return null;
       })
       .finally(() => blobPending.delete(url));
@@ -314,6 +323,8 @@
       if (imgEl.dataset.iconUrl !== primaryUrl) return;
       if (blobUrl) {
         imgEl.src = blobUrl;
+      } else if (unavailable.has(primaryUrl)) {
+        handleImgError(imgEl);
       } else {
         // The fetch was refused (see fetchFailed): load the image directly.
         // If that fails too, its error handler moves on to the next candidate.
@@ -325,7 +336,10 @@
   const handleImgError = (imgEl) => {
     if (!imgEl) return;
     const failedSrc = imgEl.getAttribute("src") || "";
-    if (failedSrc.startsWith("http")) logFailure(`could not load ${failedSrc}`);
+    if (failedSrc.startsWith("http") && !unavailable.has(failedSrc)) {
+      unavailable.add(failedSrc);
+      logFailure(`could not load ${failedSrc}`);
+    }
     let candidates = [];
     try {
       const raw = imgEl.dataset.iconCandidates || "[]";
@@ -334,7 +348,8 @@
     } catch (_) {
       candidates = [];
     }
-    const idx = Number(imgEl.dataset.iconIndex || 0) + 1;
+    let idx = Number(imgEl.dataset.iconIndex || 0) + 1;
+    while (Array.isArray(candidates) && idx < candidates.length && unavailable.has(candidates[idx])) idx += 1;
     if (!Array.isArray(candidates) || idx >= candidates.length) {
       imgEl.classList.remove("isPlaceholder");
       imgEl.src = WAND_ICON;

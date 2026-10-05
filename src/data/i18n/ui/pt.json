@@ -119,13 +119,15 @@
     "filterPlayer": "Classe do jogador...",
     "filterDate": "Data (AAAA-MM-DD)...",
     "viewList": "Visualização em lista",
+    "viewDungeon": "Agrupar por masmorra",
     "viewGrouped": "Agrupar por chefe",
     "fightCount": "{n} combates",
     "fightCountOne": "1 combate",
     "previewUpload": "Pré-visualizar envio",
     "previewUploadTip": "Escreve o que o compartilhamento deste combate enviaria. Nada é enviado.",
     "previewWorking": "Criando a pré-visualização…",
-    "previewDone": "{slice} KB gravados ({sent} KB compactados — o que um envio transmitiria). {kept} de {seen} pacotes mantidos, {blinded} nomes ocultados. Nada foi enviado. Salvo em {dir}"
+    "previewDone": "{slice} KB gravados ({sent} KB compactados — o que um envio transmitiria). {kept} de {seen} pacotes mantidos, {blinded} nomes ocultados. Nada foi enviado. Salvo em {dir}",
+    "openWorld": "Mundo aberto"
   },
   "settings": {
     "title": "Configurações",
@@ -186,7 +188,7 @@
     "discord": {
       "title": "Discord",
       "activity": "Mostrar no Discord o que estou jogando",
-      "activityHint": "Enquanto o AION2 estiver aberto, seu status do Discord mostra sua classe, nível e servidor, e o chefe que você está enfrentando. Isso passa pelo aplicativo do Discord neste computador; não é preciso conta."
+      "activityHint": "Enquanto o AION2 estiver aberto, seu status do Discord mostra o nome do seu personagem, classe, nível e servidor, e o chefe que você está enfrentando. Isso passa pelo aplicativo do Discord neste computador; não é preciso conta."
     },
     "version": "Versão",
     "theme": {
@@ -278,6 +280,14 @@
       "working": "Aguardando aprovação…",
       "failed": "Falha ao entrar: {error}",
       "supporter": "Apoiador"
+    },
+    "sendLogs": {
+      "hint": "Envia seus 3 logs de pacotes mais recentes ao desenvolvedor, para um relatório de bug.",
+      "button": "Enviar logs ao dev",
+      "confirm": "Enviar seus 3 logs de pacotes mais recentes ao desenvolvedor do A2 Tools?\n\nLogs de pacotes são o tráfego bruto do jogo gravado enquanto o registro de pacotes estava ligado, incluindo nomes de personagens. Só o desenvolvedor pode abri-los, e eles são apagados após 30 dias.",
+      "sending": "Enviando...",
+      "sent": "Enviado. Seu código de relatório é {code}: passe para o desenvolvedor no Discord.",
+      "failed": "Não foi possível enviar: {error}"
     }
   },
   "support": {
@@ -307,7 +317,8 @@
     "analysing": "Monitorando dados...",
     "idle": "Ocioso",
     "notRunning": "AION2 não está em execução",
-    "suspended": "Aplicativo pausado"
+    "suspended": "Aplicativo pausado",
+    "waitingBoss": "Aguardando um chefe"
   },
   "meter": {
     "identifyingPlayer": "#{id}",
@@ -353,7 +364,8 @@
     "difficulty": {
       "exploration": "Exploração",
       "normal": "Normal",
-      "hard": "Difícil"
+      "hard": "Difícil",
+      "level": "Nível {n}"
     }
   },
   "presence": {
@@ -367,5 +379,20 @@
     "tierExpedition": "Expedição",
     "tierConquestNormal": "Conquista (normal)",
     "tierConquestHard": "Conquista (difícil)"
+  },
+  "discordPromo": {
+    "title": "Novo: atividade no Discord",
+    "text": "Mostre aos amigos no seu status do Discord seu personagem, classe, nível e servidor, e o chefe ou a masmorra em que você está.",
+    "hint": "Usa o app do Discord deste PC; não precisa de conta. Você pode mudar isso a qualquer momento nas Configurações.",
+    "done": "Concluir",
+    "close": "Fechar"
+  },
+  "accountPromo": {
+    "title": "Guarde suas lutas contra chefes no a2tools.app",
+    "text": "Crie uma conta gratuita ou entre, e cada luta contra chefe fica salva online: um link para compartilhar cada uma, seus registros em qualquer dispositivo e seu lugar no ranking.",
+    "hint": "Os nomes de outros jogadores ficam ocultos e bonecos de treino nunca são enviados. Você pode mudar isso a qualquer momento nas Configurações.",
+    "signIn": "Entrar",
+    "later": "Agora não",
+    "close": "Fechar"
   }
 }

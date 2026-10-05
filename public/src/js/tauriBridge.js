@@ -10,6 +10,22 @@
   const { listen } = window.__TAURI__.event;
   const { open: shellOpen } = window.__TAURI__.opener;
 
+  // The backend enables compositor resizing only on GNOME.
+  const isLinux = /Linux/.test(navigator.userAgent);
+  let compositorResize = isLinux ? null : false;
+  const compositorResizeReady = isLinux ? invoke("compositor_resize_supported")
+    .then((supported) => {
+      compositorResize = supported;
+      if (supported) {
+        const apply = () => document.body.classList.add("linuxOverlay");
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", apply, { once: true });
+        else apply();
+      }
+      return supported;
+    })
+    .catch(() => { compositorResize = false; return false; })
+    : Promise.resolve(false);
+
   // Three windows share this bundle: the game overlay (label "main"), the
   // Details view ("details") which the user can park on a second monitor, and
   // Settings ("settings"). Which one we are is needed synchronously, before
@@ -116,6 +132,7 @@
   let cachedCaptureStatus = null;
   let cachedDetailsContext = null;
   let cachedAppVersion = "";     // populated on startup from Tauri backend
+  let lastSkillDetailsIssue = "";
   let captureSuspended = false;  // the suspend button's state; the backend's is the truth
 
   // A reloaded window picks the suspend state back up from the backend.
@@ -178,6 +195,7 @@
 
   listen("account-changed", (event) => {
     window._dpsApp?.refreshAccountPanel?.(event?.payload);
+    window._dpsApp?.onAccountPromoResult?.(event?.payload);
   });
 
   // Settings was asked to open while already open; check the account again
@@ -255,19 +273,59 @@
     },
 
     async getBattleDetail(actorId) {
-      try {
-        const dps = cachedDpsJson ? JSON.parse(cachedDpsJson) : null;
-        const targetId = Number(dps?.targetId) || 0;
-        if (targetId <= 0) return null;
-        const aid = Number(actorId);
-        const result = await invoke("get_skill_details", {
-          targetId,
-          actorIds: Number.isFinite(aid) && aid > 0 ? [aid] : null,
-        });
-        return JSON.stringify(result);
-      } catch {
+      const dps = cachedDpsJson ? JSON.parse(cachedDpsJson) : null;
+      const targetIds = [...new Set((Array.isArray(dps?.detailTargetIds)
+        ? dps.detailTargetIds : [dps?.targetId]).map(Number).filter((id) => id > 0))];
+      if (!targetIds.length) {
+        const issue = `no selected target (mode=${dps?.targetMode || "unknown"}, rows=${Object.keys(dps?.map || {}).length})`;
+        if (issue !== lastSkillDetailsIssue) window.javaBridge?.logToDebug?.(`Skill details: ${issue}`);
+        lastSkillDetailsIssue = issue;
         return null;
       }
+      const aid = Number(actorId);
+      const results = await Promise.all(targetIds.map((targetId) => invoke("get_skill_details", {
+        targetId,
+        actorIds: Number.isFinite(aid) && aid > 0 ? [aid] : null,
+      })));
+      let result = results[0];
+      if (results.length > 1) {
+        const startTime = Math.min(...results.map((item) => Number(item.startTime) || 0));
+        const mergeSkills = (field) => {
+          const merged = new Map();
+          const sumFields = ["time", "dmg", "multiHitCount", "multiHitDamage", "multiHitHits",
+            "crit", "parry", "back", "frontal", "perfect", "double", "smite", "powershard", "regen"];
+          for (const item of results) {
+            const offset = (Number(item.startTime) || 0) - startTime;
+            for (const skill of item[field] || []) {
+              const key = `${skill.actorId}:${skill.code}:${Boolean(skill.isDot)}`;
+              const timestamps = (skill.hitTimestamps || []).map((ts) => Number(ts) + offset);
+              const entry = merged.get(key);
+              if (!entry) {
+                merged.set(key, { ...skill, hitTimestamps: timestamps, specs: [...(skill.specs || [])] });
+                continue;
+              }
+              for (const name of sumFields) entry[name] = (Number(entry[name]) || 0) + (Number(skill[name]) || 0);
+              const minimums = [entry.minDmg, skill.minDmg].map(Number).filter((n) => n > 0);
+              entry.minDmg = minimums.length ? Math.min(...minimums) : 0;
+              entry.maxDmg = Math.max(Number(entry.maxDmg) || 0, Number(skill.maxDmg) || 0);
+              entry.hitTimestamps.push(...timestamps);
+              entry.specs.push(...(skill.specs || []));
+            }
+          }
+          return [...merged.values()];
+        };
+        result = {
+          targetId: 0, maxHp: 0, startTime,
+          battleTime: Number(dps.battleTime) || 0,
+          totalTargetDamage: results.reduce((sum, item) => sum + (Number(item.totalTargetDamage) || 0), 0),
+          skills: mergeSkills("skills"), healSkills: mergeSkills("healSkills"), pingHistory: [],
+        };
+      }
+      const issue = Array.isArray(result?.skills) && result.skills.length
+        ? "" : `empty response for targets=${targetIds.join(",")}`;
+      if (issue && issue !== lastSkillDetailsIssue) window.javaBridge?.logToDebug?.(`Skill details: ${issue}`);
+      lastSkillDetailsIssue = issue;
+      return JSON.stringify(result);
     },
 
     getVersion() {
@@ -570,6 +628,11 @@
     setSaveRawPackets(enabled) {
       invoke("set_packet_logging", { enabled: !!enabled }).catch(() => {});
     },
+    // Sends the newest packet captures to the developer. Resolves with
+    // { code, files }; rejects with a message to show as is.
+    sendLogsToDev() {
+      return invoke("send_logs_to_dev");
+    },
     setDebugLoggingEnabled(enabled) {
       invoke("set_debug_logging", { enabled: !!enabled }).catch(() => {});
     },
@@ -733,8 +796,148 @@
   // ===== Dynamic window resizing =====
   const PANEL_WIDTH = 1540;
   const PANEL_HEIGHT = 820;
-  const TOOLTIP_WIDTH = 800;
+  const PROMO_WIDTH = 400;
+  const PROMO_HEIGHT = 480;
   let lastSizeKey = "";
+  let resizeActive = false;
+  let nativeResize = null;
+  let primaryHeld = false;
+
+  const overlayPadding = () => {
+    const ping = document.body.classList.contains("legacyUi")
+      ? document.querySelector(".pingDisplay") : null;
+    return { w: 16, h: 10 + (ping ? ping.offsetHeight + 8 : 0) };
+  };
+
+  const overlayMinimum = (meter) => {
+    const height = meter.style.height;
+    const minHeight = meter.style.minHeight;
+    // Measure normal-flow content without the user's saved empty space.
+    meter.style.height = "auto";
+    meter.style.minHeight = "0";
+    const style = getComputedStyle(meter);
+    const contentHeight = Math.max(30, parseFloat(style.height) || 0);
+    const outerHeight = Math.ceil(meter.getBoundingClientRect().height);
+    const borderWidth = style.boxSizing === "border-box" ? 0
+      : (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.borderRightWidth) || 0)
+        + (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+    meter.style.height = height;
+    meter.style.minHeight = minHeight;
+    const padding = overlayPadding();
+    return { contentHeight, width: 300 + borderWidth + padding.w, height: outerHeight + padding.h };
+  };
+
+  // Follow the compositor viewport while automatic content sizing is paused.
+  const followNativeSize = () => {
+    if (!nativeResize || window.A2_VIEW !== "main") return;
+    const meter = document.querySelector(".meter");
+    if (!meter) return;
+    const padding = overlayPadding();
+    const style = getComputedStyle(meter);
+    const px = (name) => parseFloat(style[name]) || 0;
+    const borderW = style.boxSizing === "border-box" ? 0
+      : px("borderLeftWidth") + px("borderRightWidth") + px("paddingLeft") + px("paddingRight");
+    const borderH = style.boxSizing === "border-box" ? 0
+      : px("borderTopWidth") + px("borderBottomWidth") + px("paddingTop") + px("paddingBottom");
+    // Viewport units follow layout immediately, without waiting for resize events.
+    meter.style.width = `max(300px, calc(100vw - ${padding.w + borderW}px))`;
+    meter.style.height = `max(${nativeResize.contentHeight || 30}px, calc(100vh - ${padding.h + borderH}px))`;
+  };
+
+  const finishNativeResize = (cancel = false) => {
+    const operation = nativeResize;
+    if (!operation) return Promise.resolve(true);
+    operation.cancel = operation.cancel || cancel;
+    if (operation.finished) return operation.finished;
+    operation.finished = (async () => {
+      // A release may arrive before the start IPC settles.
+      await operation.started;
+      // Consume the compositor's final configure before pinning the size again.
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      followNativeSize();
+      let finished = false;
+      try {
+        const cancelRequested = operation.cancel;
+        finished = await invoke("finish_window_resize", { cancel: cancelRequested });
+        // Preserve cancellation requested during the pointer-return check.
+        if (!finished && operation.cancel && !cancelRequested) {
+          finished = await invoke("finish_window_resize", { cancel: true });
+        }
+      } catch (error) {
+        console.error("[A2Tools] finishing native resize failed", error);
+      }
+      if (!finished) {
+        // WebKit can emit hover events during a grab; GTK must confirm release.
+        operation.finished = null;
+        return false;
+      }
+      if (window.A2_VIEW === "main") {
+        const meter = document.querySelector(".meter");
+        if (meter?.style.height) {
+          const style = getComputedStyle(meter);
+          meter.style.width = style.width;
+          meter.style.minHeight = style.height;
+          meter.style.height = "";
+        }
+      }
+      nativeResize = null;
+      resizeActive = false;
+      lastSizeKey = "";
+      return true;
+    })();
+    return operation.finished;
+  };
+
+  const startNativeResize = async (direction, minWidth, minHeight) => {
+    if (nativeResize && !await finishNativeResize(true)) return;
+    if (!primaryHeld) return;
+    resizeActive = true;
+    const operation = { finished: null, started: null, cancel: false };
+    nativeResize = operation;
+    if (window.A2_VIEW === "main") {
+      const meter = document.querySelector(".meter");
+      if (meter) {
+        const minimum = overlayMinimum(meter);
+        operation.contentHeight = minimum.contentHeight;
+        minWidth = minimum.width;
+        minHeight = minimum.height;
+        followNativeSize();
+        meter.style.minHeight = `${minimum.contentHeight}px`;
+      }
+    }
+    operation.started = invoke("begin_window_resize", {
+      minWidth, minHeight, scale: window.devicePixelRatio || 1,
+    }).then((held) => {
+      if (held) return window.__TAURI__.window.getCurrentWindow().startResizeDragging(direction);
+      queueMicrotask(() => finishNativeResize(true));
+    }).catch((error) => {
+      console.error("[A2Tools] native window resize failed", error);
+      // Run after this promise settles, so finishing cannot await itself.
+      queueMicrotask(() => finishNativeResize(true));
+    });
+  };
+
+  // GTK3 hides the compositor resize state. End on returned pointer input,
+  // not a pause in motion; GTK rejects synthetic WebKit hover events.
+  const finishOnPointerReturn = (event) => {
+    const inside = event.clientX >= 0 && event.clientY >= 0
+      && event.clientX < window.innerWidth && event.clientY < window.innerHeight;
+    if ((event.buttons & 1) === 0 && inside) {
+      if (!nativeResize) primaryHeld = false;
+      finishNativeResize();
+    }
+  };
+  document.addEventListener("pointermove", finishOnPointerReturn, { capture: true });
+  document.addEventListener("pointerover", finishOnPointerReturn, { capture: true });
+  document.addEventListener("mouseup", (event) => {
+    if (event.button !== 0) return;
+    primaryHeld = false;
+    finishNativeResize();
+  }, { capture: true });
+  document.addEventListener("mousedown", (event) => {
+    primaryHeld = event.button === 0;
+    finishNativeResize(true);
+  }, { capture: true });
 
   // The screen space right of and below the window. The overlay grows from its
   // top-left corner, and growing past the screen edge makes a window manager
@@ -763,7 +966,10 @@
       document.querySelector(".historyPanel.isOpen") ||
       document.querySelector(".historyPanel.open")
     );
-    const tooltipOnly = !fullPanel && !!document.querySelector(".hoverDetailsTooltip.isVisible");
+    const tooltip = fullPanel ? null : document.querySelector(".hoverDetailsTooltip.isVisible");
+    // The one-time Discord popup needs room for its card, no more: a
+    // full-panel window would block clicks on the game around it.
+    const promoOpen = !fullPanel && !!document.querySelector(".discordPromo.isOpen");
 
     // Measure meter width (may be resized by user via drag handle) and height
     const meter = document.querySelector(".meter");
@@ -785,12 +991,24 @@
 
     // The tooltip's extra room stops at the screen edge; the meter itself
     // never shrinks below its content.
+    const tooltipBounds = tooltip?.getBoundingClientRect();
+    const room = spaceRightBelow();
+    const tooltipW = tooltipBounds ? Math.ceil(tooltipBounds.right) + 8 : contentW;
+    const tooltipH = tooltipBounds ? Math.ceil(tooltipBounds.bottom) + 8 : contentH;
     const w = fullPanel
       ? PANEL_WIDTH
-      : tooltipOnly
-        ? Math.min(TOOLTIP_WIDTH, Math.max(contentW, spaceRightBelow().w))
-        : contentW;
-    const h = fullPanel ? Math.max(PANEL_HEIGHT, contentH) : contentH;
+      : promoOpen
+        ? Math.max(contentW, PROMO_WIDTH)
+        : tooltip
+          ? Math.max(contentW, Math.min(tooltipW, room.w))
+          : contentW;
+    const h = fullPanel
+      ? Math.max(PANEL_HEIGHT, contentH)
+      : promoOpen
+        ? Math.max(contentH, PROMO_HEIGHT)
+        : tooltip
+          ? Math.max(contentH, Math.min(tooltipH, room.h))
+          : contentH;
     const sizeKey = `${w}x${h}@${window.devicePixelRatio || 1}`;
     if (sizeKey === lastSizeKey) return;
     lastSizeKey = sizeKey;
@@ -798,6 +1016,8 @@
     // pixels the page is actually drawn at (Windows text size included).
     invoke("resize_window", { width: w, height: h, scale: window.devicePixelRatio || 1 }).catch(() => {});
   };
+
+  window.javaBridge.updateOverlaySize = updateWindowSize;
 
   // Watch all class changes on the container to catch panel open/close instantly
   const containerObserver = new MutationObserver(() => updateWindowSize());
@@ -826,6 +1046,12 @@
     updateWindowSize();
   });
 
+  // The meter has no drag and drop. A press that lands on row text or an icon
+  // would otherwise start a native drag of it, and under XWayland a drag the
+  // meter never finishes holds the pointer (a no-drop cursor with the text
+  // stuck to it) until it times out, about a minute, even after the meter quits.
+  document.addEventListener("dragstart", (e) => e.preventDefault(), { capture: true });
+
   // ===== Window dragging =====
   // Core.js's JS-based drag (moveWindow + screenX/Y) is too slow over IPC.
   // Use native Win32 drag via WM_NCLBUTTONDOWN — instant, OS-handled, zero latency.
@@ -851,6 +1077,79 @@
     }
   }, { capture: true });
 
+  // ===== Tool windows on Linux: drag by the header, resize from the edges =====
+  // The tool windows are frameless. On Windows their headers drag through
+  // -webkit-app-region and the window manager resizes them by their border.
+  // WebKitGTK ignores app-region, and a frameless window has no border to
+  // grab, so on Linux the page starts both: the drag through start_tool_drag,
+  // the resize through begin_tool_resize, which lifts the pinned size hints
+  // (platform::window::set_size) for the length of the resize.
+  if (window.A2_VIEW !== "main" && /Linux/.test(navigator.userAgent)) {
+    const DRAG_HEADERS = ".historyHeader, .detailsHeader, .settingsHeader";
+    const NO_DRAG = "button, a, input, select, textarea, [data-no-drag], "
+      + ".historyViewToggle, .historyFilters, .historyClose, .detailsModeToggle, "
+      + ".detailsSettingsMenuWrapper, .detailsScreenshotWrapper, .detailsWindowClose, .closeX";
+    const MIN_SIZE = { settings: [520, 420], history: [480, 360], details: [520, 360] };
+    const [minW, minH] = MIN_SIZE[window.A2_VIEW] || [480, 360];
+    const EDGE = 6;
+
+    const style = document.createElement("style");
+    style.textContent = [
+      ["n", "ns"], ["s", "ns"], ["e", "ew"], ["w", "ew"],
+      ["ne", "nesw"], ["sw", "nesw"], ["nw", "nwse"], ["se", "nwse"],
+    ].map(([edge, cur]) => `html.toolEdge-${edge}, html.toolEdge-${edge} * { cursor: ${cur}-resize !important; }`).join("\n");
+    document.head.appendChild(style);
+
+    const edgeAt = (e) => {
+      let edge = "";
+      if (e.clientY < EDGE) edge += "n";
+      else if (e.clientY >= window.innerHeight - EDGE) edge += "s";
+      if (e.clientX < EDGE) edge += "w";
+      else if (e.clientX >= window.innerWidth - EDGE) edge += "e";
+      return edge;
+    };
+    let shownEdge = "";
+    const showEdge = (edge) => {
+      if (edge === shownEdge) return;
+      if (shownEdge) document.documentElement.classList.remove(`toolEdge-${shownEdge}`);
+      if (edge) document.documentElement.classList.add(`toolEdge-${edge}`);
+      shownEdge = edge;
+    };
+
+    const DIRECTION = {
+      n: "North", s: "South", e: "East", w: "West",
+      ne: "NorthEast", nw: "NorthWest", se: "SouthEast", sw: "SouthWest",
+    };
+
+    document.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      const edge = edgeAt(e);
+      if (edge) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        // The backend unpins the size first, then the window manager resizes.
+        compositorResizeReady.then((supported) => {
+          if (supported) {
+            startNativeResize(DIRECTION[edge], minW, minH);
+          } else {
+            return invoke("begin_tool_resize", { minWidth: minW, minHeight: minH })
+              .then(() => window.__TAURI__.window.getCurrentWindow().startResizeDragging(DIRECTION[edge]));
+          }
+        })
+          .catch((err) => console.error("[A2Tools] tool window resize failed", err));
+        return;
+      }
+      const target = e.target?.nodeType === Node.TEXT_NODE ? e.target.parentElement : e.target;
+      if (target?.closest?.(DRAG_HEADERS) && !target.closest(NO_DRAG)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        invoke("start_tool_drag").catch(() => {});
+      }
+    }, { capture: true });
+
+    document.addEventListener("mousemove", (e) => showEdge(e.buttons ? "" : edgeAt(e)), { capture: true });
+  }
+
   // Pre-fetch device list and fight history so they're ready when panels open
   invoke("get_available_devices").then((d) => { window._cachedDevices = d; }).catch(() => {});
   invoke("get_fight_history").then((h) => { window._cachedFightHistory = h; }).catch(() => {});
@@ -865,28 +1164,46 @@
     invoke("get_fight_history").then((h) => { window._cachedFightHistory = h; }).catch(() => {});
   }, 10000);
 
-  // ===== Resize handle: expand viewport while dragging =====
-  let resizeActive = false;
+  // ===== Overlay resize handle =====
   const expandViewport = () => {
     resizeActive = true;
     const space = spaceRightBelow();
     invoke("resize_window", { width: Math.min(space.w, 2000), height: Math.min(space.h, 1200), scale: window.devicePixelRatio || 1 }).catch(() => {});
   };
   const shrinkViewport = () => {
+    if (nativeResize) return;
     if (resizeActive) {
       resizeActive = false;
       lastSizeKey = "";
     }
   };
-  // Expand during resize handle drag
   document.addEventListener("mousedown", (e) => {
-    if (e.target?.closest?.(".resizeHandle")) expandViewport();
+    if (e.button !== 0 || !e.target?.closest?.(".resizeHandle")) return;
+    if (compositorResize === false) {
+      expandViewport();
+      return;
+    }
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    compositorResizeReady.then((supported) => {
+      if (!primaryHeld) return;
+      if (supported) {
+        const padding = overlayPadding();
+        startNativeResize("SouthEast", 300 + padding.w, 30 + padding.h);
+      } else {
+        // Replay an early press once backend detection has completed.
+        e.target.dispatchEvent(new MouseEvent("mousedown", e));
+      }
+    });
   }, { capture: true });
   document.addEventListener("mouseup", shrinkViewport);
   // A release outside the window sends no mouseup; the next move shows it.
   // (Not on blur: KWin blurs the window at the start of every drag.)
+  // Only a move inside the window is trusted (see bindResizeHandle in core.js).
   document.addEventListener("mousemove", (e) => {
-    if (resizeActive && (e.buttons & 1) === 0) shrinkViewport();
+    const inside = e.clientX >= 0 && e.clientY >= 0
+      && e.clientX < window.innerWidth && e.clientY < window.innerHeight;
+    if (resizeActive && (e.buttons & 1) === 0 && inside) shrinkViewport();
   });
 
   // Startup diagnostics
