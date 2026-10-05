@@ -95,7 +95,7 @@ fn parse_spawn_ids(json: &str) -> HashMap<i32, i32> {
 pub struct MapBoss {
     pub spawn_id: i32,
     pub alive: bool,
-    /// Alive: when it spawned. Dead: when it will.
+    /// Alive: when it spawned, 0 when the map does not say. Dead: when it will.
     pub at_ms: i64,
 }
 
@@ -134,8 +134,10 @@ pub fn parse_map_bosses(packet: &[u8]) -> Option<(u32, Vec<MapBoss>)> {
         pos += 1 + id.length as usize + if alive { 12 } else { 0 };
         // Some records, alive or dead, carry an extra byte before the time.
         // A shifted read is ~256 times too large, so the first plausible
-        // time within reach is the right one.
-        pos += (0..3).find(|d| u64_at(pos + d).is_some_and(plausible_ms))?;
+        // time within reach is the right one. A living boss can have time 0:
+        // since the maintenance of 05.10.2026 every boss that came up with
+        // the server does (`MapBoss::at_ms`).
+        pos += (0..3).find(|d| u64_at(pos + d).is_some_and(|v| plausible_ms(v) || (alive && v == 0)))?;
         let at = u64_at(pos)?;
         pos += 8;
         out.push(MapBoss { spawn_id: id.value, alive, at_ms: at as i64 });
@@ -151,6 +153,18 @@ const DEATH_WINDOW_MS: i64 = 15 * 60_000;
 /// showed it alive (this session). Returns whether anything changed.
 fn apply_map(t: &mut BossTimer, m: &MapBoss, now: i64, alive_checked: Option<i64>) -> bool {
     let before = t.clone();
+    // Alive since an unknown time: alive now, and the respawn interval is
+    // not to be learnt from it.
+    if m.alive && m.at_ms == 0 {
+        if t.seen_at.is_some_and(|s| t.killed_at.is_none_or(|k| s > k)) && t.respawn_at.is_none() {
+            return false; // already shown alive
+        }
+        t.seen_at = Some(now);
+        t.respawn_at = None;
+        t.by.clear();
+        t.updated = now;
+        return true;
+    }
     // Alive on the map a little while ago, dead now with a new spawn time:
     // it died in between. Take the middle as the kill and learn the interval
     // from it, unless a real kill was seen.
@@ -365,7 +379,7 @@ fn log_map(map: u32, bosses: &[MapBoss], now: i64) {
     for b in changed {
         tracing::info!("  spawn {}{}{} {}", b.spawn_id,
             spawn_ids().get(&b.spawn_id).map(|c| format!(" (mob {c})")).unwrap_or_default(),
-            if b.alive { " lebt seit" } else { " spawnt" }, local(b.at_ms));
+            if b.alive { " lebt seit" } else { " spawnt" }, if b.at_ms == 0 { "?".into() } else { local(b.at_ms) });
     }
 }
 
@@ -495,6 +509,35 @@ mod tests {
         let at = |id| bosses.iter().find(|b| b.spawn_id == id).unwrap().at_ms / 1000;
         assert_eq!(at(111020), 1791076806, "Shylak, So 03:20:06");
         assert_eq!(at(111011), 1791056013, "Linx, Sa 21:33:33");
+    }
+
+    /// Altgard map, 05.10.2026 15:25, after the maintenance: living bosses
+    /// that came up with the server have time 0, some after the extra byte.
+    const ALTGARD_MAP_3: &str = "93030191000056040000180199E30691939BC7645092C700ECDD46EB0000000000000000019EE30600D004C7005A204700207E46000000000000000000A1E3060E83AB0CA1010000019AE306325C15C89ED7DCC700F90947000000000000000000AEE3064588C20EA1010000019FE3069C2A94466B3F02C7001C31460000000000000000019CE3061DBC2FC8D56A96C50002C5460000000000000000019BE306544326C84E308AC600F4BC460000000000000000019DE306DA1467C51152204700FC644603000000000000000001A0E30600D8AE4600A28AC700C86946000000000000000000A2E306AD1EE10CA101000000A4E306E7620D0DA101000000A3E3063B35DF0CA101000000A5E306A396100DA101000000A6E3065AA7E00CA101000000A7E306E92A150DA101000000A8E30600B035810DA101000000ACE30645CC810DA101000000A9E306722FDD0CA101000000AAE30652880F0DA101000000ABE30640DE7A0DA101000000ADE30630FFBE0EA101000000AFE3061FD87C0DA101000000B0E306DDEC7D0DA1010000000000";
+
+    #[test]
+    fn reads_living_bosses_without_a_spawn_time() {
+        let (map, bosses) = parse_map_bosses(&unhex(ALTGARD_MAP_3)).unwrap();
+        assert_eq!((map, bosses.len()), (1110, 24));
+        let alive: Vec<&MapBoss> = bosses.iter().filter(|b| b.alive).collect();
+        assert!(!alive.is_empty() && alive.iter().all(|b| b.at_ms == 0));
+        assert!(bosses.iter().filter(|b| !b.alive).all(|b| plausible_ms(b.at_ms as u64)));
+        let mut ids: Vec<i32> = bosses.iter().map(|b| b.spawn_id).collect();
+        ids.sort();
+        assert_eq!(ids, (111001..=111024).collect::<Vec<_>>());
+        // A dead boss never has time 0 (the same record with a time parses).
+        assert!(parse_map_bosses(&unhex("1A01910000560400000100A1E306C087220CA1010000")).is_some());
+        assert!(parse_map_bosses(&unhex("1A01910000560400000100A1E3060000000000000000")).is_none());
+    }
+
+    /// After a maintenance every boss is up again: a kill from before is over.
+    #[test]
+    fn alive_with_no_spawn_time_ends_an_old_kill_and_teaches_nothing() {
+        let mut t = BossTimer { code: GARTUA, killed_at: Some(100 * MIN), respawn_at: Some(900 * MIN), interval_min: Some(360), ..Default::default() };
+        let up = MapBoss { spawn_id: 111021, alive: true, at_ms: 0 };
+        assert!(apply_map(&mut t, &up, 300 * MIN, None));
+        assert_eq!((t.seen_at, t.respawn_at, t.interval_min), (Some(300 * MIN), None, Some(360)));
+        assert!(!apply_map(&mut t, &up, 301 * MIN, None), "the map repeats every second");
     }
 
     #[test]
