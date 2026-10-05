@@ -28,7 +28,7 @@ const PAGE_HEADERS: Record<string, string> = {
 };
 
 /** Ohne Login erreichbar: nur die Login-Seite und was sie braucht */
-const PUBLIC_ASSETS = new Set(["/login.js", "/login.css", "/robots.txt"]);
+const PUBLIC_ASSETS = new Set(["/login.js", "/login.css", "/robots.txt", "/favicon.svg"]);
 
 function json(data: unknown, status: number, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
