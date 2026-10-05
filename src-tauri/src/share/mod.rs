@@ -573,7 +573,7 @@ fn read_meta(app_data_dir: &Path, id: &str) -> SliceMeta {
 
 fn write_meta(app_data_dir: &Path, id: &str, meta: &SliceMeta) {
     if let Ok(json) = serde_json::to_string(meta) {
-        let _ = std::fs::write(meta_path(app_data_dir, id), json);
+        let _ = crate::atomic_file::write(&meta_path(app_data_dir, id), json.as_bytes());
     }
 }
 
@@ -612,7 +612,7 @@ pub fn save_slice(
 
     let dir = slices_dir(app_data_dir);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    std::fs::write(slice_path(app_data_dir, &record.id), &compressed).map_err(|e| e.to_string())?;
+    crate::atomic_file::write(&slice_path(app_data_dir, &record.id), &compressed).map_err(|e| e.to_string())?;
     let mut meta = read_meta(app_data_dir, &record.id);
     meta.uploader_actor_id = uploader_in(record, storage.local_player_id(), storage.local_character_name());
     write_meta(app_data_dir, &record.id, &meta);
@@ -644,7 +644,7 @@ pub fn prune_slices(app_data_dir: &Path) {
     let Ok(rd) = std::fs::read_dir(slices_dir(app_data_dir)) else { return };
     for entry in rd.filter_map(|e| e.ok()) {
         let name = entry.file_name().to_string_lossy().to_string();
-        let id = name.trim_end_matches(".a2es.gz").trim_end_matches(".json");
+        let id = name.trim_end_matches(".tmp").trim_end_matches(".a2es.gz").trim_end_matches(".json");
         if !app_data_dir.join("history").join(format!("{id}.json")).exists() {
             let _ = std::fs::remove_file(entry.path());
         }
