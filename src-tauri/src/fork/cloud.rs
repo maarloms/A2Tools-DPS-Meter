@@ -91,14 +91,26 @@ async fn upload_with_retry(app: tauri::AppHandle, record: FightRecord) {
     }
 }
 
+/// Who uploads `record`: the name becomes a member of the room. The game's
+/// own record of who is playing, or else a typed name that is a player in
+/// this fight. A typed name alone was not enough: the name field saves after
+/// a short pause in typing, and "V" on the way to a longer name once
+/// joined the room as a member of its own.
+fn uploader_name<'a>(name: Option<String>, from_game: bool, players: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty())?;
+    (from_game || players.into_iter().any(|p| p.trim() == name)).then_some(name)
+}
+
 /// `Err((message, worth retrying))`.
 async fn upload(app: &tauri::AppHandle, record: &FightRecord) -> Result<Option<String>, (String, bool)> {
     let Some(state) = app.try_state::<AppState>() else { return Ok(None) };
     let Some(room) = room(&state) else { return Ok(None) };
-    let uploader = state.data_storage.local_character_name()
-        .map(|n| n.trim().to_string())
-        .filter(|n| !n.is_empty())
-        .ok_or_else(|| ("Charaktername noch unbekannt".to_string(), true))?;
+    let uploader = uploader_name(
+        state.data_storage.local_character_name(),
+        state.data_storage.local_identity_from_self_record(),
+        record.actors.iter().map(|a| a.nickname.as_str()),
+    )
+    .ok_or_else(|| ("Charaktername noch unbekannt".to_string(), true))?;
     let json = serde_json::to_vec(record).map_err(|e| (e.to_string(), false))?;
     let body = crate::share::gzip(&json).map_err(|e| (e, false))?;
     let res = state.http
@@ -120,4 +132,18 @@ async fn upload(app: &tauri::AppHandle, record: &FightRecord) -> Result<Option<S
     }
     let retry = status.as_u16() == 429 || status.is_server_error();
     Err((format!("HTTP {status}"), retry))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::uploader_name;
+
+    #[test]
+    fn a_typed_name_uploads_only_as_a_player_of_the_fight() {
+        let fight = ["marloms", "Zhou"];
+        assert_eq!(uploader_name(Some("marloms".into()), false, fight), Some("marloms".into()));
+        assert_eq!(uploader_name(Some("m".into()), false, fight), None, "half typed");
+        assert_eq!(uploader_name(Some("Neuling".into()), true, fight), Some("Neuling".into()), "the game's word");
+        assert_eq!(uploader_name(Some(" ".into()), true, fight), None);
+    }
 }

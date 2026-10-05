@@ -51,7 +51,26 @@
     return id;
   };
 
-  const characterName = () => String(window._dpsApp?.USER_NAME || "").trim();
+  // The name the room knows this meter by: a member of the group from the
+  // first hello on. The game's own record of who is playing wins. A typed
+  // name counts only once it has stood unchanged for a while: the name field
+  // saves after a short pause in typing, and "b" on the way to a longer name
+  // once joined the room as a member of its own.
+  const TYPED_NAME_STABLE_MS = 30000;
+  let typed = { name: "", since: 0 };
+  const characterName = () => {
+    let info = {};
+    try {
+      const raw = bridge()?.getConnectionInfo?.();
+      info = (typeof raw === "string" ? JSON.parse(raw) : raw) || {};
+    } catch {}
+    const fromGame = String(info.characterName ?? "").trim();
+    if (info.characterNameFromGame && fromGame) return fromGame;
+    const name = String(window._dpsApp?.USER_NAME || "").trim();
+    if (name !== typed.name) typed = { name, since: Date.now() };
+    return name && Date.now() - typed.since >= TYPED_NAME_STABLE_MS ? name : "";
+  };
+  let helloName = "";
 
   function disconnect() {
     clearTimeout(reconnectTimer);
@@ -85,6 +104,7 @@
     let socket;
     try { socket = new WebSocket(url); } catch { setStatus("error", t("Ungültige Server-Adresse", "Invalid server address")); return; }
     ws = socket;
+    helloName = name;
     socket.onopen = () => {
       socket.send(JSON.stringify({ t: "hello", v: 1, secret: c.secret, role: "app", clientId: clientId(), name: name.slice(0, 24), wantGroup: false }));
     };
@@ -210,6 +230,12 @@
     tauri.event.listen("fork-cloud-status-request", () => setStatus(status.state, status.text));
     // Give the meter a moment to learn the character name.
     setTimeout(connect, 3000);
+    // Another character, or the game's name replacing a typed one: the room
+    // should see the new name, which only a new hello tells it.
+    setInterval(() => {
+      const name = characterName();
+      if (ws?.readyState === 1 && name && name !== helloName) { retryMs = 1000; connect(); }
+    }, 10000);
   }
 
   // -------------------------------------------------------------- settings
