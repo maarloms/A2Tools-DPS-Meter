@@ -221,6 +221,7 @@ async function main() {
       headers: { ...auth, "content-type": "application/json", ...(gz ? { "content-encoding": "gzip" } : {}) },
       body: gz ? gzipSync(JSON.stringify(rec)) : JSON.stringify(rec),
     });
+  const getj0 = (p) => fetch(`${BASE}/api/rooms/${ROOM}${p}`, { headers: auth }).then((r) => r.json());
   const t0f = Date.now() - 120000;
   const recM = fakeRecord({ id: `auto_4242_${t0f}`, uploader: "Marlon", start: t0f });
   const up1 = await post("Marlon", recM);
@@ -261,6 +262,26 @@ async function main() {
   const lg1 = await (await post("Marlon", lg("Marlon", 0, 912_000))).json();
   const lg2 = await (await post("Freund2", lg("Freund2", 848_000, 205_000))).json();
   check("gleiche Entity, Kampfzeiten überschneiden sich → ein Kampf", lg2.fightId === lg1.fightId && lg2.perspectives === 2, JSON.stringify([lg1.fightId, lg2]));
+  // Ein Meter, das Datenmüll als eigenen Namen las: umbenennen bzw. ganz entfernen
+  const maint = (path, body) =>
+    fetch(`${BASE}/api/rooms/${ROOM}/maintenance/${path}`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+  const tJunk = t0f + 4_800_000;
+  const junk = await (await post("8Z", fakeRecord({ id: `auto_4302_${tJunk}`, uploader: "Marlon", start: tJunk, targetId: 4302, mobCode: 4302, bossName: "Testboss Umbenannt" }))).json();
+  const ren = await maint("rename", { from: "8Z", to: "Marlon" });
+  const fRen = await getj0(`/fights/${junk.fightId}`);
+  const memAfterRen = await getj0("/members");
+  check("Wartung rename: Upload gehört Marlon, 8Z kein Mitglied", ren.ok && fRen.summary?.uploaders?.join() === "Marlon" && !memAfterRen.members?.some((m) => m.name === "8Z"),
+    JSON.stringify([ren, fRen.summary?.uploaders]));
+  const dShared = await (await post("D", lg("D", 900_000, 100_000))).json();
+  const dSolo = await (await post("D", fakeRecord({ id: `auto_4303_${tJunk + 600_000}`, uploader: "Marlon", start: tJunk + 600_000, targetId: 4303, mobCode: 4303, bossName: "Testboss Entfernt" }))).json();
+  const rem = await maint("remove", { name: "D" });
+  const fShared = await getj0(`/fights/${dShared.fightId}`);
+  const fSolo = await fetch(`${BASE}/api/rooms/${ROOM}/fights/${dSolo.fightId}`, { headers: auth });
+  const memAfterRem = await getj0("/members");
+  check("Wartung remove: geteilter Kampf ohne D, eigener gelöscht, D kein Mitglied",
+    rem.ok && rem.uploads === 2 && rem.deletedFights === 1 && dShared.fightId === lg1.fightId && fShared.summary?.uploaders?.join() === "Marlon,Freund2" &&
+      fSolo.status === 404 && !memAfterRem.members?.some((m) => m.name === "D"),
+    JSON.stringify([rem, fShared.summary?.uploaders, fSolo.status]));
   const dedupe = await fetch(`${BASE}/api/rooms/${ROOM}/maintenance/dedupe`, { method: "POST", headers: auth }).then((r) => r.json());
   check("Wartung dedupe läuft, nichts mehr doppelt", dedupe.merged === 0, JSON.stringify(dedupe));
 

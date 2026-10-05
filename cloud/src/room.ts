@@ -27,7 +27,7 @@ import {
   unmaskDetail,
   unmasker,
 } from "./fights";
-import { deleteEncounter, loadEncounter, registerMember, saveUpload } from "./store";
+import { deleteEncounter, loadEncounter, reassignUploads, registerMember, removeMember, saveUpload } from "./store";
 import { activeMembers, isAllowed } from "./members";
 import { recordsOf } from "./stats";
 
@@ -126,6 +126,12 @@ export class Room extends DurableObject<Env> {
       if (f && req.method === "DELETE") return await this.deleteFight(room, f[1]);
       const u = /^\/uploads\/([0-9a-f]{16})\/raw$/.exec(rest);
       if (u && req.method === "GET") return this.rawUpload(u[1]);
+      if ((rest === "/maintenance/rename" || rest === "/maintenance/remove") && req.method === "POST") {
+        // Wie Uploads nacheinander: beide fuehren Kaempfe neu zusammen
+        const run = this.uploadChain.then(() => this.maintainMember(req, room, rest));
+        this.uploadChain = run.catch(() => undefined);
+        return await run;
+      }
     } catch (e) {
       if (e instanceof TooLargeError) return json({ error: "too_large", message: e.message }, 413);
       if (e instanceof RecordError) return json({ error: "bad_record", message: e.message }, 400);
@@ -608,6 +614,29 @@ export class Room extends DurableObject<Env> {
         "cache-control": "no-store",
       },
     });
+  }
+
+  /** Falsch benannte Uploader: umbenennen ({from, to}) oder ganz entfernen ({name}). */
+  private async maintainMember(req: Request, room: string, rest: string): Promise<Response> {
+    const body = (await req.json().catch(() => null)) as { from?: unknown; to?: unknown; name?: unknown } | null;
+    const known = await activeMembers(this.env.DB, this.env, room);
+    let result: unknown;
+    if (rest === "/maintenance/rename") {
+      const from = cleanName(body?.from), to = cleanName(body?.to);
+      if (!from || !to || from.toLowerCase() === to.toLowerCase()) return json({ error: "from_and_to_required" }, 400);
+      result = await reassignUploads(this.env.DB, room, from, to, known);
+      this.memberSeen.delete(from);
+    } else {
+      const name = cleanName(body?.name);
+      if (!name) return json({ error: "name_required" }, 400);
+      const res = await removeMember(this.env.DB, room, name, known.filter((n) => n.toLowerCase() !== name.toLowerCase()));
+      this.ctx.storage.transactionSync(() => res.uploads.forEach((u) => this.forgetRaw(u)));
+      this.memberSeen.delete(name);
+      result = { uploads: res.uploads.length, fights: res.fights, deletedFights: res.deletedFights };
+    }
+    await this.refreshMembers(true);
+    this.scheduleBroadcast();
+    return json({ ok: true, ...(result as object) });
   }
 
   private async deleteFight(room: string, id: string): Promise<Response> {

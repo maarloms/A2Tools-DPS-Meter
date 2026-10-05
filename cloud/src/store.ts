@@ -352,6 +352,62 @@ export async function mergeDuplicates(db: D1Database, room: string, known: strin
   return { merged };
 }
 
+/** Kaempfe, in denen `name` hochgeladen hat. */
+async function encountersOf(db: D1Database, room: string, name: string): Promise<string[]> {
+  return (
+    await db
+      .prepare("SELECT DISTINCT encounter_id AS id FROM uploads WHERE room = ?1 AND lower(uploader) = ?2")
+      .bind(room, name.toLowerCase())
+      .all<{ id: string }>()
+  ).results.map((r) => r.id);
+}
+
+/**
+ * Uploads von `from` gehoeren `to`: ein Meter, das sich falsch benannt hatte
+ * (eine Zeitlang las es Datenmuell als seinen Namen). Die Kaempfe werden neu
+ * zusammengefuehrt, `from` ist danach kein Mitglied mehr.
+ */
+export async function reassignUploads(db: D1Database, room: string, from: string, to: string, known: string[], now = Date.now()) {
+  const encounters = await encountersOf(db, room, from);
+  await db.batch([
+    db.prepare("UPDATE uploads SET uploader = ?1 WHERE room = ?2 AND lower(uploader) = ?3").bind(to, room, from.toLowerCase()),
+    db.prepare("DELETE FROM members WHERE room = ?1 AND name_lc = ?2").bind(room, from.toLowerCase()),
+  ]);
+  await registerMember(db, room, to, now, false);
+  for (const id of encounters) await remerge(db, room, id, known, now);
+  return { fights: encounters.length };
+}
+
+/**
+ * Entfernt einen Namen ganz: Mitglied, Statistik, Rekorde und seine Uploads.
+ * Kaempfe mit weiteren Perspektiven werden ohne ihn neu zusammengefuehrt,
+ * Kaempfe nur aus seinen Uploads geloescht. Liefert die Upload-IDs (fuer die
+ * Rohdaten im DO).
+ */
+export async function removeMember(db: D1Database, room: string, name: string, known: string[], now = Date.now()) {
+  const lc = name.toLowerCase();
+  const encounters = await encountersOf(db, room, name);
+  const uploads = (
+    await db.prepare("SELECT id FROM uploads WHERE room = ?1 AND lower(uploader) = ?2").bind(room, lc).all<{ id: string }>()
+  ).results.map((r) => r.id);
+  await db.batch([
+    db.prepare("DELETE FROM uploads WHERE room = ?1 AND lower(uploader) = ?2").bind(room, lc),
+    db.prepare("DELETE FROM player_stats WHERE room = ?1 AND player_lc = ?2").bind(room, lc),
+    db.prepare("DELETE FROM records WHERE room = ?1 AND player_lc = ?2").bind(room, lc),
+    db.prepare("DELETE FROM members WHERE room = ?1 AND name_lc = ?2").bind(room, lc),
+  ]);
+  let deleted = 0;
+  for (const id of encounters) {
+    const left = await db.prepare("SELECT 1 AS x FROM uploads WHERE encounter_id = ?1 LIMIT 1").bind(id).first();
+    if (left) await remerge(db, room, id, known, now);
+    else {
+      await deleteEncounter(db, id);
+      deleted++;
+    }
+  }
+  return { uploads, fights: encounters.length, deletedFights: deleted };
+}
+
 /** Aelteste Kaempfe ueber dem Limit loeschen. Liefert geloeschte Upload-IDs (fuer Rohdaten im DO). */
 async function enforceRetention(db: D1Database, room: string): Promise<string[]> {
   const old = (
