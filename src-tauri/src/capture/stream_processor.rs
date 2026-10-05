@@ -907,6 +907,24 @@ impl StreamProcessor {
                 i += 1;
                 continue;
             };
+            // A self record goes on with your server (u16) and class (u32, the
+            // roster's encoding). fork: required, not only read: this scan
+            // runs over any bytes, and with a short name the pattern above also
+            // fits noise. The meter took itself for 'A', 'p', 'b', 'V', '8Z'
+            // and others (2026-10-04/05), joined the group room under those
+            // names and uploaded fights as them. Every real self record in the
+            // captures carries both.
+            let after = mask2_idx + 2 + name_len;
+            let profile = data.get(after..after + 6).and_then(|rest| {
+                let server = u16::from_le_bytes([rest[0], rest[1]]);
+                let class = u32::from_le_bytes([rest[2], rest[3], rest[4], rest[5]]);
+                let job = crate::entity::job_class::JobClass::from_roster_class(class)?;
+                (1000..3000).contains(&server).then_some((server, job))
+            });
+            if is_self && profile.is_none() {
+                i += 1;
+                continue;
+            }
 
             self.data_storage.note_low_id_entity(id.value);
             self.data_storage
@@ -923,25 +941,16 @@ impl StreamProcessor {
                 {
                     tracing::info!("self record: local player '{}' -> entity {}", sanitized, id.value);
                 }
-                // Then your server (u16) and class (u32, the roster's encoding).
-                // The class has to read as one, so a record laid out some other
-                // way is not taken for a server.
-                let after = mask2_idx + 2 + name_len;
-                if let Some(rest) = data.get(after..after + 6) {
-                    let server = u16::from_le_bytes([rest[0], rest[1]]);
-                    let class = u32::from_le_bytes([rest[2], rest[3], rest[4], rest[5]]);
-                    let job = crate::entity::job_class::JobClass::from_roster_class(class);
-                    if (1000..3000).contains(&server) && job.is_some() {
-                        self.data_storage.note_player_server(&sanitized, server);
-                        // A byte, then level (u32). Confirmed by a level-up, 28
-                        // then 29 (Naicha, 2026-10-04), and against the roster's
-                        // levels for three other players.
-                        let level = data
-                            .get(after + 7..after + 11)
-                            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-                            .filter(|l| (1..=99).contains(l));
-                        self.data_storage.note_self_profile(&sanitized, job, level);
-                    }
+                if let Some((server, job)) = profile {
+                    self.data_storage.note_player_server(&sanitized, server);
+                    // A byte, then level (u32). Confirmed by a level-up, 28
+                    // then 29 (Naicha, 2026-10-04), and against the roster's
+                    // levels for three other players.
+                    let level = data
+                        .get(after + 7..after + 11)
+                        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                        .filter(|l| (1..=99).contains(l));
+                    self.data_storage.note_self_profile(&sanitized, Some(job), level);
                 }
             } else {
                 tracing::debug!("player record: '{}' -> entity {}", sanitized, id.value);
@@ -2773,6 +2782,22 @@ mod tests {
         assert_eq!(me.name.as_deref(), Some("Naicha"));
         assert_eq!(storage.local_player_id(), Some(14957));
         assert_eq!((me.server_id, me.class, me.level), (1304, Some(crate::entity::job_class::JobClass::Cleric), Some(28)));
+    }
+
+    /// fork: bytes that only look like a self record. The same shape as
+    /// Naicha's, but the name '8Z' (entity 9056) is followed by no server and
+    /// class: the meter took itself for '8Z' on 2026-10-05 and uploaded a
+    /// fight under that name.
+    #[test]
+    fn a_self_record_without_server_and_class_is_noise() {
+        let storage = Arc::new(DataStorage::new());
+        let processor = StreamProcessor::new(storage.clone(), Arc::new(SkillLookup::new()), Arc::new(NpcLookup::new()));
+        let hex = "3336e0465e91c1283702385aff00ab000000";
+        let record: Vec<u8> = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()).collect();
+        processor.scan_masked_identity(&record);
+        assert_eq!(storage.local_player_id(), None);
+        assert_eq!(storage.local_character_name(), None);
+        assert!(!storage.local_identity_from_self_record());
     }
 
     /// A Sorcerer on Ventus (server 1305) killing a mob, from a player's log
