@@ -440,6 +440,15 @@ impl Blinder {
         // Every buffer handed to the blinder is one framed packet: skip its
         // length and opcode.
         let header = super::stream_processor::read_varint(buf, 0);
+        // Damage, damage over time and HP updates are ids and numbers only.
+        // Scanning them for names blinded skill ids that read as text:
+        // `02 | 50 77 f6 00` (Water Spirit: Ice Chain) is "Pw".
+        if header.length > 0 {
+            let o = header.length as usize;
+            if buf.len() >= o + 2 && EVENT_OPCODES.contains(&[buf[o], buf[o + 1]]) {
+                return 0;
+            }
+        }
         let mut i = if header.length > 0 { header.length as usize + 2 } else { 0 };
         while i < buf.len() {
             let len = buf[i] as usize;
@@ -454,13 +463,35 @@ impl Blinder {
             }
             // Safe: `looks_like_text` already required valid UTF-8.
             let text = std::str::from_utf8(span).unwrap().to_string();
-            let token = token_for(&text, 0, len);
-            self.discovered.insert(token.clone(), 0);
-            buf[i + 1..i + 1 + len].copy_from_slice(token.as_bytes());
+            // A token must not spell a known name with the bytes around it:
+            // "13b87050fe08" before a `44` byte spelled the player name "8D".
+            let mut salt = 0u32;
+            let token = loop {
+                let token = match salt {
+                    0 => token_for(&text, 0, len),
+                    _ => token_for(&format!("{text}\0{salt}"), 0, len),
+                };
+                buf[i + 1..i + 1 + len].copy_from_slice(token.as_bytes());
+                if salt == 15 || !self.spells_known_name(buf, i + 1, i + 1 + len) {
+                    break token;
+                }
+                salt += 1;
+            };
+            self.discovered.insert(token, 0);
             replaced += 1;
             i += 1 + len;
         }
         replaced
+    }
+
+    /// Does any known name overlap `buf[from..to]`?
+    fn spells_known_name(&self, buf: &[u8], from: usize, to: usize) -> bool {
+        self.known.iter().any(|(name, _)| {
+            let n = name.len();
+            let start = (from + 1).saturating_sub(n);
+            let end = (to + n - 1).min(buf.len());
+            end >= start + n && buf[start..end].windows(n).any(|w| w == name.as_slice())
+        })
     }
 }
 
@@ -500,8 +531,13 @@ fn looks_like_text(span: &[u8]) -> bool {
         }
     }
     // At least half the characters being letters or digits rules out runs of
-    // punctuation that happen to decode.
-    letters * 2 >= s.chars().count().max(1)
+    // punctuation that happen to decode. One character can be a name ("é",
+    // "あ"), so it is blinded; the skill ids that read as one letter sit in
+    // damage records, which are not scanned at all.
+    // A short run must be letters or digits only: Water Bomb (16001105,
+    // `51 28 f4 00`) after a `02` byte reads "Q(", half a letter.
+    let chars = s.chars().count();
+    letters * 2 >= chars && (chars > 3 || letters == chars)
 }
 
 /// Every byte of a record in the clear, bundles decompressed.
@@ -1025,6 +1061,67 @@ mod tests {
         let mut packet = frame_packet(&body).unwrap();
         Blinder::new(&[]).blind(&mut packet);
         assert!(!packet.windows(2).any(|w| w == b"M7"));
+    }
+
+    #[test]
+    fn a_skill_id_that_decodes_as_one_letter_is_left_alone() {
+        // A spirit's damage record (2026-10-04): `.. 02 | d3 86 01 00` is a
+        // byte 02 then skill 100051, and d3 86 is valid UTF-8 for one letter.
+        let mut body = vec![0x04, 0x38, 0xfe, 0x9e, 0x02, 0x04, 0x00, 0x9e, 0x9b, 0x01, 0x02, 0xd3, 0x86, 0x01, 0x00];
+        body.resize(40, 0x00);
+        let mut packet = frame_packet(&body).unwrap();
+        Blinder::new(&[]).blind(&mut packet);
+        assert!(packet.windows(4).any(|w| w == [0xd3, 0x86, 0x01, 0x00]));
+    }
+
+    #[test]
+    fn a_one_character_name_is_blinded() {
+        // A player spawn carrying the one-letter name "あ" (`e3 81 82`).
+        let mut body = vec![0x44, 0x36, 0x9e, 0x9b, 0x01, 0x03, 0xe3, 0x81, 0x82];
+        body.resize(40, 0x00);
+        let mut packet = frame_packet(&body).unwrap();
+        Blinder::new(&[]).blind(&mut packet);
+        assert!(!packet.windows(3).any(|w| w == [0xe3, 0x81, 0x82]));
+    }
+
+    #[test]
+    fn damage_records_are_not_scanned_for_names() {
+        // Water Spirit: Ice Chain, 2026-10-04: actor 48405 ends in 02, and the
+        // skill id 16152400 starts `50 77`, "Pw".
+        let mut body = vec![0x04, 0x38, 0xfe, 0x9e, 0x02, 0x04, 0x00, 0x95, 0xfa, 0x02, 0x50, 0x77, 0xf6, 0x00];
+        body.resize(40, 0x00);
+        let mut packet = frame_packet(&body).unwrap();
+        Blinder::new(&[]).blind(&mut packet);
+        assert!(packet.windows(4).any(|w| w == [0x50, 0x77, 0xf6, 0x00]));
+    }
+
+    #[test]
+    fn a_skill_id_that_reads_as_a_letter_and_a_bracket_is_left_alone() {
+        // Water Bomb, 16001105: `02 | 51 28 f4 00` reads "Q(".
+        let mut body = vec![0x04, 0x38, 0xfe, 0x9e, 0x02, 0x04, 0x00, 0x9e, 0x9b, 0x01, 0x02, 0x51, 0x28, 0xf4, 0x00];
+        body.resize(40, 0x00);
+        let mut packet = frame_packet(&body).unwrap();
+        Blinder::new(&[]).blind(&mut packet);
+        assert!(packet.windows(4).any(|w| w == [0x51, 0x28, 0xf4, 0x00]));
+    }
+
+    #[test]
+    fn a_token_never_spells_a_known_name_with_its_neighbours() {
+        // Capture 2026-10-04 01:45, a `45 36` player spawn: the run
+        // "d\dddd:^ddZl" became "13b87050fe08", and with the `44` after it
+        // spelled "8D", the name of another player in the capture.
+        let mut body = vec![0x45, 0x36, 0x3c, 0x03, 0x00, 0x00, 0xde, 0x02, 0x0c, 0x64, 0x5c, 0x64, 0x64, 0x64, 0x64, 0x3a, 0x5e, 0x64, 0x64, 0x5a, 0x6c, 0x44, 0xb2, 0x64, 0x6a, 0x64, 0x64, 0x58, 0x64, 0x48, 0x7c, 0x8a];
+        body.resize(64, 0x00);
+        let mut packet = frame_packet(&body).unwrap();
+        let before = packet.clone();
+        let name = "8D".to_string();
+        Blinder::new(&[(&name, &0)]).blind(&mut packet);
+        assert!(!packet.windows(2).any(|w| w == b"8D"));
+        // Still blinded, and nothing but the run changed.
+        let at = before.windows(3).position(|w| w == [0xde, 0x02, 0x0c]).unwrap() + 3;
+        assert_ne!(packet[at..at + 12], before[at..at + 12]);
+        assert_eq!(packet[..at], before[..at]);
+        assert_eq!(packet[at + 12..], before[at + 12..]);
     }
 
     #[test]
