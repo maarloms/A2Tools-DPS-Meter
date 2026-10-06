@@ -514,11 +514,22 @@ fn parse_tcp_payload(frame: &[u8], link_type: c_int, device_name: &str) -> Optio
         u32::from_be_bytes([tcp_header[8], tcp_header[9], tcp_header[10], tcp_header[11]]);
     let tcp_header_len = ((tcp_header[12] >> 4) as usize) * 4;
 
+    // The payload ends where the IP packet says it does, not at the end of the
+    // frame: Ethernet pads short frames to 60 bytes, so a bare ACK carries 6
+    // padding bytes after its TCP header. Most network cards pad with zeros,
+    // which the framing skips; some pad with whatever was in the buffer, and
+    // those bytes landed in the game stream and threw the framing off. One
+    // player's meter read 77% of a boss's damage while their party member's,
+    // in the same fight, read all of it (2026-10-06). A total length of 0
+    // (segmentation offload) or past the frame keeps the frame's end.
+    let ip_total_len = u16::from_be_bytes([ip_header[2], ip_header[3]]) as usize;
+    let ip_end = ip_offset + ip_total_len;
+    let end = if ip_total_len >= ip_header_len + 20 && ip_end <= frame.len() { ip_end } else { frame.len() };
     let payload_offset = tcp_offset + tcp_header_len;
-    if payload_offset >= frame.len() {
+    if payload_offset >= end {
         return None;
     }
-    let payload = &frame[payload_offset..];
+    let payload = &frame[payload_offset..end];
     if payload.is_empty() {
         return None;
     }
@@ -580,6 +591,32 @@ mod tests {
         // Raw IP on a device that claims Ethernet: the exact read fails, the
         // guess finds IPv4 at 0, as it always did.
         check(1, &[]);
+    }
+
+    #[test]
+    fn ethernet_padding_is_not_payload() {
+        // A bare ACK (IP total length 40) padded to 60 bytes with non-zero
+        // bytes, as one player's network card sends them (2026-10-06).
+        let ether = [[0u8; 12].as_slice(), &[0x08, 0x00]].concat();
+        let mut ack = ipv4_tcp();
+        ack.truncate(40);
+        ack[3] = 40;
+        let frame = [ether.as_slice(), &ack, &[0xbe, 0xde, 0x00, 0x03, 0x66, 0xfd]].concat();
+        assert!(parse_tcp_payload(&frame, 1, "dev").is_none());
+
+        // Data followed by padding keeps only the data.
+        let mut short = ipv4_tcp();
+        short.truncate(41);
+        short[3] = 41;
+        let frame = [ether.as_slice(), &short, &[0xbe, 0xde, 0x00, 0x03, 0x66]].concat();
+        assert_eq!(parse_tcp_payload(&frame, 1, "dev").unwrap().data, b"h");
+
+        // A total length of 0 (segmentation offload) keeps the frame's end.
+        let mut tso = ipv4_tcp();
+        tso[2] = 0;
+        tso[3] = 0;
+        let frame = [ether.as_slice(), &tso].concat();
+        assert_eq!(parse_tcp_payload(&frame, 1, "dev").unwrap().data, b"hi");
     }
 
     #[test]
