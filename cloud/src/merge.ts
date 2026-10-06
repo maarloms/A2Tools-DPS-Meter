@@ -4,7 +4,9 @@
 import { LIMITS, Snap } from "./protocol";
 
 export interface MemberView {
-  clientId: string;
+  /** Kurzer Schlüssel je Verbindung. Nicht die clientId: wer sie kennt,
+   *  kann sich per hello als dieser Client ausgeben und ihn verdrängen. */
+  key: string;
   name: string;
   online: boolean;
   /** "fighting" (Snapshot < 15 s), "idle" (verbunden, nichts Neues), "offline" */
@@ -56,8 +58,15 @@ export interface OnlineApp {
   name: string;
 }
 
+/** Nicht umkehrbarer Kurzschlüssel einer clientId (FNV-1a, 32 Bit). */
+export function clientTag(clientId: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < clientId.length; i++) h = Math.imul(h ^ clientId.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
 function encounterKey(s: Snap): string {
-  if (!s.target.name) return `c|${s.clientId}`; // "Alle Ziele"-Modus o. ae.: pro Melder
+  if (!s.target.name) return `c|${clientTag(s.clientId)}`; // "Alle Ziele"-Modus o. ae.: pro Melder
   return `${s.target.id}|${s.target.name}`;
 }
 
@@ -163,7 +172,7 @@ export function buildGroupView(
     const me = selfEntry(s);
     const fighting = now - s.ts <= LIMITS.activeMs && s.players.length > 0;
     members.set(s.clientId, {
-      clientId: s.clientId,
+      key: clientTag(s.clientId),
       name: s.name,
       online: onlineIds.has(s.clientId),
       state: !onlineIds.has(s.clientId) ? "offline" : fighting ? "fighting" : "idle",
@@ -180,7 +189,7 @@ export function buildGroupView(
     if (m) m.name = o.name;
     else
       members.set(o.clientId, {
-        clientId: o.clientId,
+        key: clientTag(o.clientId),
         name: o.name,
         online: true,
         state: "idle",

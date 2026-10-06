@@ -136,6 +136,12 @@
         setStatus("error", t("Von anderer Verbindung abgelöst", "Replaced by another connection"));
       } else if (ev.code === 4002) {
         setStatus("error", t("App-Update nötig", "Update the app"));
+      } else if (ev.code === 4006) {
+        // The room only lets in the names on its member list. The meter may
+        // have your name wrong for a moment: try again later.
+        setStatus("error", t(`„${helloName}“ steht nicht in der Mitgliederliste des Raums`, `"${helloName}" is not on the room's member list`));
+        retryMs = Math.max(retryMs, 30000);
+        scheduleReconnect();
       } else {
         setStatus("wait", t("Getrennt, neuer Versuch …", "Disconnected, retrying …"));
         scheduleReconnect();

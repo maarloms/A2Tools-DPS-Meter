@@ -5,7 +5,7 @@
 //  - /api/rooms/:code/*: Auth per "Authorization: Bearer <secret>" (App) ODER Session-Cookie (Dashboard).
 // Der Worker macht nur billige Arbeit (Routing, Auth, Header) – 10-ms-CPU-Limit im Free Plan.
 
-import { Env, allowedOrigin, bearer, checkRoomSecret, corsHeaders } from "./auth";
+import { Env, allowedOrigin, bearer, checkAdmin, checkRoomSecret, corsHeaders, isAdminRoute } from "./auth";
 import { handleDiagnostics, isDiagnosticPath } from "./diagnostics";
 import { LIMITS, PROTOCOL_VERSION, ROOM_CODE_RE } from "./protocol";
 import { SESSION_DAYS, createSession, sessionCookie, sessionRoom } from "./session";
@@ -176,6 +176,9 @@ export default {
 
     if (!viaSession && !(await checkRoomSecret(env, code, bearer(req)))) {
       return json({ error: "unauthorized" }, 401, { ...cors, "www-authenticate": 'Bearer realm="a2dps"' });
+    }
+    if (isAdminRoute(req.method, rest) && !(await checkAdmin(env, req.headers.get("x-a2-admin")))) {
+      return json({ error: "admin_required" }, 403, cors);
     }
 
     // Lesende Statistik + Mitgliederverwaltung direkt aus D1 – kein Durable-Object-Aufruf

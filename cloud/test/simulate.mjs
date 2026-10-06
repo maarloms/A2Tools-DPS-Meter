@@ -29,6 +29,8 @@ function check(name, ok, info = "") {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const auth = { authorization: `Bearer ${SECRET}` };
+// Löschen, Ausblenden, Wartung: zusätzlich das Admin-Passwort (ADMIN_SECRET in .dev.vars)
+const admin = { ...auth, "x-a2-admin": process.env.ADMIN ?? "admin-secret-nur-fuer-tests-123" };
 
 function connect({ role, name, clientId, secret = SECRET, hello = true }) {
   const ws = new WebSocket(WS_URL);
@@ -171,6 +173,12 @@ async function main() {
   check("3 Mitglieder online + kämpfend", g?.members?.filter((m) => m.state === "fighting").length === 3, JSON.stringify(g?.members?.map((m) => `${m.name}:${m.state}`)));
   check("ein gemeinsamer Kampf mit 3 Meldern", g?.encounters?.[0]?.key === enc?.key && enc?.reporters?.length === 3);
   check("3 Spieler zusammengeführt", enc?.players?.length === 3);
+  check("Gruppenansicht verrät keine clientId", g?.members?.length > 0 && g.members.every((m) => !("clientId" in m) && /^[0-9a-f]{8}$/.test(m.key)) && !JSON.stringify(g).includes("client-marlon-00"));
+  const hijack = connect({ role: "app", name: "Boese", clientId: "client-marlon-00" });
+  await hijack.opened;
+  const hijackClose = await Promise.race([hijack.closedP, sleep(3000).then(() => null)]);
+  await sleep(300);
+  check("fremde clientId unter anderem Namen → abgewiesen (4007), Original bleibt", hijackClose?.code === 4007 && apps[0].closed === null, JSON.stringify([hijackClose, apps[0].closed]));
   const marlon = enc?.players?.find((p) => p.name === "Marlon");
   check("Eigenmeldung (höchster Schaden) gewinnt", marlon?.dmg === 12000 * 6 && marlon?.src === "Marlon", JSON.stringify(marlon));
   check("Anteil am Mob-Schaden berechnet", enc?.players?.every((p) => p.share > 0) && enc.players.reduce((s, p) => s + p.share, 0) <= 100.5);
@@ -264,7 +272,7 @@ async function main() {
   check("gleiche Entity, Kampfzeiten überschneiden sich → ein Kampf", lg2.fightId === lg1.fightId && lg2.perspectives === 2, JSON.stringify([lg1.fightId, lg2]));
   // Ein Meter, das Datenmüll als eigenen Namen las: umbenennen bzw. ganz entfernen
   const maint = (path, body) =>
-    fetch(`${BASE}/api/rooms/${ROOM}/maintenance/${path}`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+    fetch(`${BASE}/api/rooms/${ROOM}/maintenance/${path}`, { method: "POST", headers: { ...admin, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
   const tJunk = t0f + 4_800_000;
   const junk = await (await post("8Z", fakeRecord({ id: `auto_4302_${tJunk}`, uploader: "Marlon", start: tJunk, targetId: 4302, mobCode: 4302, bossName: "Testboss Umbenannt" }))).json();
   const ren = await maint("rename", { from: "8Z", to: "Marlon" });
@@ -282,7 +290,7 @@ async function main() {
     rem.ok && rem.uploads === 2 && rem.deletedFights === 1 && dShared.fightId === lg1.fightId && fShared.summary?.uploaders?.join() === "Marlon,Freund2" &&
       fSolo.status === 404 && !memAfterRem.members?.some((m) => m.name === "D"),
     JSON.stringify([rem, fShared.summary?.uploaders, fSolo.status]));
-  const dedupe = await fetch(`${BASE}/api/rooms/${ROOM}/maintenance/dedupe`, { method: "POST", headers: auth }).then((r) => r.json());
+  const dedupe = await fetch(`${BASE}/api/rooms/${ROOM}/maintenance/dedupe`, { method: "POST", headers: admin }).then((r) => r.json());
   check("Wartung dedupe läuft, nichts mehr doppelt", dedupe.merged === 0, JSON.stringify(dedupe));
 
   // ---------- Neue Bestwerte ----------
@@ -349,7 +357,7 @@ async function main() {
     JSON.stringify(ov.group));
   const cmp = await getj("/stats/compare?days=30");
   check("Vergleich: Mitglieder, pro Boss, Verlauf", cmp.members?.length >= 3 && cmp.matrix?.length >= 1 && cmp.members.some((m) => m.firsts >= 1) && cmp.series?.points?.length > 0);
-  const bf = await (await fetch(`${BASE}/api/rooms/${ROOM}/maintenance/backfill`, { method: "POST", headers: auth })).json();
+  const bf = await (await fetch(`${BASE}/api/rooms/${ROOM}/maintenance/backfill`, { method: "POST", headers: admin })).json();
   check("Peak-DPS und Frontal-Quote alter Kämpfe nachgetragen", bf.remaining === 0, JSON.stringify(bf));
   const mPeak = (await getj("/stats/compare?days=30")).members.find((m) => m.name === "Marlon");
   check("Frontal-Quote im Vergleich", mPeak?.avgFront > 0, String(mPeak?.avgFront));
@@ -410,7 +418,7 @@ async function main() {
 
   // ---------- Mitglieder verwalten ----------
   const patch = (name, active) =>
-    fetch(`${BASE}/api/rooms/${ROOM}/members`, { method: "PATCH", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ name, active }) });
+    fetch(`${BASE}/api/rooms/${ROOM}/members`, { method: "PATCH", headers: { ...admin, "content-type": "application/json" }, body: JSON.stringify({ name, active }) });
   check("Mitglied ausblenden", (await patch(NEU, false)).status === 200);
   const mem = await getj("/members");
   check("Mitgliederliste zeigt ausgeblendet", mem.members?.some((m) => m.name === NEU && m.active === false) && mem.fixed === false);
@@ -433,7 +441,7 @@ async function main() {
   check("Boss-Verwaltung: Miniboss ausgeblendet, Testboss zählt", bs.bosses?.find((b) => b.mobCode === 7777)?.hidden === true &&
     bs.bosses?.find((b) => b.mobCode === 4242)?.hidden === false && bs.minHp > 900_000, JSON.stringify(bs.bosses));
   const setMode = (mobCode, mode) =>
-    fetch(`${BASE}/api/rooms/${ROOM}/boss-settings`, { method: "PATCH", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ mobCode, mode }) });
+    fetch(`${BASE}/api/rooms/${ROOM}/boss-settings`, { method: "PATCH", headers: { ...admin, "content-type": "application/json" }, body: JSON.stringify({ mobCode, mode }) });
   check("Boss fest einblenden", (await setMode(7777, "show")).status === 200 && hasMini(await getj("/stats/bosses")) && (await inList()));
   check("Boss fest ausblenden", (await setMode(4242, "hide")).status === 200 && !(await getj("/stats/bosses")).bosses?.some((b) => b.mobCode === 4242));
   await setMode(4242, "auto");
@@ -525,8 +533,13 @@ async function main() {
     check("echter Kampf: Detail lesbar", d.ok && dj.players.length > 0, `${dj.summary.boss}, ${dj.summary.actorCount} Akteure, Detail ${(dt.length / 1e3).toFixed(0)} KB, Top: ${dj.players[0].name} ${Math.round(dj.players[0].dps)} DPS`);
   }
 
+  // Nur mit Admin-Passwort: das Raum-Secret allein reicht nicht
+  const noAdmin = await fetch(`${BASE}/api/rooms/${ROOM}/fights/${up1j.fightId}`, { method: "DELETE", headers: auth });
+  const wrongAdmin = await fetch(`${BASE}/api/rooms/${ROOM}/fights/${up1j.fightId}`, { method: "DELETE", headers: { ...auth, "x-a2-admin": "falsch" } });
+  const noAdminMaint = await fetch(`${BASE}/api/rooms/${ROOM}/maintenance/remove`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ name: "Marlon" }) });
+  check("Löschen/Wartung ohne Admin-Passwort → 403", noAdmin.status === 403 && (await noAdmin.json()).error === "admin_required" && wrongAdmin.status === 403 && noAdminMaint.status === 403);
   for (const id of [up1j.fightId, up4j.fightId, upNj.fightId, upXj.fightId]) {
-    const del = await fetch(`${BASE}/api/rooms/${ROOM}/fights/${id}`, { method: "DELETE", headers: auth });
+    const del = await fetch(`${BASE}/api/rooms/${ROOM}/fights/${id}`, { method: "DELETE", headers: admin });
     check("Löschen", del.status === 200);
   }
   check("danach 404", (await fetch(`${BASE}/api/rooms/${ROOM}/fights/${up1j.fightId}`, { headers: auth })).status === 404);

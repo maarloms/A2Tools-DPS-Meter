@@ -161,8 +161,28 @@ export function setMe(name) {
 
 export class AuthError extends Error {}
 
+// Löschen, Ausblenden und Wartung verlangt der Server mit einem eigenen
+// Admin-Passwort. Einmal pro Browser-Sitzung abgefragt, nur in dieser
+// gespeichert.
+const ADMIN_KEY = "a2-admin";
+const adminSecret = () => {
+  try { return sessionStorage.getItem(ADMIN_KEY) || ""; } catch { return ""; }
+};
+
 export async function api(path, opts = {}) {
-  const r = await fetch(`/api/rooms/${encodeURIComponent(state.room)}${path}`, { credentials: "same-origin", ...opts });
+  const send = () => {
+    const headers = new Headers(opts.headers || {});
+    const admin = adminSecret();
+    if (admin) headers.set("x-a2-admin", admin);
+    return fetch(`/api/rooms/${encodeURIComponent(state.room)}${path}`, { credentials: "same-origin", ...opts, headers });
+  };
+  let r = await send();
+  if (r.status === 403 && (await r.clone().json().catch(() => ({}))).error === "admin_required") {
+    const given = window.prompt(adminSecret() ? "Admin-Passwort falsch. Nochmal eingeben:" : "Dafür ist das Admin-Passwort nötig:");
+    if (!given) throw new Error("admin_required");
+    try { sessionStorage.setItem(ADMIN_KEY, given.trim()); } catch {}
+    r = await send();
+  }
   if (r.status === 401) {
     location.replace("/");
     throw new AuthError("unauthorized");

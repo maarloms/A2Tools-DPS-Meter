@@ -37,7 +37,7 @@ function stop(child) {
 
 const state = mkdtempSync(join(tmpdir(), "a2dps-test-"));
 const vars = join(state, "test.vars");
-writeFileSync(vars, `ROOMS="${ROOM}:${SECRET}"\nSESSION_KEY="lokaler-session-schluessel-nur-fuer-tests-0123456789"\n`);
+writeFileSync(vars, `ROOMS="${ROOM}:${SECRET}"\nSESSION_KEY="lokaler-session-schluessel-nur-fuer-tests-0123456789"\nADMIN_SECRET="admin-secret-nur-fuer-tests-123"\n`);
 
 let dev = null;
 let code = 1;

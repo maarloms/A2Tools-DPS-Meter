@@ -214,9 +214,15 @@ export class Room extends DurableObject<Env> {
       const clientId = typeof msg.clientId === "string" && CLIENT_ID_RE.test(msg.clientId) ? msg.clientId : "";
       const name = cleanName(msg.name);
       if (!clientId || !name) return this.closeWith(ws, 4003, "clientId_and_name_required");
-      // Gleicher Client verbindet neu → alte Verbindung abloesen
+      // Feste Mitgliederliste: andere Namen kommen nicht herein
+      if (!isAllowed(this.env, att.room, name)) return this.closeWith(ws, 4006, "not_a_member");
+      // Gleicher Client verbindet neu → alte Verbindung abloesen. Nur unter
+      // demselben Namen: sonst konnte jeder im Raum mit fremder clientId
+      // Verbindungen anderer kapern.
       for (const [other, a] of sockets) {
-        if (a.role === "app" && a.clientId === clientId) this.closeWith(other, 4004, "replaced", true);
+        if (a.role !== "app" || a.clientId !== clientId) continue;
+        if (a.name.toLowerCase() !== name.toLowerCase()) return this.closeWith(ws, 4007, "client_in_use");
+        this.closeWith(other, 4004, "replaced", true);
       }
       const apps = this.authedSockets().filter(([, a]) => a.role === "app").length;
       if (apps >= LIMITS.maxApps) return this.closeWith(ws, 4005, "room_full");
@@ -499,6 +505,7 @@ export class Room extends DurableObject<Env> {
     }
     const uploader = cleanName(url.searchParams.get("uploader"));
     if (!uploader) return json({ error: "bad_request", message: "Query-Parameter uploader fehlt" }, 400);
+    if (!isAllowed(this.env, room, uploader)) return json({ error: "not_a_member", message: `${uploader} steht nicht in der Mitgliederliste` }, 403);
 
     const body = await readLimited(req.body, LIMITS.maxUploadBytes);
     if (body.length === 0) return json({ error: "bad_request", message: "Leerer Body" }, 400);

@@ -14,6 +14,8 @@ export interface Env {
   ROOM_MEMBERS?: string;
   SESSION_KEY?: string;
   ALLOWED_ORIGINS?: string;
+  /** Zweites Passwort für Löschen, Ausblenden und Wartung. Ohne: wie das Raum-Secret. */
+  ADMIN_SECRET?: string;
 }
 
 const MIN_SECRET_LEN = 16;
@@ -60,6 +62,28 @@ export async function checkRoomSecret(env: Env, code: string, secret: unknown): 
   return ok && want !== undefined;
 }
 
+/**
+ * Darf diese Anfrage löschen, ausblenden, umbenennen? Mit ADMIN_SECRET nur,
+ * wenn der Header `x-a2-admin` es trägt: das Raum-Secret steckt in jedem
+ * Einladungslink, und jedes Mitglied konnte damit ganze Namen samt Kämpfen
+ * entfernen.
+ */
+export async function checkAdmin(env: Env, given: string | null): Promise<boolean> {
+  const want = env.ADMIN_SECRET ?? "";
+  if (!want) return true;
+  if (!given || given.length > 256) return false;
+  return crypto.subtle.timingSafeEqual(await sha256(given), await sha256(want));
+}
+
+/** Löschen, Ausblenden, Wartung: Routen, die `checkAdmin` brauchen. */
+export function isAdminRoute(method: string, rest: string): boolean {
+  return (
+    (method === "DELETE" && /^\/fights\//.test(rest)) ||
+    (method === "PATCH" && (rest === "/members" || rest === "/boss-settings")) ||
+    (method === "POST" && rest.startsWith("/maintenance/"))
+  );
+}
+
 /** SHA-256 des Raum-Secrets (für Session-Signaturen), null = Raum unbekannt */
 export async function roomDigest(env: Env, code: string): Promise<Uint8Array | null> {
   return (await rooms(env)).get(code) ?? null;
@@ -92,7 +116,7 @@ export function corsHeaders(origin: string | null): Record<string, string> {
   return {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "authorization, content-type, content-encoding",
+    "access-control-allow-headers": "authorization, content-type, content-encoding, x-a2-admin",
     "access-control-max-age": "86400",
     vary: "Origin",
   };
