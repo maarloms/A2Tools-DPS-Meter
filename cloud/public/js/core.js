@@ -211,7 +211,7 @@ export function currentRoute() {
   if ((m = /^#\/fight\/([0-9a-f]{16})\/vs\/([0-9a-f]{16})$/.exec(h))) return { name: "versus", a: m[1], b: m[2] };
   if ((m = /^#\/fight\/([0-9a-f]{16})$/.exec(h))) return { name: "fight", id: m[1] };
   if ((m = /^#\/me(?:\/(.+))?$/.exec(h))) return { name: "me", who: m[1] ? decodeURIComponent(m[1]) : "" };
-  for (const n of ["overview", "compare", "fights", "live", "timer", "members", "bosses", "start"]) if (h.startsWith(`#/${n}`)) return { name: n };
+  for (const n of ["overview", "compare", "fights", "live", "timer", "checklist", "members", "bosses", "start"]) if (h.startsWith(`#/${n}`)) return { name: n };
   return { name: "start" };
 }
 

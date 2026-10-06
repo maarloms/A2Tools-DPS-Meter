@@ -53,6 +53,7 @@ function routeOf(method: string, rest: string): "do" | "d1" | null {
   if (/^\/uploads\/[0-9a-f]{16}\/raw$/.test(rest)) return method === "GET" ? "do" : null;
   if (rest === "/members") return method === "GET" || method === "PATCH" ? "d1" : null;
   if (rest === "/boss-settings") return method === "GET" || method === "PATCH" ? "d1" : null;
+  if (rest === "/checklist") return method === "GET" || method === "PATCH" ? "d1" : null;
   if (rest === "/maintenance/backfill" || rest === "/maintenance/dedupe") return method === "POST" ? "d1" : null;
   if (rest === "/maintenance/rename" || rest === "/maintenance/remove") return method === "POST" ? "do" : null;
   if (/^\/stats\/(overview|bosses|leaderboard|player|compare|trends)$/.test(rest)) return method === "GET" ? "d1" : null;

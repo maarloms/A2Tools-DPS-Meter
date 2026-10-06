@@ -7,6 +7,7 @@ import { Env } from "./auth";
 import { activeMembers, fixedMembers, listMembers, setHidden } from "./members";
 import { backfillStats, mergeDuplicates } from "./store";
 import { listBosses, relevant, setBossMode } from "./bosses";
+import { listChecklist, patchChecklist } from "./checklist";
 
 const DAY = 86_400_000;
 
@@ -123,6 +124,12 @@ export async function handleStats(
         return (await setBossMode(db, room, body.mobCode as number, mode)) ? { ok: true } : { error: "not_found" };
       }
       return listBosses(db, room);
+    }
+
+    // ---------- Reset-Checkliste ----------
+    case "/checklist": {
+      if (req.method === "PATCH") return patchChecklist(db, room, members, await req.json().catch(() => null));
+      return listChecklist(db, room, members);
     }
 
     // ---------- Kampfliste (nur Kämpfe mit Mitgliedern; gezeigt werden nur Mitglieder) ----------

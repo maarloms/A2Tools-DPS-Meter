@@ -449,6 +449,27 @@ async function main() {
   check("zurück auf Auto", !hasMini(await getj("/stats/bosses")) && (await getj("/stats/bosses")).bosses?.some((b) => b.mobCode === 4242));
   check("ungültiger Modus → 400", (await setMode(7777, "egal")).status === 400);
 
+  // ---------- Reset-Checkliste ----------
+  const cl0 = await getj("/checklist");
+  const clName = cl0.players?.[0]?.player;
+  check("Checkliste: jedes Mitglied mit Main", !!clName && cl0.players.every((p) => p.chars[0]?.id === "main"), JSON.stringify(cl0).slice(0, 200));
+  const clPatch = (body, headers = auth) =>
+    fetch(`${BASE}/api/rooms/${ROOM}/checklist`, { method: "PATCH", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) });
+  check("Checkliste ohne Secret → 401", (await clPatch({ player: clName, char: "main", task: "pflicht", count: 1, period: "d2026-10-06" }, {})).status === 401);
+  check("Haken setzen (ohne Admin)", (await clPatch({ player: clName.toUpperCase(), char: "main", task: "pflicht", count: 3, period: "d2026-10-06" })).status === 200);
+  check("Charaktere speichern", (await clPatch({ player: clName, chars: [{ id: "main", name: "Main" }, { id: "t1", name: "Heiler" }] })).status === 200);
+  check("Haken für Twink", (await clPatch({ player: clName, char: "t1", task: "aszension", count: 2, period: "w2026-09-30" })).status === 200);
+  check("unbekannter Twink → 400", (await clPatch({ player: clName, char: "t9", task: "aszension", count: 1, period: "w2026-09-30" })).status === 400);
+  check("Zähler > 99 → 400", (await clPatch({ player: clName, char: "main", task: "pflicht", count: 100, period: "d2026-10-06" })).status === 400);
+  check("unbekannter Spieler → 400", (await clPatch({ player: "Niemand", char: "main", task: "pflicht", count: 1, period: "d2026-10-06" })).status === 400);
+  check("Main muss vorne stehen → 400", (await clPatch({ player: clName, chars: [{ id: "t1", name: "Heiler" }] })).status === 400);
+  const cl1 = (await getj("/checklist")).players.find((p) => p.player === clName);
+  check("Checkliste gelesen", cl1.chars.length === 2 && cl1.items.some((i) => i.char === "main" && i.task === "pflicht" && i.count === 3 && i.period === "d2026-10-06") &&
+    cl1.items.some((i) => i.char === "t1" && i.count === 2), JSON.stringify(cl1));
+  await clPatch({ player: clName, chars: [{ id: "main", name: "Main" }] });
+  const cl2 = (await getj("/checklist")).players.find((p) => p.player === clName);
+  check("Twink entfernt → seine Haken weg", cl2.chars.length === 1 && !cl2.items.some((i) => i.char === "t1") && cl2.items.some((i) => i.char === "main"));
+
   // ---------- Diagnose-Pakete ----------
   const diagBody = gzipSync(JSON.stringify({ kind: "a2dps-diagnostics", logs: { "meter.log": "x".repeat(4000) }, fights: [] }));
   const sendDiag = (body, headers = auth) =>
