@@ -364,7 +364,7 @@ pub fn slice_for(
     packets.sort_by_key(|p| p.captured_at_ms);
 
     let names = resolve_names(&packets);
-    let mut slice = evidence_slice::build_for(&packets, start, end, &names, Some(record.target_id)).map_err(|e| e.to_string())?;
+    let mut slice = evidence_slice::build(&packets, start, end, &names).map_err(|e| e.to_string())?;
     without_roster_ids(&mut slice);
     let encoded = evidence_slice::encode(&slice);
     Ok((encoded, slice, sources))
@@ -605,7 +605,7 @@ pub fn save_slice(
     if !covers(&packets, start, start + record.duration_ms) {
         return Err("no packets in memory for this fight".into());
     }
-    let mut slice = evidence_slice::build_for(&packets, start, start + record.duration_ms, &names_from(storage), Some(record.target_id))
+    let mut slice = evidence_slice::build(&packets, start, start + record.duration_ms, &names_from(storage))
         .map_err(|e| e.to_string())?;
     without_roster_ids(&mut slice);
     let compressed = gzip(&evidence_slice::encode(&slice))?;

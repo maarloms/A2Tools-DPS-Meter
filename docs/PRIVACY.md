@@ -131,10 +131,7 @@ upload is an *Evidence Slice*: rebuilt from an allowlist of the packet types the
 parser reads, with names replaced by opaque tokens. An allowlist, not a
 blocklist: we cannot prove we stripped every chat message from a format we only
 partly understand, but we can prove what we kept. The list is `ALLOWED_OPCODES`
-in `src-tauri/src/capture/evidence_slice.rs`, thirteen entries, each named. The
-thirteenth, entity HP updates (ids and numbers only), is not for the numbers
-shown: the server uses the boss's own HP readings to check that the damage it
-derives from the slice accounts for the HP the boss lost.
+in `src-tauri/src/capture/evidence_slice.rs`, twelve entries, each named.
 
 Two additions to the allowlist, both measured as necessary on real fights and
 both narrower than keeping more packet types:
