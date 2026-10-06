@@ -191,6 +191,107 @@ pub struct DerivedFight {
     /// Sorted, so the serialised record is byte-identical on every run.
     pub blind_map: std::collections::BTreeMap<String, u64>,
     pub records: usize,
+    /// What the server checked about the slice itself, whoever built it. The
+    /// service reports; the site decides what to refuse or keep off the
+    /// leaderboards (see `SliceChecks`).
+    pub checks: SliceChecks,
+}
+
+/// Checks on the slice that do not depend on the client that cut it.
+///
+/// The service re-derives every number, but only from what the client chose
+/// to put in the slice: a client that drops records, or one whose capture
+/// reads garbage (Ethernet padding taken for payload, 2026-10-06), gives
+/// numbers that are faithfully derived and wrong. And a client that does not
+/// blind, or blinds by older rules, would have names stored.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SliceChecks {
+    /// Name-shaped runs that are not tokens the slice declares: names the
+    /// blinder should have replaced. 0 for a slice this meter cut.
+    pub unblinded_names: usize,
+    /// The boss's own HP readings over the fight, against the damage derived
+    /// for it. None when the slice carries too few readings to say.
+    pub hp: Option<HpCheck>,
+}
+
+/// The HP the boss lost, from the game's own HP updates, and the damage the
+/// parser found on it. They agree to within a few percent on every kill
+/// checked (heals between two readings make the damage run slightly over);
+/// a parser or capture that loses records falls short by much more.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HpCheck {
+    /// HP before the first hit: the last reading before the fight, else the
+    /// boss's max HP, else the first reading.
+    pub start: i64,
+    /// The last reading.
+    pub end: i64,
+    /// HP regained between readings (heals, phase resets).
+    pub healed: i64,
+    /// start - end + healed: the damage the readings account for.
+    pub lost: i64,
+    /// Everything the parser found on the target, unplaced summons included,
+    /// since the HP they took is in `lost` too.
+    pub damage: i64,
+    pub readings: usize,
+}
+
+/// The target's HP readings in the slice, `(offset ms, hp)`: the record the
+/// parser reads in `scan_for_entity_hp`, `8D <id> 02 01 00 <u32 hp> 00 00 00
+/// 00`, without its 100M cap, so the largest bosses are covered too.
+fn hp_readings(records: &[(i32, Vec<u8>)], target_id: i32) -> Vec<(i32, i64)> {
+    let mut id = Vec::new();
+    let mut v = target_id as u32;
+    loop {
+        let b = (v & 0x7f) as u8;
+        v >>= 7;
+        if v == 0 {
+            id.push(b);
+            break;
+        }
+        id.push(b | 0x80);
+    }
+    let mut needle = vec![0x8d];
+    needle.extend(&id);
+    needle.extend([0x02, 0x01, 0x00]);
+    let mut out = Vec::new();
+    for (dt, record) in records {
+        let buf = evidence_slice::expand(record);
+        let mut i = 0;
+        while i + needle.len() + 8 <= buf.len() {
+            if buf[i..i + needle.len()] == needle[..] {
+                let h = i + needle.len();
+                if buf[h + 4..h + 8] == [0, 0, 0, 0] {
+                    out.push((*dt, u32::from_le_bytes([buf[h], buf[h + 1], buf[h + 2], buf[h + 3]]) as i64));
+                    i = h + 8;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+    }
+    out
+}
+
+fn hp_check(records: &[(i32, Vec<u8>)], target_id: i32, max_hp: i64, damage: i64) -> Option<HpCheck> {
+    let readings = hp_readings(records, target_id);
+    let during: Vec<i64> = readings.iter().filter(|(dt, _)| *dt >= 0).map(|(_, hp)| *hp).collect();
+    if during.len() < 2 {
+        return None;
+    }
+    let before = readings.iter().rev().find(|(dt, _)| *dt < 0).map(|(_, hp)| *hp);
+    let start = before.unwrap_or(if max_hp > 0 { max_hp.max(during[0]) } else { during[0] });
+    let mut healed = 0;
+    let mut prev = start;
+    for &hp in &during {
+        if hp > prev {
+            healed += hp - prev;
+        }
+        prev = hp;
+    }
+    let end = *during.last()?;
+    Some(HpCheck { start, end, healed, lost: start - end + healed, damage, readings: during.len() })
 }
 
 /// Put everything a HashMap produced into one fixed order.
@@ -328,6 +429,7 @@ pub fn derive_fight(
     // Gargaum wipes in a 2026-07 capture. The live meter had saved the fight
     // before; so stop the replay just short of the first reset after the pull.
     let (mut storage, mut processor, reset_at) = replay(records.len());
+    let replayed = reset_at.unwrap_or(records.len());
     if let Some(n) = reset_at {
         (storage, processor, _) = replay(n);
     }
@@ -368,13 +470,19 @@ pub fn derive_fight(
         .ok_or(DeriveError::NothingDerived)?;
     let hidden = hide_unplaced_summons(&mut record, &named, &spawned);
     canonicalise(&mut record);
+    let on_target = totals.get(&record.target_id).copied().unwrap_or(0);
+    let checks = SliceChecks {
+        unblinded_names: evidence_slice::unblinded_names(&records, &blind_map),
+        hp: hp_check(&records[..replayed], record.target_id, record.details.max_hp as i64, on_target),
+    };
 
     Ok(DerivedFight {
         parser_version: parser_version(),
-        total_damage: totals.get(&record.target_id).copied().unwrap_or(0) - hidden,
+        total_damage: on_target - hidden,
         record,
         blind_map: blind_map.into_iter().collect(),
         records: records.len(),
+        checks,
     })
 }
 

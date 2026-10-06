@@ -225,7 +225,7 @@ fn frame_packet(body: &[u8]) -> Option<Vec<u8>> {
 
 /// Opcodes that report what happened rather than who is there. Kept only in
 /// the fight window, so the prelude cannot carry another fight's numbers.
-const EVENT_OPCODES: &[[u8; 2]] = &[[0x04, 0x38], [0x05, 0x38], [0x1B, 0x92]];
+const EVENT_OPCODES: &[[u8; 2]] = &[[0x04, 0x38], [0x05, 0x38], [0x1B, 0x92], [0x00, 0x8D]];
 
 /// Bundles nest. Four is far past anything observed and stops a crafted file
 /// from recursing us to death.
@@ -252,6 +252,10 @@ pub const ALLOWED_OPCODES: &[(&[u8; 2], &str)] = &[
     (&[0x45, 0x36], "player spawn"),
     (&[0x33, 0x36], "self identity"),
     (&[0x02, 0x97], "party roster"),
+    // Not for the parser's numbers: the server checks the damage it derives
+    // against the HP the boss lost (`rederive::HpCheck`). Entity ids and HP
+    // values only, about 10 KB a minute in a party fight.
+    (&[0x00, 0x8D], "entity hp"),
 ];
 
 /// One captured buffer, as the packet logger recorded it.
@@ -571,6 +575,61 @@ pub fn expand(record: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Name-shaped runs a slice still carries that are not among the tokens it
+/// declares: what pass two of the blinder would replace in it now.
+///
+/// The server's check on what a client sent. The client's own verifier only
+/// catches the names that client knew, and only if that client runs it: a
+/// fork or a broken build could upload a slice with names in the clear, and
+/// the service would store it. Every packet is put through the same pass two
+/// the meter applies before uploading, with every declared token exempt, so a
+/// slice blinded by this meter's rules (or by any older, broader ones) counts
+/// zero. Nothing is changed; the count is the answer.
+pub fn unblinded_names(records: &[(i32, Vec<u8>)], blind_map: &HashMap<String, u64>) -> usize {
+    fn walk(buffer: &[u8], top: bool, depth: usize, blinder: &mut Blinder, found: &mut usize) {
+        if depth > MAX_BUNDLE_DEPTH {
+            return;
+        }
+        let frames = if top { framing::walk(buffer).frames } else { framing::walk_inner(buffer).frames };
+        for frame in frames {
+            match frame.kind {
+                FrameKind::Packet => {
+                    let mut packet = frame.bytes(buffer).to_vec();
+                    *found += blinder.blind_name_shaped(&mut packet);
+                }
+                FrameKind::Bundle => {
+                    if let Some(inner) = framing::decompress_bundle(frame.payload(buffer)) {
+                        walk(&inner, false, depth + 1, blinder, found);
+                    }
+                }
+            }
+        }
+    }
+    let mut blinder = Blinder {
+        known: Vec::new(),
+        known_tokens: blind_map.keys().map(|t| t.as_bytes().to_vec()).collect(),
+        discovered: HashMap::new(),
+    };
+    let mut found = 0;
+    for (_, record) in records {
+        walk(record, true, 0, &mut blinder, &mut found);
+    }
+    found
+}
+
+/// How many of `names` appear anywhere in the slice, bundles decompressed:
+/// the client's own verifier, run again on the server with the names the
+/// upload says it showed.
+pub fn leaked_names(records: &[(i32, Vec<u8>)], names: &[String]) -> usize {
+    let plaintext: Vec<Vec<u8>> = records.iter().map(|(_, p)| expand(p)).collect();
+    names
+        .iter()
+        .map(|n| n.as_bytes())
+        .filter(|n| n.len() >= MIN_NAME_BYTES)
+        .filter(|n| plaintext.iter().any(|buf| buf.windows(n.len()).any(|w| w == *n)))
+        .count()
+}
+
 /// Is this packet one the parser reads (and, in the prelude, a state packet)?
 fn is_allowed(packet: &[u8], keep: Keep) -> bool {
     let li = super::stream_processor::read_varint(packet, 0);
@@ -612,11 +671,70 @@ fn rewrap_bundle(inner: &[u8]) -> Option<Vec<u8>> {
     frame_packet(&payload)
 }
 
+/// Which entity HP packets (`00 8D`) a slice keeps: the fight target's
+/// readings, at most one a second, plus every rise (a heal or a reset, which
+/// the check has to add back) and the first and the zero. The boss alone
+/// sends 600 to 1,700 of them a fight; what the check needs is the HP before
+/// the pull, the HP at the end and every rise between.
+struct HpKeep {
+    /// `<id varint> 02 01 00`, the NPC form of the record for the target.
+    needle: Option<Vec<u8>>,
+    /// The capture time of the segment being filtered.
+    now_ms: i64,
+    last_kept_ms: Option<i64>,
+    last_hp: Option<u32>,
+}
+
+impl HpKeep {
+    fn new(target: Option<i32>) -> Self {
+        let needle = target.map(|t| {
+            let mut v = encode_varint(t as u32);
+            v.extend([0x02, 0x01, 0x00]);
+            v
+        });
+        Self { needle, now_ms: 0, last_kept_ms: None, last_hp: None }
+    }
+
+    /// For an entity HP packet, whether to keep it; None for any other packet.
+    fn decide(&mut self, packet: &[u8], keep: Keep) -> Option<bool> {
+        let li = super::stream_processor::read_varint(packet, 0);
+        if li.length <= 0 {
+            return None;
+        }
+        let o = li.length as usize;
+        if packet.get(o..o + 2) != Some(&[0x00, 0x8D][..]) {
+            return None;
+        }
+        let Some(needle) = &self.needle else { return Some(false) };
+        if keep == Keep::State {
+            return Some(false);
+        }
+        let body = &packet[o + 2..];
+        if !body.starts_with(needle) || body.len() < needle.len() + 8 {
+            return Some(false);
+        }
+        let h = needle.len();
+        if body[h + 4..h + 8] != [0, 0, 0, 0] {
+            return Some(false);
+        }
+        let value = u32::from_le_bytes([body[h], body[h + 1], body[h + 2], body[h + 3]]);
+        let due = self.last_kept_ms.is_none_or(|t| self.now_ms - t >= 1_000);
+        let rose = self.last_hp.is_some_and(|last| value > last);
+        let wanted = due || rose || value == 0;
+        if wanted {
+            self.last_kept_ms = Some(self.now_ms);
+        }
+        self.last_hp = Some(value);
+        Some(wanted)
+    }
+}
+
 /// Filter and blind the packets inside a decompressed bundle, returning the
 /// inner stream to re-compress. Nested bundles are inlined into their parent.
 fn filter_bundle_inner(
     buffer: &[u8],
     blinder: &mut Blinder,
+    hp: &mut HpKeep,
     stats: &mut SliceStats,
     depth: usize,
     keep: Keep,
@@ -631,6 +749,14 @@ fn filter_bundle_inner(
                 stats.packets_seen += 1;
                 stats.bytes_seen += frame.len();
                 let mut packet = frame.bytes(buffer).to_vec();
+                if let Some(wanted) = hp.decide(&packet, keep) {
+                    if wanted {
+                        stats.packets_kept += 1;
+                        stats.bytes_kept += packet.len();
+                        out.extend_from_slice(&packet);
+                    }
+                    continue;
+                }
                 if !is_allowed(&packet, keep) {
                     // Context first: the live parser extracts it from a packet
                     // before parsing that same packet. It only matters to damage.
@@ -650,7 +776,7 @@ fn filter_bundle_inner(
             FrameKind::Bundle => {
                 if let Some(nested) = framing::decompress_bundle(frame.payload(buffer)) {
                     stats.bundles_expanded += 1;
-                    out.extend_from_slice(&filter_bundle_inner(&nested, blinder, stats, depth + 1, keep));
+                    out.extend_from_slice(&filter_bundle_inner(&nested, blinder, hp, stats, depth + 1, keep));
                 }
             }
         }
@@ -672,6 +798,7 @@ fn filter_bundle_inner(
 fn filter_stream(
     buffer: &[u8],
     blinder: &mut Blinder,
+    hp: &mut HpKeep,
     out: &mut Vec<Vec<u8>>,
     stats: &mut SliceStats,
     keep: Keep,
@@ -683,6 +810,14 @@ fn filter_stream(
                 stats.packets_seen += 1;
                 stats.bytes_seen += frame.len();
                 let mut packet = frame.bytes(buffer).to_vec();
+                if let Some(wanted) = hp.decide(&packet, keep) {
+                    if wanted {
+                        stats.packets_kept += 1;
+                        stats.bytes_kept += packet.len();
+                        out.push(packet);
+                    }
+                    continue;
+                }
                 if !is_allowed(&packet, keep) {
                     for mut lifted in lift_embedded(&packet, keep) {
                         stats.names_blinded += blinder.blind(&mut lifted);
@@ -701,7 +836,7 @@ fn filter_stream(
                     continue;
                 };
                 stats.bundles_expanded += 1;
-                let inner = filter_bundle_inner(&decompressed, blinder, stats, 1, keep);
+                let inner = filter_bundle_inner(&decompressed, blinder, hp, stats, 1, keep);
                 if inner.is_empty() {
                     continue;
                 }
@@ -725,6 +860,21 @@ pub fn build(
     fight_end_ms: i64,
     names: &NameMap,
 ) -> Result<EvidenceSlice, SliceError> {
+    build_for(packets, fight_start_ms, fight_end_ms, names, None)
+}
+
+/// `build`, keeping the HP readings of the fight's target, `hp_target`, for
+/// the server's check of the damage against the HP the boss lost
+/// (`rederive::HpCheck`). Only that entity's, and thinned (see `HpKeep`):
+/// every HP packet in range would add 5-15 KB to a gzipped slice.
+pub fn build_for(
+    packets: &[CapturedPacket],
+    fight_start_ms: i64,
+    fight_end_ms: i64,
+    names: &NameMap,
+    hp_target: Option<i32>,
+) -> Result<EvidenceSlice, SliceError> {
+    let mut hp = HpKeep::new(hp_target);
     let from = fight_start_ms - LEAD_IN_MS;
     let to = fight_end_ms + TAIL_MS;
 
@@ -762,7 +912,8 @@ pub fn build(
         // so the stream stays in step.
         let keep = if cap.captured_at_ms < from { Keep::State } else { Keep::All };
         let mut kept = Vec::new();
-        let consumed = filter_stream(acc.snapshot(), &mut blinder, &mut kept, &mut stats, keep);
+        hp.now_ms = cap.captured_at_ms;
+        let consumed = filter_stream(acc.snapshot(), &mut blinder, &mut hp, &mut kept, &mut stats, keep);
         acc.discard_bytes(consumed);
 
         if cap.captured_at_ms < from - PRELUDE_MS || cap.captured_at_ms > to {
@@ -1146,6 +1297,55 @@ mod tests {
             stream: "Client:1".into(),
             bytes: framed(payload),
         }
+    }
+
+    /// A player spawn naming "Grandine", as `45 36 <id> ... <len><name>`.
+    fn spawn_named(name: &str) -> Vec<u8> {
+        let mut body = vec![0x45, 0x36, 0xb5, 0x02, 0x00, 0x00];
+        body.push(name.len() as u8);
+        body.extend_from_slice(name.as_bytes());
+        body.extend_from_slice(&[0x00; 8]);
+        framed(&body)
+    }
+
+    #[test]
+    fn the_server_finds_names_a_client_left_in_the_clear() {
+        // A slice cut by this meter: nothing left to blind.
+        let slice = build(&[cap(500, &spawn_named("Grandine")[1..])], 0, 1_000, &HashMap::new()).unwrap();
+        assert_eq!(unblinded_names(&slice.records, &slice.blind_map), 0);
+        assert_eq!(leaked_names(&slice.records, &["Grandine".to_string()]), 0);
+
+        // The same record from a client that did not blind it.
+        let raw = vec![(0, spawn_named("Grandine"))];
+        assert_eq!(unblinded_names(&raw, &HashMap::new()), 1);
+        assert_eq!(leaked_names(&raw, &["Grandine".to_string(), "Misti".to_string()]), 1);
+    }
+
+    /// `00 8D <id> 02 01 00 <hp> 00 00 00 00`, framed.
+    fn hp_packet(id: u8, hp: u32) -> Vec<u8> {
+        let mut body = vec![0x00, 0x8D, id, 0x02, 0x01, 0x00];
+        body.extend_from_slice(&hp.to_le_bytes());
+        body.extend_from_slice(&[0, 0, 0, 0]);
+        framed(&body)
+    }
+
+    #[test]
+    fn only_the_targets_hp_is_kept_and_thinned() {
+        let mut packets = Vec::new();
+        // Ten readings a second for 3 s, falling, a heal at 2.5 s, then 0.
+        let mut hp = 1_000_000u32;
+        for n in 0..30 {
+            let ms = n * 100;
+            hp = if n == 25 { hp + 50_000 } else { hp.saturating_sub(30_000) };
+            packets.push(CapturedPacket { captured_at_ms: ms, stream: "Client:1".into(), bytes: hp_packet(0x50, hp) });
+            packets.push(CapturedPacket { captured_at_ms: ms, stream: "Client:1".into(), bytes: hp_packet(0x51, 77) });
+        }
+        packets.push(CapturedPacket { captured_at_ms: 3_000, stream: "Client:1".into(), bytes: hp_packet(0x50, 0) });
+        let kept = |target| build_for(&packets, 0, 3_000, &HashMap::new(), target)
+            .map(|s| s.records.len()).unwrap_or(0);
+        assert_eq!(kept(None), 0, "no target: no HP packets at all");
+        // Once a second (0, 1, 2 s), the heal, and the zero.
+        assert_eq!(kept(Some(0x50)), 5);
     }
 
     #[test]

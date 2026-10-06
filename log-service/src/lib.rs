@@ -12,6 +12,7 @@
 
 use std::io::Read;
 
+use a2tools_dps_meter_lib::capture::evidence_slice;
 use a2tools_dps_meter_lib::rederive::{derive_fight, DeriveError};
 use flate2::read::GzDecoder;
 use worker::*;
@@ -55,8 +56,24 @@ async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
         return error("too_large", "The slice inflates past any real fight.", 413);
     }
 
+    // The names the upload says it showed, base64 of a JSON array, optional:
+    // the client's own leak check, run again here, where a client cannot skip it.
+    let names: Vec<String> = req
+        .headers()
+        .get("x-a2-names")?
+        .and_then(|h| base64_decode(&h))
+        .and_then(|raw| serde_json::from_slice(&raw).ok())
+        .unwrap_or_default();
+
     match derive_fight(&slice, NPCS, SKILLS, DOTS) {
-        Ok(fight) => Response::from_json(&fight),
+        Ok(fight) => {
+            let leaked = evidence_slice::decode(&slice)
+                .map(|(records, _)| evidence_slice::leaked_names(&records, &names))
+                .unwrap_or(0);
+            let mut json = serde_json::to_value(&fight)?;
+            json["checks"]["leakedNames"] = serde_json::json!(leaked);
+            Response::from_json(&json)
+        }
         Err(DeriveError::NotASlice) => error("not_a_slice", "Not an Evidence Slice this build reads.", 422),
         Err(DeriveError::NothingDerived) => error("no_fight", "The slice contains no boss fight.", 422),
     }
@@ -72,4 +89,28 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         return false;
     }
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Standard base64, padded or not. Small enough not to need a crate.
+fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let (mut buf, mut bits) = (0u32, 0u32);
+    for c in text.trim().bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => break,
+            _ => return None,
+        } as u32;
+        buf = (buf << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buf >> bits) as u8);
+        }
+    }
+    Some(out)
 }

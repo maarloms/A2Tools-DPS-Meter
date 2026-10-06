@@ -225,7 +225,7 @@ fn check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord, t: 
     for name in storage.get_nicknames().values() {
         names.entry(name.clone()).or_insert(0);
     }
-    let slice = match evidence_slice::build(packets, w.start_time_ms, w.start_time_ms + w.duration_ms, &names) {
+    let slice = match evidence_slice::build_for(packets, w.start_time_ms, w.start_time_ms + w.duration_ms, &names, Some(w.target_id)) {
         Ok(s) => evidence_slice::encode(&s),
         Err(e) => {
             println!("   slice failed: {e:?}");
@@ -254,6 +254,19 @@ fn check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord, t: 
         }
     };
     let got = &d.record;
+    {
+        let names_in: Vec<String> = names.keys().cloned().collect();
+        let leaked = evidence_slice::decode(&slice)
+            .map(|(r, _)| evidence_slice::leaked_names(&r, &names_in))
+            .unwrap_or(0);
+        match &d.checks.hp {
+            Some(h) => println!(
+                "   checks: unblinded {} leaked {}  hp start {} end {} healed {} lost {} damage {} ({} readings) -> {:.1}%",
+                d.checks.unblinded_names, leaked, h.start, h.end, h.healed, h.lost, h.damage, h.readings,
+                if h.lost > 0 { h.damage as f64 * 100.0 / h.lost as f64 } else { 0.0 }),
+            None => println!("   checks: unblinded {} leaked {}  hp: too few readings", d.checks.unblinded_names, leaked),
+        }
+    }
     if let Ok(dir) = std::env::var("A2_WRITE_SLICE") {
         // What an upload sends, and what the service must answer, for testing
         // the deployed Worker against this build.
