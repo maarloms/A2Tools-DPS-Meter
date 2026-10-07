@@ -2072,23 +2072,34 @@ const createDetailsUI = ({
   };
 
   let renderedSelectionKey = "";
-  const refreshDetailsView = async (seq) => {
-    const load = { seq, failed: false };
+  let activeDetailsLoad = null;
+  const refreshDetailsView = (seq = ++openSeq) => {
+    const load = { seq, failed: false, refreshRequested: false, promise: null };
+    activeDetailsLoad = load;
     const selectionKey = JSON.stringify([lastRow?.id ?? null, selectedTargetId, selectedAttackerIds, activeCompactMode]);
-    try {
-      await loadDetailsView(load);
-      if (!(typeof seq === "number" && seq !== openSeq)) renderedSelectionKey = selectionKey;
-    } catch (error) {
-      load.failed = true;
-      if (error === DETAILS_LOAD_CANCELLED || (typeof seq === "number" && seq !== openSeq)) return;
-      window.javaBridge?.logToDebug?.(`Details load failed: ${error?.message || error}`);
-      // A failed live refresh keeps the complete totals already shown for this
-      // selection; only a new selection must not show another one's numbers.
-      if (lastDetails && renderedSelectionKey === selectionKey) return;
-      renderedSelectionKey = "";
-      lastDetails = null;
-      clearDetailsValues();
-    }
+    load.promise = (async () => {
+      try {
+        await loadDetailsView(load);
+        if (seq === openSeq) renderedSelectionKey = selectionKey;
+      } catch (error) {
+        load.failed = true;
+        if (error === DETAILS_LOAD_CANCELLED || seq !== openSeq) return;
+        window.javaBridge?.logToDebug?.(`Details load failed: ${error?.message || error}`);
+        // A failed live refresh keeps the complete totals already shown for this
+        // selection; only a new selection must not show another one's numbers.
+        if (lastDetails && renderedSelectionKey === selectionKey) return;
+        renderedSelectionKey = "";
+        lastDetails = null;
+        clearDetailsValues();
+      }
+    })().finally(() => {
+      // A selection change or reopening owns a new load. Its pending tick must
+      // never be cleared or started by the previous load's completion.
+      if (activeDetailsLoad !== load) return;
+      activeDetailsLoad = null;
+      if (load.refreshRequested && seq === openSeq) refresh();
+    });
+    return load.promise;
   };
 
   const loadDetailsView = async (load) => {
@@ -2344,6 +2355,14 @@ const createDetailsUI = ({
 
     const seq = ++openSeq;
 
+    // Start the live timer before loading: a selection made during that load
+    // still needs a timer, and slow loads can coalesce ticks from the start.
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+    if (!historyRecord) {
+      autoRefreshTimer = setInterval(() => { refresh(); }, 2000);
+    }
+
     try {
       await refreshDetailsView(seq);
 
@@ -2352,15 +2371,10 @@ const createDetailsUI = ({
       if (seq !== openSeq) return;
       // uiDebug?.log("getDetails:error", { id: rowId, message: e?.message });
     }
-
-    // Auto-refresh live details every 2 seconds (not for history views)
-    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-    if (!historyRecord) {
-      autoRefreshTimer = setInterval(() => { refresh(); }, 2000);
-    }
   };
   const close = ({ keepPinned = false } = {}) => {
     openSeq++;
+    activeDetailsLoad = null;
     if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
 
     // Reset the DMG/HEAL toggle (state + buttons) so it re-opens on DMG.
@@ -2472,10 +2486,16 @@ const createDetailsUI = ({
   const refresh = async () => {
     if (!detailsPanel.classList.contains("open")) return;
     if (historyRecord) return; // history view doesn't refresh from backend
+    if (activeDetailsLoad?.seq === openSeq) {
+      // Keep a slow live result eligible to render. Any number of timer ticks
+      // asks for just one newer snapshot after the current load completes.
+      activeDetailsLoad.refreshRequested = true;
+      return activeDetailsLoad.promise;
+    }
     const previousTargetId = selectedTargetId;
     const previousAttackerIds = Array.isArray(selectedAttackerIds) ? [...selectedAttackerIds] : null;
     const wasCompact = activeCompactMode;
-    const seq = ++openSeq;
+    const seq = openSeq;
     if (!wasCompact) {
       loadDetailsContext();
     }
