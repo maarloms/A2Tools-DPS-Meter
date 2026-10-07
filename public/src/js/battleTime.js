@@ -31,9 +31,9 @@ const createBattleTimeUI = ({
   const formatMMSS = (ms) => {
     const v = Math.max(0, Math.floor(Number(ms) || 0));
     const sec = Math.floor(v / 1000);
-    const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+    // 0:15, 2:50, 12:04: minutes unpadded.
     const ss = String(sec % 60).padStart(2, "0");
-    return `${mm}:${ss}`;
+    return `${Math.floor(sec / 60)}:${ss}`;
   };
 
   const setState = (state) => {
@@ -67,12 +67,12 @@ const createBattleTimeUI = ({
     lastChangedAt = 0;
     lastSeenAt = 0;
 
-    if (tickEl) tickEl.textContent = "00:00";
+    if (tickEl) tickEl.textContent = "0:00";
     setTtk(null);
     setState("");
   };
 
-  // The estimated length of the whole fight, after the timer as "/02:50";
+  // The estimated length of the whole fight, after the timer as "/2:50";
   // null hides it.
   const setTtk = (totalMs) => {
     if (!ttkEl) return;
