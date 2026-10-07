@@ -2421,6 +2421,8 @@ class DpsApp {
         if (!(ok && this.maybeShowDiscordPromo())) this.maybeShowAccountPromo();
       });
 
+    this.initStreamOverlaySettings();
+
     if (this.autoUploadCheckbox) {
       // Off unless turned on: an upload publishes a fight.
       this.autoUploadCheckbox.checked =
@@ -5134,6 +5136,131 @@ class DpsApp {
   // Done keeps what the toggle says; closing it any other way (×, Escape, a
   // click outside) leaves it off. Not shown to anyone who has already chosen
   // either way in Settings, and never again once answered. True if it opens.
+  // Stream overlay: the meter's rows served on the local network for OBS on
+  // another PC. Off unless turned on. The backend owns the server and its key;
+  // this shows what it reports and passes the toggle and port through.
+  initStreamOverlaySettings() {
+    const group = document.querySelector(".streamOverlayGroup");
+    const bridge = window.javaBridge;
+    if (!group || typeof bridge?.streamOverlayStatus !== "function") return;
+    const checkbox = group.querySelector(".streamOverlayCheckbox");
+    const details = group.querySelector(".streamOverlayDetails");
+    const portInput = group.querySelector(".streamOverlayPortInput");
+    const newKeyBtn = group.querySelector(".streamOverlayNewKeyBtn");
+    const urlsEl = group.querySelector(".streamOverlayUrls");
+    const statusEl = group.querySelector(".streamOverlayStatus");
+    if (!checkbox || !details || !portInput || !newKeyBtn || !urlsEl || !statusEl) return;
+    const t = (key, fallback) => window.i18n?.t?.(key, fallback) ?? fallback;
+    let lastPort = 18731;
+
+    const copy = async (input, button) => {
+      let ok = false;
+      try {
+        await navigator.clipboard.writeText(input.value);
+        ok = true;
+      } catch {
+        input.focus();
+        input.select();
+        try {
+          ok = document.execCommand("copy");
+        } catch {
+          ok = false;
+        }
+      }
+      if (!ok) return;
+      button.textContent = t("settings.streamOverlay.copied", "Copied");
+      clearTimeout(button._copiedTimer);
+      button._copiedTimer = setTimeout(() => {
+        button.textContent = t("settings.streamOverlay.copy", "Copy");
+      }, 1500);
+    };
+
+    const show = (status) => {
+      if (!status) return;
+      const enabled = !!status.enabled;
+      const urls = Array.isArray(status.urls) ? status.urls : [];
+      checkbox.checked = enabled;
+      details.style.display = enabled ? "" : "none";
+      if (Number(status.port) > 0) lastPort = Number(status.port);
+      if (document.activeElement !== portInput) portInput.value = String(lastPort);
+      portInput.classList.remove("isInvalid");
+
+      urlsEl.replaceChildren();
+      for (const url of urls) {
+        const row = document.createElement("div");
+        row.className = "streamOverlayUrlRow";
+        const input = document.createElement("input");
+        input.className = "streamOverlayUrlInput";
+        input.readOnly = true;
+        input.spellcheck = false;
+        input.value = url;
+        input.addEventListener("mousedown", (event) => event.stopPropagation());
+        input.addEventListener("focus", () => input.select());
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "settingsAction";
+        button.dataset.i18n = "settings.streamOverlay.copy";
+        button.textContent = t("settings.streamOverlay.copy", "Copy");
+        button.addEventListener("click", () => copy(input, button));
+        row.append(input, button);
+        urlsEl.appendChild(row);
+      }
+
+      let message = "";
+      if (enabled && status.error) {
+        message =
+          window.i18n?.format?.(
+            "settings.streamOverlay.error",
+            { error: status.error },
+            `The overlay could not start: ${status.error}`
+          ) ?? `The overlay could not start: ${status.error}`;
+      } else if (enabled && urls.length === 0) {
+        message = t(
+          "settings.streamOverlay.noAddress",
+          "No network address found. Is this PC connected to your network?"
+        );
+      }
+      statusEl.textContent = message;
+    };
+    const fail = (err) => {
+      statusEl.textContent = typeof err === "string" ? err : err?.message || String(err);
+    };
+
+    const apply = () => {
+      let port = Number.parseInt(portInput.value, 10);
+      const valid = Number.isInteger(port) && port >= 1024 && port <= 65535;
+      if (!valid) {
+        if (checkbox.checked) {
+          portInput.classList.add("isInvalid");
+          statusEl.textContent = t(
+            "settings.streamOverlay.portInvalid",
+            "Enter a port between 1024 and 65535."
+          );
+          return;
+        }
+        port = lastPort;
+      }
+      Promise.resolve(bridge.streamOverlayConfigure(checkbox.checked, port)).then(show, fail);
+    };
+
+    checkbox.addEventListener("change", apply);
+    portInput.addEventListener("change", apply);
+    portInput.addEventListener("mousedown", (event) => event.stopPropagation());
+    portInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") portInput.blur();
+    });
+    newKeyBtn.addEventListener("click", () => {
+      Promise.resolve(bridge.streamOverlayNewKey()).then(show, fail);
+    });
+
+    Promise.resolve(bridge.streamOverlayStatus())
+      .then((status) => {
+        group.style.display = "";
+        show(status);
+      })
+      .catch(() => {});
+  }
+
   maybeShowDiscordPromo() {
     const promo = document.querySelector("#discordPromo");
     if (!promo) return false;

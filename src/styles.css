@@ -1446,6 +1446,70 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   font-size: 12px;
 }
 
+/* ---------- stream overlay ---------- */
+
+.settingsPanel .streamOverlayPortInput,
+.settingsPanel .streamOverlayUrlInput {
+  height: var(--set-field-h);
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--set-field-border);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.92);
+  font-family: var(--hud-tech);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.settingsPanel .streamOverlayPortInput {
+  width: 76px;
+}
+.settingsPanel .streamOverlayPortInput:focus,
+.settingsPanel .streamOverlayUrlInput:focus {
+  outline: none;
+  border-color: var(--isUser-fill);
+}
+.settingsPanel .streamOverlayPortInput.isInvalid {
+  border-color: var(--error-fill);
+}
+.settingsPanel .streamOverlayUrlBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0 4px;
+  min-width: 0;
+}
+.settingsPanel .streamOverlayUrls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.settingsPanel .streamOverlayUrlRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.settingsPanel .streamOverlayUrlInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11.5px;
+}
+.settingsPanel .streamOverlayStatus {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--error-fill);
+}
+.settingsPanel .streamOverlayStatus:empty {
+  display: none;
+}
+.settingsPanel .streamOverlayHelp {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.5);
+}
+
 /* ---------- capture device ---------- */
 
 .settingsPanel .settingsDeviceRow {
