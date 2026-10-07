@@ -104,6 +104,10 @@ Say thanks and fund new cool projects & features!
 
 [GPL-3.0](LICENSE)
 
+### Fixes from Daevalog
+
+Some parser and storage fixes come from [Daevalog](https://github.com/Seralth/Daevalog), Seralth's GPL-3.0 fork of this meter. Each one is committed under Seralth's name, with a `Ported-from:` line naming the original commit.
+
 ### Fonts
 
 The meter comes with these fonts. Each is under the SIL Open Font License, version 1.1.
