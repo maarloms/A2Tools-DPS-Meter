@@ -31,12 +31,17 @@ The **[AION 2 DPS Meter website, a2tools.app](https://a2tools.app)** has the dow
 
 ## Requirements
 
+**Windows**
+
 - **Windows 10/11** (x86_64)
 - **[Npcap](https://npcap.com)** — required for packet capture
   - During Npcap installation, check **"Install Npcap in WinPcap API-compatible Mode"**
 - **Administrator privileges** — required for raw packet capture
 
-On **Linux** (playing through Proton), see the **[Linux guide](docs/linux.md)** instead.
+**Linux** (playing through Proton)
+
+- **64-bit (x86_64) with WebKitGTK 4.1:** Ubuntu 22.04 or newer, Debian 12, Fedora 39 or newer, openSUSE, current Arch, CachyOS, Manjaro or EndeavourOS, Bazzite and other image-based Fedoras, or Steam Deck (SteamOS, through distrobox)
+- Packages and setup for each: the **[Linux guide](docs/linux.md)**
 
 ## Installation
 

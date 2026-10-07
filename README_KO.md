@@ -31,10 +31,17 @@ AION 2 실시간 DPS 미터 오버레이. 게임 네트워크 패킷을 캡처�
 
 ## 요구 사항
 
+**Windows**
+
 - **Windows 10/11** (x86_64)
 - **[Npcap](https://npcap.com)** — 패킷 캡처에 필요
   - 설치 시 **"Install Npcap in WinPcap API-compatible Mode"** 체크
 - **관리자 권한** — 패킷 캡처에 필요
+
+**Linux** (Proton으로 플레이)
+
+- **64비트(x86_64), WebKitGTK 4.1:** Ubuntu 22.04 이상, Debian 12, Fedora 39 이상, openSUSE, 최신 Arch, CachyOS, Manjaro, EndeavourOS, Bazzite 등 이미지 기반 Fedora, Steam Deck(SteamOS, distrobox 사용)
+- 배포판별 패키지와 설치 방법: **[Linux 가이드](docs/linux.md)** (영어)
 
 ## 설치
 
