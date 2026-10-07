@@ -353,7 +353,7 @@
       }
     },
 
-    async getBattleDetail(actorId) {
+    async getBattleDetail(actorId, { summaryOnly = false } = {}) {
       const dps = cachedDpsJson ? JSON.parse(cachedDpsJson) : null;
       const targetIds = [...new Set((Array.isArray(dps?.detailTargetIds)
         ? dps.detailTargetIds : [dps?.targetId]).map(Number).filter((id) => id > 0))];
@@ -364,10 +364,26 @@
         return null;
       }
       const aid = Number(actorId);
-      const results = await Promise.all(targetIds.map((targetId) => invoke("get_skill_details", {
-        targetId,
-        actorIds: Number.isFinite(aid) && aid > 0 ? [aid] : null,
-      })));
+      // A long session may select dozens of targets. Bound IPC fan-out instead
+      // of filling the native work queue with all of them at once.
+      const results = new Array(targetIds.length);
+      let nextTarget = 0;
+      let failed = false;
+      await Promise.all(Array.from({ length: Math.min(4, targetIds.length) }, async () => {
+        while (!failed && nextTarget < targetIds.length) {
+          const index = nextTarget++;
+          try {
+            results[index] = await invoke("get_skill_details", {
+              targetId: targetIds[index],
+              actorIds: Number.isFinite(aid) && aid > 0 ? [aid] : null,
+              summaryOnly,
+            });
+          } catch (error) {
+            failed = true;
+            throw error;
+          }
+        }
+      }));
       let result = results[0];
       if (results.length > 1) {
         const startTime = Math.min(...results.map((item) => Number(item.startTime) || 0));
@@ -407,7 +423,7 @@
         ? "" : `empty response for targets=${targetIds.join(",")}`;
       if (issue && issue !== lastSkillDetailsIssue) window.javaBridge?.logToDebug?.(`Skill details: ${issue}`);
       lastSkillDetailsIssue = issue;
-      return JSON.stringify(result);
+      return summaryOnly ? result : JSON.stringify(result);
     },
 
     getVersion() {
@@ -1093,6 +1109,11 @@
     };
   };
 
+  // Crossing the gap between rows hides the tooltip for a moment. Keep its area
+  // briefly so the native window does not shrink and grow back on every row.
+  const TOOLTIP_RELEASE_MS = 250;
+  let tooltipReserve = null;
+  let tooltipReleaseTimer = 0;
   const updateWindowSize = () => {
     if (resizeActive) return Promise.resolve(false); // Don't fight the user while they're resizing
     // Tool windows own their own geometry (and remember it). The overlay's
@@ -1131,22 +1152,49 @@
     // The tooltip's extra room stops at the screen edge; the meter itself
     // never shrinks below its content.
     const tooltipBounds = tooltip?.getBoundingClientRect();
+    // Reserve the tooltip's travel over the rows once. Resizing the native
+    // window for every pointer position can stall WebKit/GTK and the compositor.
+    const listBounds = tooltip ? document.querySelector(".list")?.getBoundingClientRect() : null;
     const room = spaceRightBelow();
-    const tooltipW = tooltipBounds ? Math.ceil(tooltipBounds.right) + 8 : contentW;
-    const tooltipH = tooltipBounds ? Math.ceil(tooltipBounds.bottom) + 8 : contentH;
+    const tooltipW = tooltipBounds
+      ? Math.ceil(Math.max(tooltipBounds.right, listBounds ? listBounds.right + 12 + tooltipBounds.width : 0)) + 8
+      : contentW;
+    const tooltipH = tooltipBounds
+      ? Math.ceil(Math.max(tooltipBounds.bottom, listBounds ? listBounds.bottom + 12 + tooltipBounds.height : 0)) + 8
+      : contentH;
+    if (tooltip) {
+      clearTimeout(tooltipReleaseTimer);
+      tooltipReleaseTimer = 0;
+      // Within one hover the area only grows, so rows with different tooltip
+      // sizes do not resize the window back and forth.
+      tooltipReserve = {
+        w: Math.max(tooltipW, tooltipReserve?.w || 0),
+        h: Math.max(tooltipH, tooltipReserve?.h || 0),
+      };
+    } else if (fullPanel) {
+      clearTimeout(tooltipReleaseTimer);
+      tooltipReleaseTimer = 0;
+      tooltipReserve = null;
+    } else if (tooltipReserve && !tooltipReleaseTimer) {
+      tooltipReleaseTimer = setTimeout(() => {
+        tooltipReleaseTimer = 0;
+        tooltipReserve = null;
+        updateWindowSize();
+      }, TOOLTIP_RELEASE_MS);
+    }
     const w = fullPanel
       ? PANEL_WIDTH
       : promoOpen
         ? Math.max(contentW, PROMO_WIDTH)
-        : tooltip
-          ? Math.max(contentW, Math.min(tooltipW, room.w))
+        : tooltipReserve
+          ? Math.max(contentW, Math.min(tooltipReserve.w, room.w))
           : contentW;
     const h = fullPanel
       ? Math.max(PANEL_HEIGHT, contentH)
       : promoOpen
         ? Math.max(contentH, PROMO_HEIGHT)
-        : tooltip
-          ? Math.max(contentH, Math.min(tooltipH, room.h))
+        : tooltipReserve
+          ? Math.max(contentH, Math.min(tooltipReserve.h, room.h))
           : contentH;
     const scale = window.devicePixelRatio || 1;
     const sizeKey = `${w}x${h}@${scale}`;

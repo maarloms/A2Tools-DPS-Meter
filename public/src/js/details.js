@@ -2028,10 +2028,85 @@ const createDetailsUI = ({
   // A synthetic null row used when opening Details for all players via boss name click
   const NULL_ROW = { id: null, job: "", name: "" };
 
-  const refreshDetailsView = async (seq) => {
+  // A failed target used to drop out of the merged totals silently; now the
+  // view shows the error. Filtered and "All" loads share these slots.
+  const DETAILS_REQUEST_LIMIT = 4;
+  const DETAILS_LOAD_CANCELLED = Symbol("details load cancelled");
+  const detailsRequestQueue = [];
+  let detailsActiveRequests = 0;
+
+  const pumpDetailsRequests = () => {
+    while (detailsActiveRequests < DETAILS_REQUEST_LIMIT && detailsRequestQueue.length) {
+      const { task, resolve, reject } = detailsRequestQueue.shift();
+      detailsActiveRequests++;
+      Promise.resolve()
+        .then(task)
+        .then(resolve, reject)
+        .finally(() => {
+          detailsActiveRequests--;
+          pumpDetailsRequests();
+        });
+    }
+  };
+
+  const isDetailsLoadStale = (load) => load.failed || (typeof load.seq === "number" && load.seq !== openSeq);
+
+  const loadDetails = (load, row, options) => new Promise((resolve, reject) => {
+    detailsRequestQueue.push({
+      task: () => {
+        if (isDetailsLoadStale(load)) throw DETAILS_LOAD_CANCELLED;
+        return getDetails(row, options);
+      },
+      resolve,
+      reject,
+    });
+    pumpDetailsRequests();
+  });
+
+  const clearDetailsValues = () => {
+    for (let i = 0; i < statSlots.length; i++) statSlots[i].valueEl.textContent = "-";
+    for (let i = 0; i < skillSlots.length; i++) {
+      skillSlots[i].rowEl.style.display = "none";
+      skillSlots[i].rowFillEl.style.transform = "scaleX(0)";
+    }
+  };
+
+  let renderedSelectionKey = "";
+  let activeDetailsLoad = null;
+  const refreshDetailsView = (seq = ++openSeq) => {
+    const load = { seq, failed: false, refreshRequested: false, promise: null };
+    activeDetailsLoad = load;
+    const selectionKey = JSON.stringify([lastRow?.id ?? null, selectedTargetId, selectedAttackerIds, activeCompactMode]);
+    load.promise = (async () => {
+      try {
+        await loadDetailsView(load);
+        if (seq === openSeq) renderedSelectionKey = selectionKey;
+      } catch (error) {
+        load.failed = true;
+        if (error === DETAILS_LOAD_CANCELLED || seq !== openSeq) return;
+        window.javaBridge?.logToDebug?.(`Details load failed: ${error?.message || error}`);
+        // A failed live refresh keeps the complete totals already shown for this
+        // selection; only a new selection must not show another one's numbers.
+        if (lastDetails && renderedSelectionKey === selectionKey) return;
+        renderedSelectionKey = "";
+        lastDetails = null;
+        clearDetailsValues();
+      }
+    })().finally(() => {
+      // A selection change or reopening owns a new load. Its pending tick must
+      // never be cleared or started by the previous load's completion.
+      if (activeDetailsLoad !== load) return;
+      activeDetailsLoad = null;
+      if (load.refreshRequested && seq === openSeq) refresh();
+    });
+    return load.promise;
+  };
+
+  const loadDetailsView = async (load) => {
+    const { seq } = load;
     const row = lastRow ?? NULL_ROW;
     if (activeCompactMode) {
-      const details = await getDetails(row, {
+      const details = await loadDetails(load, row, {
         targetId: null,
         attackerIds: null,
         totalTargetDamage: null,
@@ -2044,7 +2119,7 @@ const createDetailsUI = ({
     }
 
     if (!detailsContext) {
-      const details = await getDetails(row);
+      const details = await loadDetails(load, row);
       if (typeof seq === "number" && seq !== openSeq) return;
       render(details, row);
       return;
@@ -2052,9 +2127,10 @@ const createDetailsUI = ({
 
     // When a player is selected, fetch unfiltered "All" details in parallel
     // so the split stats (player / total) render immediately without delay.
+    // A failed total fails the view too: a stale or partial total skews the split.
     const hasAttackerFilter = Array.isArray(selectedAttackerIds) && selectedAttackerIds.length > 0;
     const unfilteredPromise = hasAttackerFilter
-      ? fetchUnfilteredDetails(row).catch(() => null)
+      ? fetchUnfilteredDetails(row, load)
       : Promise.resolve(null);
 
     const showSkillIcons = !selectedAttackerIds || selectedAttackerIds.length === 0;
@@ -2062,7 +2138,7 @@ const createDetailsUI = ({
       const targetList = getSelectableTargets();
       if (!targetList.length) {
         const [details, unfilteredDetails] = await Promise.all([
-          getDetails(row, {
+          loadDetails(load, row, {
             targetId: null,
             attackerIds: selectedAttackerIds,
             totalTargetDamage: null,
@@ -2078,7 +2154,7 @@ const createDetailsUI = ({
 
       const allTargetDetails = await Promise.all([
         ...targetList.map((target) =>
-          getDetails(row, {
+          loadDetails(load, row, {
             targetId: target.targetId,
             attackerIds: selectedAttackerIds,
             totalTargetDamage: target.totalDamage,
@@ -2103,7 +2179,7 @@ const createDetailsUI = ({
     const target = getTargetById(selectedTargetId);
     const totalTargetDamage = target ? target.totalDamage : null;
     const [details, unfilteredDetails] = await Promise.all([
-      getDetails(row, {
+      loadDetails(load, row, {
         targetId: selectedTargetId,
         attackerIds: selectedAttackerIds,
         totalTargetDamage,
@@ -2120,14 +2196,14 @@ const createDetailsUI = ({
    * Fetch "All players" details using the same multi-target merge logic
    * as refreshDetailsView but with attackerIds: null.
    */
-  const fetchUnfilteredDetails = async (row) => {
+  const fetchUnfilteredDetails = async (row, load) => {
     if (!detailsContext) {
-      return await getDetails(row);
+      return await loadDetails(load, row);
     }
     if (selectedTargetId === null) {
       const targetList = detailsTargets.filter((t) => Number(t?.targetId) > 0);
       if (!targetList.length) {
-        return await getDetails(row, {
+        return await loadDetails(load, row, {
           targetId: null,
           attackerIds: null,
           totalTargetDamage: null,
@@ -2136,7 +2212,7 @@ const createDetailsUI = ({
       }
       const allTargetDetails = await Promise.all(
         targetList.map((target) =>
-          getDetails(row, {
+          loadDetails(load, row, {
             targetId: target.targetId,
             attackerIds: null,
             totalTargetDamage: target.totalDamage,
@@ -2151,7 +2227,7 @@ const createDetailsUI = ({
       return buildCombinedDetails(allTargetDetails, totalTargetDamage, true);
     }
     const target = getTargetById(selectedTargetId);
-    return await getDetails(row, {
+    return await loadDetails(load, row, {
       targetId: selectedTargetId,
       attackerIds: null,
       totalTargetDamage: target ? target.totalDamage : null,
@@ -2274,14 +2350,18 @@ const createDetailsUI = ({
       render(cachedDetails, row);
     } else {
       // 이전 값 비우기
-      for (let i = 0; i < statSlots.length; i++) statSlots[i].valueEl.textContent = "-";
-      for (let i = 0; i < skillSlots.length; i++) {
-        skillSlots[i].rowEl.style.display = "none";
-        skillSlots[i].rowFillEl.style.transform = "scaleX(0)";
-      }
+      clearDetailsValues();
     }
 
     const seq = ++openSeq;
+
+    // Start the live timer before loading: a selection made during that load
+    // still needs a timer, and slow loads can coalesce ticks from the start.
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+    if (!historyRecord) {
+      autoRefreshTimer = setInterval(() => { refresh(); }, 2000);
+    }
 
     try {
       await refreshDetailsView(seq);
@@ -2291,15 +2371,10 @@ const createDetailsUI = ({
       if (seq !== openSeq) return;
       // uiDebug?.log("getDetails:error", { id: rowId, message: e?.message });
     }
-
-    // Auto-refresh live details every 2 seconds (not for history views)
-    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-    if (!historyRecord) {
-      autoRefreshTimer = setInterval(() => { refresh(); }, 2000);
-    }
   };
   const close = ({ keepPinned = false } = {}) => {
     openSeq++;
+    activeDetailsLoad = null;
     if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
 
     // Reset the DMG/HEAL toggle (state + buttons) so it re-opens on DMG.
@@ -2394,11 +2469,7 @@ const createDetailsUI = ({
     updateGridColumns();
 
     // Clear stats/skills while loading
-    for (let i = 0; i < statSlots.length; i++) statSlots[i].valueEl.textContent = "-";
-    for (let i = 0; i < skillSlots.length; i++) {
-      skillSlots[i].rowEl.style.display = "none";
-      skillSlots[i].rowFillEl.style.transform = "scaleX(0)";
-    }
+    clearDetailsValues();
 
     if (seq !== openSeq) return;
     const fakeRow = { id: null, job: "", name: record.bossName };
@@ -2415,10 +2486,16 @@ const createDetailsUI = ({
   const refresh = async () => {
     if (!detailsPanel.classList.contains("open")) return;
     if (historyRecord) return; // history view doesn't refresh from backend
+    if (activeDetailsLoad?.seq === openSeq) {
+      // Keep a slow live result eligible to render. Any number of timer ticks
+      // asks for just one newer snapshot after the current load completes.
+      activeDetailsLoad.refreshRequested = true;
+      return activeDetailsLoad.promise;
+    }
     const previousTargetId = selectedTargetId;
     const previousAttackerIds = Array.isArray(selectedAttackerIds) ? [...selectedAttackerIds] : null;
     const wasCompact = activeCompactMode;
-    const seq = ++openSeq;
+    const seq = openSeq;
     if (!wasCompact) {
       loadDetailsContext();
     }

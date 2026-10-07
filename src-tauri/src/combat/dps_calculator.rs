@@ -1113,15 +1113,27 @@ impl DpsCalculator {
             .collect();
 
         DetailsContext {
-            current_target_id: self.current_target,
+            current_target_id: self.data_storage.current_target(),
             targets,
             actors,
         }
     }
 
     pub fn get_target_details(&self, target_id: i32, actor_ids: Option<&[i32]>) -> TargetDetailsResponse {
-        let combat_data = self.data_storage.get_combat_snapshot();
-        let target_data = match combat_data.get(&target_id) {
+        self.target_details(target_id, actor_ids, false)
+    }
+
+    pub fn get_hover_details(&self, target_id: i32, actor_ids: Option<&[i32]>) -> TargetDetailsResponse {
+        self.target_details(target_id, actor_ids, true)
+    }
+
+    fn target_details(&self, target_id: i32, actor_ids: Option<&[i32]>, summary_only: bool) -> TargetDetailsResponse {
+        let target = if summary_only {
+            self.data_storage.get_target_snapshot_light(target_id)
+        } else {
+            self.data_storage.get_target_snapshot(target_id)
+        };
+        let target_data = match target.as_ref() {
             Some(td) => td,
             None => return TargetDetailsResponse {
                 target_id,
@@ -1137,8 +1149,6 @@ impl DpsCalculator {
 
         let summon_data = self.data_storage.get_summon_data();
         let nickname_data = self.data_storage.get_nicknames();
-        let mob_hp_data = self.data_storage.get_mob_hp_data();
-
         let actor_damage_map: HashMap<i32, i64> = target_data.actors.iter()
             .map(|(&id, ad)| (id, ad.total_damage))
             .collect();
@@ -1375,6 +1385,19 @@ impl DpsCalculator {
             if entry.min_dmg == i32::MAX { entry.min_dmg = 0; }
         }
 
+        if summary_only {
+            return TargetDetailsResponse {
+                target_id,
+                max_hp: 0,
+                total_target_damage: target_data.total_damage as i32,
+                battle_time: (target_data.last_damage_time - target_data.first_damage_time).max(0),
+                start_time: fight_start,
+                skills: skill_map.into_values().collect(),
+                ping_history: Vec::new(),
+                heal_skills: Vec::new(),
+            };
+        }
+
         // Healing done this segment, per healer/skill. Keyed by the canonical actor
         // (same nickname/orphan resolution as damage). Reuses DetailSkillEntry:
         // dmg = heal amount, time = tick count, is_dot = HoT.
@@ -1441,7 +1464,7 @@ impl DpsCalculator {
 
         TargetDetailsResponse {
             target_id,
-            max_hp: mob_hp_data.get(&target_id).copied().unwrap_or(0),
+            max_hp: self.data_storage.get_mob_hp_data().get(&target_id).copied().unwrap_or(0),
             total_target_damage: target_data.total_damage as i32,
             battle_time,
             start_time: target_data.first_damage_time,
@@ -1539,6 +1562,105 @@ mod tests {
             Arc::new(NpcLookup::new()), Arc::new(PingTracker::new()))
     }
 
+    fn assert_hover_matches_full(calc: &DpsCalculator, target: i32, actors: Option<&[i32]>) {
+        let mut full = calc.get_target_details(target, actors);
+        let mut summary = calc.get_hover_details(target, actors);
+        assert!(summary.skills.iter().all(|s| s.hit_timestamps.is_empty()));
+        assert!(summary.heal_skills.is_empty());
+        assert!(summary.ping_history.is_empty());
+        full.max_hp = 0;
+        full.heal_skills.clear();
+        full.ping_history.clear();
+        for skill in &mut full.skills { skill.hit_timestamps.clear(); }
+        full.skills.sort_by_key(|s| (s.actor_id, s.code, s.is_dot));
+        summary.skills.sort_by_key(|s| (s.actor_id, s.code, s.is_dot));
+        assert_eq!(serde_json::to_value(full).unwrap(), serde_json::to_value(summary).unwrap());
+    }
+
+    #[test]
+    fn hover_omits_timelines_without_changing_damage_or_actor_filtering() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2259));
+        storage.append_damage(hit(2259, 50_000, 1_000));
+        storage.append_damage(hit(2259, 50_000, 1_100));
+        storage.append_damage(hit(2260, 50_000, 1_200));
+        storage.append_damage(hit(2259, 50_001, 1_300));
+        let mut dot = hit(2259, 50_000, 1_400);
+        dot.set_dot(true);
+        storage.append_damage(dot);
+        let calc = meter(&storage);
+        assert!(calc.get_hover_details(50_000, Some(&[2259])).skills.iter().any(|s| s.is_dot));
+        assert!(!calc.get_target_details(50_000, Some(&[2259])).skills[0].hit_timestamps.is_empty());
+        for actors in [None, Some(&[2259][..]), Some(&[2260][..]), Some(&[999][..])] {
+            assert_hover_matches_full(&calc, 50_000, actors);
+        }
+        assert_hover_matches_full(&calc, 99999, None);
+        // Reading the summary must not strip the stored timeline.
+        assert_eq!(calc.get_target_details(50_000, Some(&[2259])).skills.iter()
+            .find(|s| !s.is_dot).unwrap().hit_timestamps.len(), 2);
+    }
+
+    #[test]
+    fn independent_details_reader_matches_live_calculator_and_ignores_unrelated_hits() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2259));
+        storage.append_damage(hit(2259, 50_000, 1_000));
+        let mut live = meter(&storage);
+        live.get_dps();
+        let reader = meter(&storage);
+        assert_eq!(serde_json::to_value(reader.get_details_context()).unwrap(),
+            serde_json::to_value(live.get_details_context()).unwrap());
+        let before = serde_json::to_value(reader.get_target_details(50_000, Some(&[2259]))).unwrap();
+        for target in 50_001..50_065 {
+            for i in 0..100 { storage.append_damage(hit(2259, target, 2_000 + i)); }
+        }
+        assert_eq!(serde_json::to_value(reader.get_target_details(50_000, Some(&[2259]))).unwrap(), before);
+        let snapshot = storage.get_target_snapshot(50_000).unwrap();
+        assert_eq!(snapshot.actors.values().flat_map(|a| a.skills.values())
+            .map(|s| s.hit_timestamps.len()).sum::<usize>(), 1);
+        assert!(storage.get_target_snapshot(99999).is_none());
+        live.restart_target_selection(true);
+        assert_eq!(reader.get_details_context().current_target_id, live.get_details_context().current_target_id);
+    }
+
+    #[test]
+    #[ignore = "manual synthetic hover resource benchmark"]
+    fn hover_resource_benchmark() {
+        use std::hint::black_box;
+        use std::time::Instant;
+        for hits_per_target in [1_000, 10_000] {
+            let storage = Arc::new(DataStorage::new());
+            storage.set_local_player_id(Some(2259));
+            for target in 50_000..50_064 {
+                for i in 0..hits_per_target {
+                    let mut packet = hit(2259, target, 1_000 + i);
+                    packet.set_skill_code(11_010_000 + (i as i32 % 20) * 10_000);
+                    storage.append_damage(packet);
+                }
+            }
+            let snapshot = storage.get_combat_snapshot();
+            assert_eq!(snapshot.len(), 64);
+            let timestamps: usize = snapshot.values().flat_map(|t| t.actors.values())
+                .flat_map(|a| a.skills.values()).map(|s| s.hit_timestamps.len()).sum();
+            assert_eq!(timestamps, 64 * hits_per_target as usize);
+            drop(snapshot);
+            let calc = meter(&storage);
+            assert_hover_matches_full(&calc, 50_000, Some(&[2259]));
+            for summary in [false, true] {
+                let start = Instant::now();
+                let mut bytes = 0;
+                for _ in 0..200 {
+                    let details = if summary { calc.get_hover_details(50_000, Some(&[2259])) }
+                        else { calc.get_target_details(50_000, Some(&[2259])) };
+                    let json = serde_json::to_vec(&details).unwrap();
+                    bytes = json.len();
+                    black_box(json);
+                }
+                eprintln!("hits_per_target={hits_per_target} summary={summary} requests=200 elapsed_us={} response_bytes={bytes}", start.elapsed().as_micros());
+            }
+        }
+    }
+
     #[test]
     fn displayed_rows_keep_their_detail_targets_until_reset() {
         let storage = Arc::new(DataStorage::new());
@@ -1618,7 +1740,11 @@ mod tests {
         stray.set_skill_code(11_390_000);
         storage.append_damage(stray);
 
-        let details = meter(&storage).get_target_details(50_000, None);
+        let calc = meter(&storage);
+        assert_hover_matches_full(&calc, 50_000, None);
+        assert_hover_matches_full(&calc, 50_000, Some(&[1490]));
+        assert_hover_matches_full(&calc, 50_000, Some(&[5886]));
+        let details = calc.get_target_details(50_000, None);
         let rows: HashSet<i32> = details.skills.iter().map(|s| s.actor_id).collect();
         assert_eq!(rows, HashSet::from([1490, 5886, 7001, 7002, 119]),
             "spirit to the Spiritmaster; the old id and the aura to the Cleric; two Gladiators: unknown");

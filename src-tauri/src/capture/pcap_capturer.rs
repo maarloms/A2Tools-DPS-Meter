@@ -105,6 +105,7 @@ struct PcapLib {
 impl PcapLib {
     fn load() -> Result<Self, String> {
         // The first of the OS's names for the library that loads.
+        crate::platform::pcap::prepare();
         let mut errors = Vec::new();
         let mut loaded = None;
         for name in crate::platform::pcap::LIBRARIES {
