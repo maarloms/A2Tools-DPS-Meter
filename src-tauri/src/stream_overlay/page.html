@@ -117,6 +117,16 @@
   const params = new URLSearchParams(location.search);
   const key = params.get("key") || "";
   const lang = CONFIG.lang || "en";
+  // `&rows=N` caps the rows to what the source is sized for. You stay on it:
+  // below the cap, you take the last row.
+  const maxRows = Math.min(12, Math.max(0, parseInt(params.get("rows"), 10) || 0));
+  const capRows = (rows) => {
+    if (!maxRows || rows.length <= maxRows) return rows;
+    const shown = rows.slice(0, maxRows);
+    const you = rows.findIndex((r) => r && r.you);
+    if (you >= maxRows) shown[maxRows - 1] = rows[you];
+    return shown;
+  };
   const COLORS = {
     gladiator: "#4FD1C5", templar: "#5F8CFF", ranger: "#41D98A", assassin: "#7BE35A",
     sorcerer: "#9A6BFF", cleric: "#F2C15A", spiritmaster: "#E06BFF", chanter: "#FF9A3D",
@@ -160,7 +170,8 @@
   };
 
   const render = (snap) => {
-    const rows = Array.isArray(snap && snap.rows) ? snap.rows : [];
+    const all = Array.isArray(snap && snap.rows) ? snap.rows : [];
+    const rows = capRows(all);
     if (rows.length === 0) {
       elHead.hidden = true;
       elRows.replaceChildren();
@@ -175,8 +186,10 @@
     setText(elTime, snap.timeMs > 0 ? formatTime(snap.timeMs) : "");
 
     // Ranks go by DPS whatever the order (the local player may be pinned).
-    const ranked = rows.map((r, i) => [i, Number(r.dps) || 0]).sort((a, b) => b[1] - a[1]);
-    const rankOf = new Map(ranked.map(([i], n) => [i, n + 1]));
+    // Ranked among every row the meter sent, so a row moved up past the
+    // `rows` cap keeps its real rank.
+    const ranked = all.map((r) => [r, Number(r && r.dps) || 0]).sort((a, b) => b[1] - a[1]);
+    const rankOf = new Map(ranked.map(([r], n) => [r, n + 1]));
     const top = Math.max(1, ...rows.map((r) => Number(r.dps) || 0));
 
     while (views.length < rows.length) {
@@ -189,9 +202,9 @@
     rows.forEach((r, i) => {
       const v = views[i];
       v.row.classList.toggle("you", !!r.you);
-      setText(v.rank, String(rankOf.get(i)));
+      setText(v.rank, String(rankOf.get(r)));
       setText(v.name, String(r.name || ""));
-      setText(v.dps, whole.format(Number(r.dps) || 0));
+      setText(v.dps, whole.format(Number(r.dps) || 0) + (CONFIG.dpsSuffix || ""));
       setText(v.dmg, compact.format(Number(r.dmg) || 0));
       setText(v.pct, `${(Number(r.pct) || 0).toFixed(1)}%`);
       const cls = typeof r.cls === "string" && COLORS[r.cls] ? r.cls : null;

@@ -50,6 +50,9 @@ pub struct PageLabels {
     pub lang: String,
     pub waiting: String,
     pub reconnecting: String,
+    /// After a DPS figure, as the meter window shows it ("/s").
+    #[serde(rename = "dpsSuffix")]
+    pub dps_suffix: String,
 }
 
 /// Constant-time comparison of a presented key with the real one. Length is
@@ -384,6 +387,7 @@ pub(crate) mod tests {
                 lang: lang.unwrap_or("en").to_string(),
                 waiting: "Waiting <b>".into(),
                 reconnecting: "Reconnecting".into(),
+                dps_suffix: "/s".into(),
             }),
         }
     }

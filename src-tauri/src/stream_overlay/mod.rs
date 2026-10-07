@@ -261,17 +261,19 @@ fn page_labels(data_dir: Option<&std::path::Path>, lang: &str) -> PageLabels {
     };
     let ui = load(lang);
     let en = load("en");
-    let text = |key: &str, fallback: &str| -> String {
+    let text_at = |group: &[&str], key: &str, fallback: &str| -> String {
         [ui.as_ref(), en.as_ref()]
             .into_iter()
             .flatten()
-            .find_map(|v| v["settings"]["streamOverlay"][key].as_str().map(str::to_string))
+            .find_map(|v| group.iter().fold(v, |v, g| &v[*g])[key].as_str().map(str::to_string))
             .unwrap_or_else(|| fallback.to_string())
     };
+    let text = |key: &str, fallback: &str| text_at(&["settings", "streamOverlay"], key, fallback);
     PageLabels {
         lang: lang.to_string(),
         waiting: text("waiting", "Waiting for combat…"),
         reconnecting: text("reconnecting", "Reconnecting to the meter…"),
+        dps_suffix: text_at(&["meter"], "dpsSuffix", "/s"),
     }
 }
 
@@ -378,6 +380,7 @@ mod tests {
         assert_eq!(de.lang, "de");
         assert!(!de.waiting.is_empty() && !en.waiting.is_empty());
         assert_ne!(de.waiting, en.waiting);
+        assert_eq!(en.dps_suffix, "/s", "after DPS, as the meter window shows it");
         let none = page_labels(None, "en");
         assert_eq!(none.waiting, "Waiting for combat…");
     }
