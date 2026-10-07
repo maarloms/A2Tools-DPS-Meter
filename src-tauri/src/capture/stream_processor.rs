@@ -1223,7 +1223,33 @@ impl StreamProcessor {
             }
         }
 
+        // A Sorcerer's lingering ground spell (Cold Storm, Bittercold Wind) also
+        // spawns as `0x1F`, but its buff block names the spell itself. Its caster
+        // follows the spawn position as `07 02 06 <caster u32 LE>`. In the check
+        // kit's captures 82 of 86 storm spawns carried it and 81 named a player
+        // who cast Sorcerer skills; none named the storm or a mob.
+        if kind == 0x1F
+            && let Some(caster) = self.find_effect_caster(packet, offset, real_actor_id)
+        {
+            self.data_storage.note_low_id_entity(caster);
+            self.data_storage
+                .register_confirmed_summon_by_id(real_actor_id, caster);
+            return true;
+        }
+
         false
+    }
+
+    /// The caster of a `0x1F` ground spell: the `u32` after the `07 02 06` that
+    /// follows the spawn position. Never the spell itself or a known mob.
+    fn find_effect_caster(&self, packet: &[u8], start_offset: usize, self_id: i32) -> Option<i32> {
+        const MARKER: [u8; 3] = [0x07, 0x02, 0x06];
+        let end = packet.len().min(start_offset + 240);
+        let at = packet.get(start_offset..end)?.windows(MARKER.len()).position(|w| w == MARKER)?;
+        let i = start_offset + at + MARKER.len();
+        let caster = i32::from_le_bytes(packet.get(i..i + 4)?.try_into().ok()?);
+        ((100..=9_999_999).contains(&caster) && caster != self_id && !self.data_storage.is_mob(caster))
+            .then_some(caster)
     }
 
     /// Find the `parent_key` a `41 36` spawn declares via `mask & 0x0010`.
@@ -3151,6 +3177,33 @@ mod tests {
         mob[5] = 0x0c;
         assert!(!p.parse_summon_spawn_at(&mob, 2));
         assert!(!storage.is_summon(47325));
+    }
+
+    #[test]
+    fn a_sorcerers_ground_spell_is_linked_to_its_caster() {
+        let storage = Arc::new(DataStorage::new());
+        let mut p = StreamProcessor::new(storage.clone(), Arc::new(SkillLookup::new()), Arc::new(NpcLookup::new()));
+        let hex = |s: &str| (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect::<Vec<u8>>();
+        // Bittercold Wind entity 18249 from a party run (krao capture, 2026-10-05):
+        // kind 0x1F, buff block naming itself, caster 14143 after `07 02 06`.
+        let storm = |id_varint: &str, caster: &str| {
+            let mut b = hex("4136");
+            b.extend(hex(id_varint));
+            b.extend(hex("1F00004B8E2C004002000CF0C7CFA9D0C70090C04672498542642F01A925A9258E0800008E08000000000000000000000000000010E9010064000000F04902000100000000000000A08601000000000090D00300010101110181969800FFFFFFFFFFFFFFFF8075D52ABB030000"));
+            b.extend(hex(id_varint));
+            b.extend(hex("0102000CF0C7CFA9D0C70090C046070206"));
+            b.extend(hex(caster));
+            b.extend(hex("02CD002800"));
+            b
+        };
+        assert!(p.parse_summon_spawn_at(&storm("C98E01", "3F370000"), 2));
+        assert_eq!(storage.get_summon_data().get(&18249), Some(&14143));
+
+        // A marker naming the spell itself, or a mob, links nothing.
+        assert!(!p.parse_summon_spawn_at(&storm("CA8E01", "4A470000"), 2));
+        storage.append_mob(30000, 1);
+        assert!(!p.parse_summon_spawn_at(&storm("CB8E01", "30750000"), 2));
+        assert!(!storage.is_summon(18250) && !storage.is_summon(18251));
     }
 
     #[test]
