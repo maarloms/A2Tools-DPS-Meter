@@ -36,7 +36,7 @@ use std::collections::{HashMap, HashSet};
 
 use sha2::{Digest, Sha256};
 
-use super::framing::{self, FrameKind};
+use super::framing::{self, FrameKind, MAX_BUNDLE_DEPTH};
 use super::packet_accumulator::PacketAccumulator;
 
 /// How far before the fight to keep packets. The party roster (`02 97`) and the
@@ -226,10 +226,6 @@ fn frame_packet(body: &[u8]) -> Option<Vec<u8>> {
 /// Opcodes that report what happened rather than who is there. Kept only in
 /// the fight window, so the prelude cannot carry another fight's numbers.
 const EVENT_OPCODES: &[[u8; 2]] = &[[0x04, 0x38], [0x05, 0x38], [0x1B, 0x92]];
-
-/// Bundles nest. Four is far past anything observed and stops a crafted file
-/// from recursing us to death.
-const MAX_BUNDLE_DEPTH: usize = 4;
 
 /// The opcodes the parser reads, and nothing else.
 ///
