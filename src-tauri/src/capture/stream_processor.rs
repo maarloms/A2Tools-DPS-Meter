@@ -980,8 +980,8 @@ impl StreamProcessor {
     /// It joins to in-world entities by NAME: `dbid` is an account id, unrelated
     /// to the session-scoped entity ids everything else uses.
     ///
-    /// Empty slots are encoded with a zero mask and an empty name; parsing stops
-    /// there because their short form would desync the walk.
+    /// Empty slots are encoded with a zero mask and an empty name, in a short
+    /// record of varying width; the walk re-acquires the next member past them.
     fn scan_party_roster(&self, data: &[u8]) {
         if data.len() < 32 {
             return;
@@ -2486,9 +2486,10 @@ fn parse_party_roster_at(
     }
     o += count_info.length as usize;
 
+    let count = count_info.value;
     let mut members = Vec::new();
     let mut complete = false;
-    for index in 0..count_info.value {
+    for _ in 0..count {
         if o + 20 > data.len() {
             break;
         }
@@ -2499,11 +2500,20 @@ fn parse_party_roster_at(
         let server_id = (dbid >> 48) as u16;
         let nick_len = *data.get(o)? as usize;
         o += 1;
-        // An empty name is a vacant slot. Those records are short and the ones
-        // after them are all vacant too, so the roster ends here.
+        // An empty name is a vacant slot. Vacant slots can sit between members
+        // (slots 1 and 5 filled, 2-4 empty), so look past them for a later one;
+        // when there is none, the roster ends here.
         if nick_len == 0 {
-            complete = true;
-            break;
+            match find_later_member(data, o, slot, count) {
+                Some(next) => {
+                    o = next;
+                    continue;
+                }
+                None => {
+                    complete = true;
+                    break;
+                }
+            }
         }
         if nick_len > 40 || o + nick_len > data.len() {
             break;
@@ -2558,14 +2568,17 @@ fn parse_party_roster_at(
             },
         ));
 
-        if index + 1 == count_info.value {
+        if i32::from(slot) >= count {
             complete = true;
             break;
         }
         // The record tail is likewise variable, so re-acquire the next member by
         // its header: the following slot number, a world id in the top of its
-        // dbid, and a decodable name right behind it.
-        match find_next_member(data, o, slot.wrapping_add(1)) {
+        // dbid, and a decodable name right behind it. The next slot may be
+        // vacant instead; the walk then reads it as one.
+        match find_next_member(data, o, slot.wrapping_add(1))
+            .or_else(|| find_vacant_slot(data, o, slot.wrapping_add(1)))
+        {
             Some(next) => o = next,
             None => break,
         }
@@ -2586,7 +2599,26 @@ fn find_u16(data: &[u8], from: usize, to: usize, wanted: u16) -> Option<usize> {
 /// `<mask u8> <slot u8> <dbid u64> <name_len u8> <utf8 name>`, where the slot is
 /// known and the top `u16` of the dbid is a plausible world id.
 fn find_next_member(data: &[u8], from: usize, expected_slot: u8) -> Option<usize> {
-    let end = (from + 32).min(data.len().saturating_sub(12));
+    find_member_within(data, from, 32, expected_slot)
+}
+
+/// A named member in a slot after `slot`, past the vacant records between.
+/// A vacant record is about 35-37 bytes, of varying width like a member's.
+fn find_later_member(data: &[u8], from: usize, slot: u8, count: i32) -> Option<usize> {
+    let last = u8::try_from(count).ok()?;
+    (slot.checked_add(1)?..=last)
+        .find_map(|next| find_member_within(data, from, 48 * usize::from(next - slot), next))
+}
+
+/// A vacant record for `expected_slot` near `from`: a zero mask, the slot, a
+/// zero dbid and an empty name.
+fn find_vacant_slot(data: &[u8], from: usize, expected_slot: u8) -> Option<usize> {
+    let end = (from + 32).min(data.len().saturating_sub(11));
+    (from..=end).find(|&i| data[i] == 0 && data[i + 1] == expected_slot && data[i + 2..i + 11].iter().all(|&b| b == 0))
+}
+
+fn find_member_within(data: &[u8], from: usize, span: usize, expected_slot: u8) -> Option<usize> {
+    let end = (from + span).min(data.len().saturating_sub(12));
     for i in from..=end {
         if data[i + 1] != expected_slot {
             continue;
@@ -2769,6 +2801,34 @@ fn unicode_script(ch: char) -> UnicodeScript {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A roster with slots 1 and 5 filled and 2-4 vacant (bytes from a
+    /// 2026-08-15 capture, rearranged). The walk used to stop at slot 2.
+    #[test]
+    fn roster_reads_members_past_vacant_slots() {
+        let roster = [
+            "02 97 a5 f9 08 00 0b 38 35 30 4b 20 e8 bf 9e e5 88 b7 05 63 28 09 00 00 03 85 4b 01 00 00 00 f6 03 1f 02 00 05",
+            "0c 01 85 4b 01 00 00 00 f6 03 0f e4 b9 9d e5 b7 9e e4 be 9d e7 84 b6 e5 9c a8 06 00 00 00 32 00 00 00 07 17 00 00 f6 03 f6 03 04 38 39 0d 00 00 00 00 00 00 01 01",
+            "00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00",
+            "00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00",
+            "00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00",
+            "0e 05 62 64 01 00 00 00 f6 03 02 4d 37 0e 00 00 00 32 00 00 00 5e 16 00 00 f6 03 f6 03 04 6a 03 0d 00 00 00 00 00 00 01 01",
+            "02 0e 00 36",
+        ]
+        .join(" ");
+        let data: Vec<u8> = roster.split_whitespace().map(|b| u8::from_str_radix(b, 16).unwrap()).collect();
+        let (members, complete, _) = parse_party_roster_at(&data, 2).expect("a roster");
+        let slots: Vec<(String, u8)> = members.iter().map(|(n, m)| (n.clone(), m.slot)).collect();
+        assert_eq!(slots, vec![("九州依然在".to_string(), 1), ("M7".to_string(), 5)]);
+        assert!(complete);
+
+        // Members in slots 1-2 and the rest vacant: complete, as before.
+        let roster = ["02 97 a5 f9 08 00 0b 38 35 30 4b 20 e8 bf 9e e5 88 b7 05 63 28 09 00 00 03 85 4b 01 00 00 00 f6 03 1f 02 00 05", "0c 01 85 4b 01 00 00 00 f6 03 0f e4 b9 9d e5 b7 9e e4 be 9d e7 84 b6 e5 9c a8 06 00 00 00 32 00 00 00 07 17 00 00 f6 03 f6 03 04 38 39 0d 00 00 00 00 00 00 01 01", "0e 02 62 64 01 00 00 00 f6 03 02 4d 37 0e 00 00 00 32 00 00 00 5e 16 00 00 f6 03 f6 03 04 6a 03 0d 00 00 00 00 00 00 01 01", "00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00", "00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00", "00 05 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00"].join(" ");
+        let data: Vec<u8> = roster.split_whitespace().map(|b| u8::from_str_radix(b, 16).unwrap()).collect();
+        let (members, complete, _) = parse_party_roster_at(&data, 2).expect("a roster");
+        assert_eq!(members.len(), 2);
+        assert!(complete, "vacant slots after the last member end the roster");
+    }
 
     /// Damage records from a live capture (2026-10-04, target 30001, actor
     /// 1395), each checked against the game's own Damage Analyzer record of
