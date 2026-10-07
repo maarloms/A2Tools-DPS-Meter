@@ -37,7 +37,7 @@ static RING: Mutex<Ring> = Mutex::new(Ring { packets: VecDeque::new(), bytes: 0 
 /// capture time, as the time of dispatch falls on libpcap's 100 ms read grid.
 pub fn record(cap: &CapturedPayload) {
     let at = cap.capture_time_ms().unwrap_or_else(crate::clock::now_ms);
-    record_at(at, format!("Client:{}", cap.src_port), &cap.data);
+    record_at(at, crate::capture::captured_payload::stream_key(cap.src_port, cap.dst_port), &cap.data);
 }
 
 /// Remember one segment of `stream`, captured at `at`.
@@ -101,7 +101,7 @@ mod tests {
         let held = snapshot();
         assert_eq!(held.len(), 1);
         assert_eq!(held[0].bytes, vec![4, 5]);
-        assert_eq!(held[0].stream, "Client:7777");
+        assert_eq!(held[0].stream, "Client:50000:7777");
         clear();
     }
 
