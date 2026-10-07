@@ -374,6 +374,9 @@ struct Inner {
     actor_jobs: HashMap<i32, JobClass>,
 
     nickname_storage: HashMap<i32, String>,
+    /// Bumped whenever `nickname_storage` changes, so the meter redraws a
+    /// name that arrives after the last hit (see `names_generation`).
+    names_generation: u64,
     pending_nicknames: HashMap<i32, String>,
     permanent_nicknames: HashMap<i32, String>,
     summon_storage: HashMap<i32, i32>,
@@ -496,6 +499,7 @@ impl DataStorage {
                 target_combat: HashMap::new(),
                 actor_jobs: HashMap::new(),
                 nickname_storage: HashMap::new(),
+                names_generation: 0,
                 pending_nicknames: HashMap::new(),
                 permanent_nicknames: HashMap::new(),
                 summon_storage: HashMap::new(),
@@ -1484,8 +1488,44 @@ impl DataStorage {
         inner.despawned_summon_ids.clear();
     }
 
+    /// What the reset button and hotkey do to names: forget the ones only a
+    /// loose scan guessed, keep the ones the game stated.
+    ///
+    /// The game names a player once, in the spawn (`44/45 36`) sent when they
+    /// come into view, and you in the self record (`33 36`) on a zone load.
+    /// Nothing repeats them while everyone stays put, so a reset that cleared
+    /// every name left the party, the players around and the local player as
+    /// `#id` rows until the next zone load. Replayed with three resets in
+    /// town, a player's two-hour capture (2026-10-07, EU) went from 23 ticks
+    /// of Boss mode with such a row to 2,326, her own row among them, and a
+    /// nameless row of yours was not marked as yours, so it could fall off
+    /// the bottom of the meter. A wrong name from a loose scan is still
+    /// dropped here, which is what the reset is for.
+    pub fn forget_guessed_nicknames(&self) {
+        let mut inner = self.inner.write();
+        let local = inner.local_player_id.map(|id| id as i32);
+        let local_name = inner.local_character_name.clone();
+        let Inner { nickname_storage, authoritative_name_ids, .. } = &mut *inner;
+        nickname_storage.retain(|id, name| {
+            authoritative_name_ids.contains(id)
+                || (Some(*id) == local && local_name.as_deref().map(str::trim) == Some(name.trim()))
+        });
+        inner.pending_nicknames.clear();
+        let permanent: Vec<(i32, String)> = inner.permanent_nicknames.iter().map(|(&k, v)| (k, v.clone())).collect();
+        for (uid, nick) in permanent {
+            inner.nickname_storage.insert(uid, nick);
+        }
+        inner.names_generation += 1;
+    }
+
+    /// Changes whenever a name is bound, replaced or dropped.
+    pub fn names_generation(&self) -> u64 {
+        self.inner.read().names_generation
+    }
+
     pub fn reset_nicknames(&self) {
         let mut inner = self.inner.write();
+        inner.names_generation += 1;
         inner.nickname_storage.clear();
         inner.pending_nicknames.clear();
         inner.authoritative_name_ids.clear();
@@ -1773,6 +1813,7 @@ fn append_nickname_inner_with_force(inner: &mut Inner, uid: i32, nickname: &str,
         // bound may have been on someone else, so that damage is still dropped.
         let same_character = force && inner.authoritative_name_ids.contains(&old_id);
         inner.nickname_storage.remove(&old_id);
+        inner.names_generation += 1;
         inner.known_player_ids.remove(&old_id);
         inner.authoritative_name_ids.remove(&old_id);
         inner.pending_nicknames.remove(&old_id);
@@ -1798,6 +1839,7 @@ fn append_nickname_inner_with_force(inner: &mut Inner, uid: i32, nickname: &str,
     }
 
     inner.nickname_storage.insert(uid, nickname.to_string());
+    inner.names_generation += 1;
 
     if !inner.confirmed_summon_ids.contains(&uid) {
         inner.summon_storage.remove(&uid);
@@ -2467,5 +2509,50 @@ mod tests {
         assert_eq!(s.local_player_id(), Some(4099));
         assert!(!s.note_loot_owner(900, 1454, "ApexZ"));
         assert_eq!(who(&s), (Some(4099), Some("Misti".into()), false));
+    }
+
+    fn player_hit(s: &DataStorage, actor: i32, target: i32) {
+        let mut p = ParsedDamagePacket::new();
+        p.set_actor_id(actor);
+        p.set_target_id(target);
+        p.set_skill_code(13_720_000);
+        p.set_damage(100);
+        s.append_damage(p);
+    }
+
+    /// The reset button forgets damage, and names only a loose scan guessed.
+    /// The ones the game stated (spawns, the self record) are not sent again
+    /// until everyone respawns, so dropping them left every row an `#id`.
+    #[test]
+    fn a_reset_keeps_the_names_the_game_stated() {
+        let s = DataStorage::new();
+        s.set_local_identity_from_game(2737, Some("Mine".into()));
+        s.append_nickname_authoritative(2737, "Mine");
+        s.append_nickname_authoritative(4227, "Spawned");
+        player_hit(&s, 5001, 900);
+        s.append_nickname(5001, "Guessed");
+        s.set_permanent_nickname(6001, "Typed");
+        let generation = s.names_generation();
+
+        s.flush();
+        s.forget_guessed_nicknames();
+        assert_eq!(s.get_nickname(2737).as_deref(), Some("Mine"));
+        assert_eq!(s.get_nickname(4227).as_deref(), Some("Spawned"));
+        assert_eq!(s.get_nickname(6001).as_deref(), Some("Typed"));
+        assert_eq!(s.get_nickname(5001), None, "a guess goes");
+        assert_ne!(s.names_generation(), generation);
+
+        // A local name from a loot record (no self record) is yours, and stays.
+        let loot = DataStorage::new();
+        loot.note_party_scope(1454);
+        player_hit(&loot, 1454, 900);
+        loot.append_nickname(1454, "Looter"); // as the parser does with a loot record
+        assert!(loot.note_loot_owner(900, 1454, "Looter"));
+        loot.forget_guessed_nicknames();
+        assert_eq!(loot.get_nickname(1454).as_deref(), Some("Looter"));
+
+        // Loading a replay still starts from nothing.
+        s.reset_nicknames();
+        assert_eq!(s.get_nickname(4227), None);
     }
 }

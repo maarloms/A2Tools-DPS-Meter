@@ -664,9 +664,10 @@ fn bind_local_nickname(state: tauri::State<'_, AppState>, actor_id: i64, nicknam
 fn reset_combat(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
     save_fights_before_reset(&app);
     state.dps_calculator.lock().restart_target_selection(true);
-    // Don't reset port detector or ping — keep the network connection alive
-    // Only clear combat data and re-learn nicknames from future packets
-    state.data_storage.reset_nicknames();
+    // Don't reset port detector or ping — keep the network connection alive.
+    // Clear combat data, and only the names a loose scan guessed: the game
+    // does not send the others again until everyone respawns.
+    state.data_storage.forget_guessed_nicknames();
     state.data_storage.hide_party_placeholders();
 }
 
@@ -2384,7 +2385,7 @@ pub fn run() {
                         save_fights_before_reset(&h);
                         if let Some(state) = h.try_state::<AppState>() {
                             state.dps_calculator.lock().restart_target_selection(true);
-                            state.data_storage.reset_nicknames();
+                            state.data_storage.forget_guessed_nicknames();
                         }
                         // Notify frontend to clear UI
                         let _ = h.emit("combat-reset", ());
