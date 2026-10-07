@@ -221,8 +221,7 @@
       "reconnecting": "미터에 다시 연결하는 중…",
       "player": "플레이어",
       "displayName": "방송에 표시할 이름",
-      "displayNamePlaceholder": "캐릭터 이름",
-      "displayNameHint": "다른 플레이어는 방송에 이름 대신 직업으로 표시됩니다."
+      "displayNamePlaceholder": "캐릭터 이름"
     },
     "version": "버전",
     "theme": {

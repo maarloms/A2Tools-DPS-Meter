@@ -53,7 +53,7 @@ pub struct PageLabels {
     /// After a DPS figure, as the meter window shows it ("/s").
     #[serde(rename = "dpsSuffix")]
     pub dps_suffix: String,
-    /// Class key to class name: others show on stream by class, not name.
+    /// Class key to class name, for a row that has no name.
     pub classes: std::collections::BTreeMap<String, String>,
     /// For another player whose class is not known yet.
     pub player: String,

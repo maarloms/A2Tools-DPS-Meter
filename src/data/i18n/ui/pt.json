@@ -216,8 +216,7 @@
       "reconnecting": "Reconectando ao medidor…",
       "player": "Jogador",
       "displayName": "Seu nome na live",
-      "displayNamePlaceholder": "Nome do seu personagem",
-      "displayNameHint": "Os outros jogadores aparecem na live pela classe, nunca pelo nome."
+      "displayNamePlaceholder": "Nome do seu personagem"
     },
     "version": "Versão",
     "theme": {

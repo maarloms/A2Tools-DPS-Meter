@@ -216,8 +216,7 @@
       "reconnecting": "Reconectando con el medidor…",
       "player": "Jugador",
       "displayName": "Tu nombre en el directo",
-      "displayNamePlaceholder": "Nombre de tu personaje",
-      "displayNameHint": "Los demás jugadores aparecen en el directo por su clase, nunca por su nombre."
+      "displayNamePlaceholder": "Nombre de tu personaje"
     },
     "version": "Versión",
     "theme": {

@@ -226,8 +226,7 @@
       "reconnecting": "Reconnecting to the meter…",
       "player": "Player",
       "displayName": "Your name on stream",
-      "displayNamePlaceholder": "Your character name",
-      "displayNameHint": "Other players show on stream as their class, never by name."
+      "displayNamePlaceholder": "Your character name"
     },
     "version": "Version",
     "theme": {

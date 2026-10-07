@@ -216,8 +216,7 @@
       "reconnecting": "メーターに再接続中…",
       "player": "プレイヤー",
       "displayName": "配信での名前",
-      "displayNamePlaceholder": "キャラクター名",
-      "displayNameHint": "他のプレイヤーは配信では名前ではなくクラスで表示されます。"
+      "displayNamePlaceholder": "キャラクター名"
     },
     "version": "バージョン",
     "theme": {

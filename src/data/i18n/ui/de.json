@@ -216,8 +216,7 @@
       "reconnecting": "Verbinde erneut mit dem Meter…",
       "player": "Spieler",
       "displayName": "Dein Name im Stream",
-      "displayNamePlaceholder": "Dein Charaktername",
-      "displayNameHint": "Andere Spieler erscheinen im Stream nur mit ihrer Klasse, nie mit Namen."
+      "displayNamePlaceholder": "Dein Charaktername"
     },
     "version": "Version",
     "theme": {

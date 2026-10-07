@@ -221,8 +221,7 @@
       "reconnecting": "正在重新连接面板…",
       "player": "玩家",
       "displayName": "直播中显示的名字",
-      "displayNamePlaceholder": "你的角色名",
-      "displayNameHint": "其他玩家在直播中只显示职业，不显示名字。"
+      "displayNamePlaceholder": "你的角色名"
     },
     "version": "版本",
     "theme": {

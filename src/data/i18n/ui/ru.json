@@ -221,8 +221,7 @@
       "reconnecting": "Переподключение к счётчику…",
       "player": "Игрок",
       "displayName": "Ваше имя на стриме",
-      "displayNamePlaceholder": "Имя вашего персонажа",
-      "displayNameHint": "Другие игроки показываются на стриме по классу, а не по имени."
+      "displayNamePlaceholder": "Имя вашего персонажа"
     },
     "version": "Версия",
     "theme": {
