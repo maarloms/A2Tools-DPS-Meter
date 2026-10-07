@@ -1259,7 +1259,7 @@ class DpsApp {
       : null;
 
     const mapObj = payload?.map && typeof payload.map === "object" ? payload.map : {};
-    const rows = this.buildRowsFromMapObject(mapObj);
+    const rows = this.buildRowsFromMapObject(mapObj, localPlayerId);
 
     const battleTimeMsRaw = payload?.battleTime;
     const battleTimeMs = Number.isFinite(Number(battleTimeMsRaw)) ? Number(battleTimeMsRaw) : null;
@@ -1289,8 +1289,14 @@ class DpsApp {
     };
   }
 
-  buildRowsFromMapObject(mapObj) {
+  // `localPlayerId`: who the backend says you are. Your row is yours by that
+  // id even before it has a name: matching by name alone left an unnamed
+  // "#id" row of yours unmarked, so it was neither pinned nor kept past the
+  // player limit, and you dropped off a busy meter.
+  buildRowsFromMapObject(mapObj, localPlayerId = null) {
     const rows = [];
+    const localId = Number(localPlayerId);
+    const hasLocalId = Number.isFinite(localId) && localId > 0;
 
     for (const [id, value] of Object.entries(mapObj || {})) {
       const numericId = Number(id);
@@ -1332,7 +1338,7 @@ class DpsApp {
         totalDamage,
         damageContribution,
         combatPower,
-        isUser: name === this.USER_NAME,
+        isUser: (!!name && name === this.USER_NAME) || (hasLocalId && numericId === localId),
         isIdentifying,
         // Resolved in Rust against a downloaded roster; the frontend only
         // renders it. Cosmetic only — it must not reach sorting or bar colour.

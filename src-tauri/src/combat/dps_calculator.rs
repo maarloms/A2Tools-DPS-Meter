@@ -59,6 +59,9 @@ pub struct DpsCalculator {
     current_target: i32,
     last_dps_snapshot: Option<DpsData>,
     last_damage_gen: i64,
+    /// `DataStorage::names_generation` at the last computed snapshot: a name
+    /// that arrives after the last hit must still reach the meter.
+    last_names_gen: u64,
     target_selection_mode: TargetSelectionMode,
     last_known_local_id: Option<i64>,
     all_targets_window_ms: i64,
@@ -86,6 +89,7 @@ impl DpsCalculator {
             current_target: 0,
             last_dps_snapshot: None,
             last_damage_gen: -1,
+            last_names_gen: 0,
             target_selection_mode: TargetSelectionMode::BossTargets,
             last_known_local_id: None,
             all_targets_window_ms: 120_000,
@@ -164,11 +168,16 @@ impl DpsCalculator {
         }
 
         // If no new damage since last cycle, return cached result
+        // ...nor a name bound since. History saves a fight again after it ends
+        // and so picked up a name that arrived late; the meter kept the
+        // `#id` until someone hit something.
         let current_gen = self.data_storage.damage_generation();
-        if current_gen == self.last_damage_gen && self.last_dps_snapshot.is_some() {
+        let names_gen = self.data_storage.names_generation();
+        if current_gen == self.last_damage_gen && names_gen == self.last_names_gen && self.last_dps_snapshot.is_some() {
             return self.last_dps_snapshot.as_ref().unwrap().clone();
         }
         self.last_damage_gen = current_gen;
+        self.last_names_gen = names_gen;
 
         // Get pre-computed aggregates (cheap — small map, not 17K packets).
         // Light snapshot: skips per-hit timestamps (unused here, grows unbounded).
@@ -338,10 +347,19 @@ impl DpsCalculator {
         }
         let skill_counts: HashMap<i32, usize> =
             skill_counts.into_iter().map(|(k, v)| (k, v.len())).collect();
+        let local_ids = self.resolve_local_ids(&summon_data);
         let mut orphan_merges: Vec<(i32, i32)> = Vec::new();
         for (&uid, data) in &dps_data.map {
             if summon_data.contains_key(&uid) { continue; }
             if nickname_data.contains_key(&uid) { continue; }
+            // You are nobody's summon. Unnamed, you looked like one to the
+            // power-scalar rule below whenever another player of your class
+            // with a longer rotation shared a scalar with you: your row was
+            // folded into theirs, your damage with it (2026-10-07, an
+            // Assassin among other Assassins at the training dummies).
+            // Details and history never merge a known player, so they were
+            // right while the meter was not.
+            if local_ids.as_ref().is_some_and(|ids| ids.contains(&uid)) { continue; }
             let job = &data.job;
             // A classless entity was dropped here, and with it its damage. Some
             // spirits only use skills that name no class (16110004, 100044…), so
@@ -414,7 +432,7 @@ impl DpsCalculator {
         if let Some(owners) = self.instance_class_owners(self.target_dungeon(self.current_target), &rows) {
             let merged: HashSet<i32> = orphan_merges.iter().map(|(o, _)| *o).collect();
             for (id, job, _, _) in &rows {
-                if merged.contains(id) {
+                if merged.contains(id) || local_ids.as_ref().is_some_and(|ids| ids.contains(id)) {
                     continue;
                 }
                 if let Some(&owner) = owners.get(job) {
@@ -433,7 +451,6 @@ impl DpsCalculator {
         }
 
         // Filter and compute DPS
-        let local_ids = self.resolve_local_ids(&summon_data);
         let party_members = self.data_storage.get_party_members();
         let bt = battle_time.max(1000);
         let mut to_remove = Vec::new();
@@ -1861,6 +1878,50 @@ mod tests {
         let shown = meter(&dungeon).get_dps();
         assert_eq!(shown.target_id, 0);
         assert!(shown.map.is_empty());
+    }
+
+    /// Two Assassins at a training dummy, both unnamed (2026-10-07, after the
+    /// reset button had cleared every name): you, with two skills so far, and
+    /// a stranger with a full rotation and the same power scalar. The scalar
+    /// rule took you for the stranger's summon and folded your row into theirs.
+    #[test]
+    fn your_row_is_never_folded_into_another_player_of_your_class() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2737));
+        rotation(&storage, 2737, 25_839, 13, 2);
+        rotation(&storage, 8260, 25_839, 13, 9);
+        storage.note_power_scalar(2737, 4_000);
+        storage.note_power_scalar(8260, 4_000);
+        let mut calc = meter(&storage);
+        calc.set_target_selection_mode("allTargets");
+        let rows = calc.get_dps();
+        assert!(rows.map.contains_key(&2737), "your row: {:?}", rows.map.keys().collect::<Vec<_>>());
+        assert!(rows.map.contains_key(&8260));
+
+        // Anyone else is still folded into their owner by that rule.
+        let stranger = Arc::new(DataStorage::new());
+        rotation(&stranger, 3001, 25_839, 13, 2);
+        rotation(&stranger, 8260, 25_839, 13, 9);
+        stranger.note_power_scalar(3001, 4_000);
+        stranger.note_power_scalar(8260, 4_000);
+        let mut calc = meter(&stranger);
+        calc.set_target_selection_mode("allTargets");
+        assert!(!calc.get_dps().map.contains_key(&3001));
+    }
+
+    /// History saves a fight again once it is over, and so has a name that
+    /// arrived after the last hit; the meter has to show it too.
+    #[test]
+    fn a_name_that_arrives_after_the_last_hit_reaches_the_meter() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2259));
+        storage.append_damage(hit(2259, 50_000, 1_000));
+        storage.append_damage(hit(4227, 50_000, 1_100));
+        let mut calc = meter(&storage);
+        calc.set_target_selection_mode("allTargets");
+        assert_eq!(calc.get_dps().map[&4227].nickname, "4227");
+        storage.append_nickname_authoritative(4227, "Ab");
+        assert_eq!(calc.get_dps().map[&4227].nickname, "Ab");
     }
 
     #[test]

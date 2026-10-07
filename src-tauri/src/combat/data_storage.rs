@@ -374,6 +374,9 @@ struct Inner {
     actor_jobs: HashMap<i32, JobClass>,
 
     nickname_storage: HashMap<i32, String>,
+    /// Bumped whenever `nickname_storage` changes, so the meter redraws a
+    /// name that arrives after the last hit (see `names_generation`).
+    names_generation: u64,
     pending_nicknames: HashMap<i32, String>,
     permanent_nicknames: HashMap<i32, String>,
     summon_storage: HashMap<i32, i32>,
@@ -493,6 +496,11 @@ struct LootIdentity {
     /// and your party, never to strangers fighting nearby, so a loot owner
     /// outside this set is someone else's kill. See `note_party_scope`.
     party_scope: HashSet<i32>,
+    /// How many `06 38` records named each entity. See `scope_leader`.
+    scope_counts: HashMap<i32, u32>,
+    /// The local id in force was read from those counts, not stated by the
+    /// game or chosen in the UI. See `note_party_scope`.
+    local_from_scope: bool,
     /// The local identity currently in force came from them, not from the
     /// self record.
     applied: bool,
@@ -505,6 +513,7 @@ impl DataStorage {
                 target_combat: HashMap::new(),
                 actor_jobs: HashMap::new(),
                 nickname_storage: HashMap::new(),
+                names_generation: 0,
                 pending_nicknames: HashMap::new(),
                 permanent_nicknames: HashMap::new(),
                 summon_storage: HashMap::new(),
@@ -717,6 +726,40 @@ impl DataStorage {
         if scope.len() < 10_000 {
             scope.insert(entity_id);
         }
+        let counts = &mut inner.loot_identity.scope_counts;
+        if counts.len() >= 10_000 && !counts.contains_key(&entity_id) {
+            return;
+        }
+        let count = counts.entry(entity_id).or_insert(0);
+        *count += 1;
+        // A meter opened mid-session has no self record until the next zone
+        // load, and loot records only come with kills: at the training dummies
+        // that was 18 minutes of not knowing who you are (2026-10-07), so no
+        // fight of yours in Boss mode and your row unmarked. These records
+        // name you all along, so until the game says otherwise, you are the
+        // player they name far more often than anyone.
+        if *count % 8 != 0 {
+            return;
+        }
+        let undecided = inner.local_player_id.is_none() || inner.loot_identity.local_from_scope;
+        if inner.local_identity_from_game || !undecided {
+            return;
+        }
+        if let Some(leader) = scope_leader(&inner) {
+            if inner.local_player_id != Some(leader as i64) {
+                tracing::info!("party-scope records: local player -> entity {}", leader);
+                inner.local_player_id = Some(leader as i64);
+                inner.loot_identity.local_from_scope = true;
+            }
+        }
+    }
+
+    /// The local id was read from `06 38` counts rather than stated by the
+    /// game or the UI. Such an id has no name: the UI's is not attached to it,
+    /// since after a character switch the window title and the remembered
+    /// name can be another character's.
+    pub fn local_id_from_scope(&self) -> bool {
+        self.inner.read().loot_identity.local_from_scope
     }
 
     /// `name`'s home server, as a self or loot record states it.
@@ -818,7 +861,11 @@ impl DataStorage {
     }
 
     pub fn set_local_player_id(&self, id: Option<i64>) {
-        self.inner.write().local_player_id = id;
+        let mut inner = self.inner.write();
+        if inner.local_player_id != id {
+            inner.loot_identity.local_from_scope = false;
+        }
+        inner.local_player_id = id;
     }
 
     pub fn local_player_id(&self) -> Option<i64> {
@@ -1160,10 +1207,13 @@ impl DataStorage {
     /// last instance's dungeon id. A teleport inside an instance names the
     /// instance's own map, so it keeps the id.
     pub fn note_map_load(&self, map_id: i32) {
+        let mut inner = self.inner.write();
+        // A load hands out new entity ids: counts of the old ones would name
+        // an entity that is gone.
+        inner.loot_identity.scope_counts.clear();
         if !is_open_world_map(map_id) {
             return;
         }
-        let mut inner = self.inner.write();
         if inner.current_dungeon_id != 0 {
             tracing::debug!("Map {map_id} is open world: leaving dungeon {}", inner.current_dungeon_id);
             inner.current_dungeon_id = 0;
@@ -1519,8 +1569,44 @@ impl DataStorage {
         inner.despawned_summon_ids.clear();
     }
 
+    /// What the reset button and hotkey do to names: forget the ones only a
+    /// loose scan guessed, keep the ones the game stated.
+    ///
+    /// The game names a player once, in the spawn (`44/45 36`) sent when they
+    /// come into view, and you in the self record (`33 36`) on a zone load.
+    /// Nothing repeats them while everyone stays put, so a reset that cleared
+    /// every name left the party, the players around and the local player as
+    /// `#id` rows until the next zone load. Replayed with three resets in
+    /// town, a player's two-hour capture (2026-10-07, EU) went from 23 ticks
+    /// of Boss mode with such a row to 2,326, her own row among them, and a
+    /// nameless row of yours was not marked as yours, so it could fall off
+    /// the bottom of the meter. A wrong name from a loose scan is still
+    /// dropped here, which is what the reset is for.
+    pub fn forget_guessed_nicknames(&self) {
+        let mut inner = self.inner.write();
+        let local = inner.local_player_id.map(|id| id as i32);
+        let local_name = inner.local_character_name.clone();
+        let Inner { nickname_storage, authoritative_name_ids, .. } = &mut *inner;
+        nickname_storage.retain(|id, name| {
+            authoritative_name_ids.contains(id)
+                || (Some(*id) == local && local_name.as_deref().map(str::trim) == Some(name.trim()))
+        });
+        inner.pending_nicknames.clear();
+        let permanent: Vec<(i32, String)> = inner.permanent_nicknames.iter().map(|(&k, v)| (k, v.clone())).collect();
+        for (uid, nick) in permanent {
+            inner.nickname_storage.insert(uid, nick);
+        }
+        inner.names_generation += 1;
+    }
+
+    /// Changes whenever a name is bound, replaced or dropped.
+    pub fn names_generation(&self) -> u64 {
+        self.inner.read().names_generation
+    }
+
     pub fn reset_nicknames(&self) {
         let mut inner = self.inner.write();
+        inner.names_generation += 1;
         inner.nickname_storage.clear();
         inner.pending_nicknames.clear();
         inner.authoritative_name_ids.clear();
@@ -1748,9 +1834,51 @@ fn forget_entity(inner: &mut Inner, id: i32) {
 }
 
 fn set_game_identity(inner: &mut Inner, id: i64, name: Option<String>) {
+    inner.loot_identity.local_from_scope = false;
     inner.local_identity_from_game = true;
     inner.local_player_id = Some(id);
     inner.local_character_name = name;
+}
+
+/// The player the `06 38` records name far more than anyone: at least 24
+/// times, and four times as often as the next player. Only entities that
+/// fought as players count; the records also name the mobs you hit.
+///
+/// On the captures at hand: the local player 2,421 times in 18 minutes at the
+/// training dummies, with a dozen other players around and none of them
+/// named once (2026-10-07, EU).
+fn scope_leader(inner: &Inner) -> Option<i32> {
+    const MIN_RECORDS: u32 = 24;
+    const LEAD: u32 = 4;
+    let mut best: Option<(i32, u32)> = None;
+    let mut second = 0;
+    for (&id, &n) in &inner.loot_identity.scope_counts {
+        let player = inner.known_player_ids.contains(&id)
+            && !inner.summon_storage.contains_key(&id)
+            && !inner.summon_spawn_ids.contains(&id)
+            && !inner.mob_storage.contains_key(&id);
+        if !player {
+            continue;
+        }
+        match best {
+            Some((_, top)) if n <= top => second = second.max(n),
+            _ => {
+                if let Some((_, top)) = best {
+                    second = second.max(top);
+                }
+                best = Some((id, n));
+            }
+        }
+    }
+    let (id, n) = best?;
+    (n >= MIN_RECORDS && n >= LEAD * second.max(1)).then_some(id)
+}
+
+/// For diagnostics and tests: who `scope_leader` would pick now.
+impl DataStorage {
+    pub fn party_scope_leader(&self) -> Option<i32> {
+        scope_leader(&self.inner.read())
+    }
 }
 
 fn append_nickname_inner(inner: &mut Inner, uid: i32, nickname: &str) {
@@ -1808,6 +1936,7 @@ fn append_nickname_inner_with_force(inner: &mut Inner, uid: i32, nickname: &str,
         // bound may have been on someone else, so that damage is still dropped.
         let same_character = force && inner.authoritative_name_ids.contains(&old_id);
         inner.nickname_storage.remove(&old_id);
+        inner.names_generation += 1;
         inner.known_player_ids.remove(&old_id);
         inner.authoritative_name_ids.remove(&old_id);
         inner.pending_nicknames.remove(&old_id);
@@ -1833,6 +1962,7 @@ fn append_nickname_inner_with_force(inner: &mut Inner, uid: i32, nickname: &str,
     }
 
     inner.nickname_storage.insert(uid, nickname.to_string());
+    inner.names_generation += 1;
 
     if !inner.confirmed_summon_ids.contains(&uid) {
         inner.summon_storage.remove(&uid);
@@ -2535,5 +2665,113 @@ mod tests {
         assert!(s.is_hp_reset_dummy(503));
         s.flush_combat_only();
         assert!(!s.is_hp_reset_dummy(503), "a zone change: ids may name other entities now");
+    }
+
+    fn player_hit(s: &DataStorage, actor: i32, target: i32) {
+        let mut p = ParsedDamagePacket::new();
+        p.set_actor_id(actor);
+        p.set_target_id(target);
+        p.set_skill_code(13_720_000);
+        p.set_damage(100);
+        s.append_damage(p);
+    }
+
+    /// The reset button forgets damage, and names only a loose scan guessed.
+    /// The ones the game stated (spawns, the self record) are not sent again
+    /// until everyone respawns, so dropping them left every row an `#id`.
+    #[test]
+    fn a_reset_keeps_the_names_the_game_stated() {
+        let s = DataStorage::new();
+        s.set_local_identity_from_game(2737, Some("Mine".into()));
+        s.append_nickname_authoritative(2737, "Mine");
+        s.append_nickname_authoritative(4227, "Spawned");
+        player_hit(&s, 5001, 900);
+        s.append_nickname(5001, "Guessed");
+        s.set_permanent_nickname(6001, "Typed");
+        let generation = s.names_generation();
+
+        s.flush();
+        s.forget_guessed_nicknames();
+        assert_eq!(s.get_nickname(2737).as_deref(), Some("Mine"));
+        assert_eq!(s.get_nickname(4227).as_deref(), Some("Spawned"));
+        assert_eq!(s.get_nickname(6001).as_deref(), Some("Typed"));
+        assert_eq!(s.get_nickname(5001), None, "a guess goes");
+        assert_ne!(s.names_generation(), generation);
+
+        // A local name from a loot record (no self record) is yours, and stays.
+        let loot = DataStorage::new();
+        loot.note_party_scope(1454);
+        player_hit(&loot, 1454, 900);
+        loot.append_nickname(1454, "Looter"); // as the parser does with a loot record
+        assert!(loot.note_loot_owner(900, 1454, "Looter"));
+        loot.forget_guessed_nicknames();
+        assert_eq!(loot.get_nickname(1454).as_deref(), Some("Looter"));
+
+        // Loading a replay still starts from nothing.
+        s.reset_nicknames();
+        assert_eq!(s.get_nickname(4227), None);
+    }
+
+    fn scope(s: &DataStorage, id: i32, times: usize) {
+        for _ in 0..times {
+            s.note_party_scope(id);
+        }
+    }
+
+    /// A meter opened mid-session knows who you are from the `06 38` records
+    /// long before the next zone load or kill: they name you several times a
+    /// second, and the players around you not at all.
+    #[test]
+    fn party_scope_records_name_you_until_the_game_does() {
+        let s = DataStorage::new();
+        s.set_local_character_name(Some("Remembered".into()));
+        player_hit(&s, 2737, 25_839);
+        player_hit(&s, 4227, 25_839);
+        s.append_mob(25_839, 2_000_001);
+        scope(&s, 25_839, 200); // the dummy you hit: not a player
+        scope(&s, 2737, 23);
+        assert_eq!(s.local_player_id(), None, "not on a handful of records");
+        scope(&s, 2737, 1);
+        assert_eq!(s.local_player_id(), Some(2737));
+        assert!(s.local_id_from_scope());
+        assert!(!s.local_identity_from_game());
+        assert_eq!(s.get_nickname(2737), None, "no name comes with it");
+        assert_eq!(s.local_character_name().as_deref(), Some("Remembered"));
+
+        // The self record has the last word, and the counts no longer matter.
+        s.set_local_identity_from_game(12_870, Some("Mine".into()));
+        assert!(!s.local_id_from_scope());
+        scope(&s, 2737, 200);
+        assert_eq!(s.local_player_id(), Some(12_870));
+    }
+
+    #[test]
+    fn party_scope_records_decide_nothing_without_a_clear_lead() {
+        // Older Korean/Taiwanese captures name party members too.
+        let s = DataStorage::new();
+        player_hit(&s, 101, 900);
+        player_hit(&s, 202, 900);
+        for _ in 0..40 {
+            scope(&s, 101, 3);
+            scope(&s, 202, 1);
+        }
+        assert_eq!(s.local_player_id(), None, "three to one is no lead");
+        scope(&s, 101, 40);
+        assert_eq!(s.local_player_id(), Some(101), "four to one is");
+
+        // A zone load hands out new ids: the old counts go with them.
+        let s = DataStorage::new();
+        player_hit(&s, 101, 900);
+        scope(&s, 101, 16);
+        s.note_map_load(1);
+        scope(&s, 101, 16);
+        assert_eq!(s.local_player_id(), None);
+
+        // An id chosen in the UI is not overridden.
+        let s = DataStorage::new();
+        s.set_local_player_id(Some(303));
+        player_hit(&s, 101, 900);
+        scope(&s, 101, 200);
+        assert_eq!(s.local_player_id(), Some(303));
     }
 }

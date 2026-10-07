@@ -611,7 +611,11 @@ fn set_character_name(state: tauri::State<'_, AppState>, name: String, manual: O
     state.data_storage.set_local_character_name(Some(name));
     // If an actor ID was already bound, propagate the new character name
     // into nickname_storage immediately so the main meter window updates.
-    if !trimmed.is_empty() {
+    // Not onto an id only read from party-scope records unless typed: nothing
+    // ties a remembered or window-title name to it, and after a character
+    // switch it can be the last character's.
+    let typed = manual.unwrap_or(false);
+    if !trimmed.is_empty() && (typed || !state.data_storage.local_id_from_scope()) {
         if let Some(id) = state.data_storage.local_player_id() {
             state.data_storage.set_permanent_nickname(id as i32, &trimmed);
         }
@@ -633,7 +637,11 @@ fn bind_local_actor_id(state: tauri::State<'_, AppState>, actor_id: i64) {
     }
     // Always (re)apply the permanent nickname if we have a character name,
     // even when the actor_id was already bound — this handles the case where
-    // the character name was set AFTER the actor_id binding.
+    // the character name was set AFTER the actor_id binding. Except on an id
+    // the backend only read from party-scope records (see set_character_name).
+    if state.data_storage.local_id_from_scope() {
+        return;
+    }
     if let Some(name) = state.data_storage.local_character_name() {
         let trimmed = name.trim();
         if !trimmed.is_empty() {
@@ -660,6 +668,11 @@ fn bind_local_nickname(state: tauri::State<'_, AppState>, actor_id: i64, nicknam
     if actor_id >= 90_000_000 {
         return;
     }
+    // The id the party-scope records point at, still unnamed: the UI's name
+    // may be another character's (see set_character_name).
+    if state.data_storage.local_id_from_scope() && state.data_storage.local_player_id() == Some(actor_id) {
+        return;
+    }
     // Once the game's self record has named the player, it alone says who
     // they are: a window binding by name kept an id from before a zone change
     // and sent it back, and uploads then named a stale uploader (issue #19).
@@ -676,9 +689,10 @@ fn bind_local_nickname(state: tauri::State<'_, AppState>, actor_id: i64, nicknam
 fn reset_combat(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
     save_fights_before_reset(&app);
     state.dps_calculator.lock().restart_target_selection(true);
-    // Don't reset port detector or ping — keep the network connection alive
-    // Only clear combat data and re-learn nicknames from future packets
-    state.data_storage.reset_nicknames();
+    // Don't reset port detector or ping — keep the network connection alive.
+    // Clear combat data, and only the names a loose scan guessed: the game
+    // does not send the others again until everyone respawns.
+    state.data_storage.forget_guessed_nicknames();
     state.data_storage.hide_party_placeholders();
 }
 
@@ -2399,7 +2413,7 @@ pub fn run() {
                         save_fights_before_reset(&h);
                         if let Some(state) = h.try_state::<AppState>() {
                             state.dps_calculator.lock().restart_target_selection(true);
-                            state.data_storage.reset_nicknames();
+                            state.data_storage.forget_guessed_nicknames();
                         }
                         // Notify frontend to clear UI
                         let _ = h.emit("combat-reset", ());

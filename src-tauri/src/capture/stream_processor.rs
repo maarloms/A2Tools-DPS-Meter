@@ -3419,6 +3419,25 @@ mod tests {
         assert_eq!(ticks.hit_count, 3);
     }
 
+    /// From a meter opened mid-session at the training dummies (2026-10-07,
+    /// EU): a hit by the local player, entity 2737 (`b1 15`), on dummy 25839,
+    /// and one of the `06 38` records the server sends about them several
+    /// times a second. No self record came for 18 minutes.
+    #[test]
+    fn a_meter_opened_mid_session_finds_you_in_party_scope_records() {
+        let (storage, mut p) = processor();
+        let scope = hex("0e0638b115171dd200f700");
+        let mut stream = hex("240438efc9010600b115c859d100fc0300000001c711c75101000000904eca050100");
+        for _ in 0..23 {
+            stream.extend(&scope);
+        }
+        assert_eq!(p.consume_stream(&stream), stream.len());
+        assert_eq!(storage.local_player_id(), None);
+        p.consume_stream(&scope);
+        assert_eq!(storage.local_player_id(), Some(2737));
+        assert!(storage.local_id_from_scope());
+    }
+
     fn processor() -> (Arc<DataStorage>, StreamProcessor) {
         let storage = Arc::new(DataStorage::new());
         let mut p = StreamProcessor::new(storage.clone(), Arc::new(SkillLookup::new()), Arc::new(NpcLookup::new()));
