@@ -916,8 +916,9 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   inset: -3px;
   border-radius: 999px;
   background: var(--indicator-combat);
+  /* A still halo: the dot says "in combat" by colour alone. A pulse that
+     never stopped had the whole window redrawn every frame (about 2% CPU). */
   opacity: 0.3;
-  animation: hudBeacon 1.6s ease-in-out infinite;
 }
 .battleTime.state-grace .status { background: var(--indicator-wait); }
 .battleTime.state-ended .status { background: var(--indicator-end); }
@@ -1042,12 +1043,7 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   border-bottom: 2px solid rgba(255, 255, 255, 0.7);
 }
 
-@keyframes hudBeacon {
-  0%, 100% { opacity: 0.32; transform: scale(1); }
-  50% { opacity: 0.08; transform: scale(1.55); }
-}
 @media (prefers-reduced-motion: reduce) {
-  .battleTime.state-fighting .status::after { animation: none; }
   .list .item .fill,
   .bossHpFill { transition: none; }
 }
