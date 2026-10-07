@@ -1382,7 +1382,8 @@ class DpsApp {
   }
 
   applyWindowOpacity(percent, { persist } = {}) {
-    const normalized = Math.max(0, Math.min(100, Math.round(Number(percent))));
+    const numeric = Number(percent);
+    const normalized = Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : 40;
     document.documentElement.style.setProperty("--window-opacity", String(normalized / 100));
     if (persist) {
       this.safeSetSetting(this.storageKeys.windowOpacity, String(normalized));
@@ -3911,28 +3912,23 @@ class DpsApp {
       if (box) box.checked = defaultOn ? get(name) !== "false" : get(name) === "true";
     }
     this.setDebugLogging(get("debugLogging") === "true");
-    // The input handlers normalize, label, apply and fill the track.
-    for (const [input, value] of [
-      [this.meterOpacityInput, get("meterFillOpacity")],
-      [this.windowOpacityInput, this.safeGetStorage(this.storageKeys.windowOpacity)],
+    // Refilling a form applies saved values without replaying input handlers
+    // that would persist them again. A focused slider keeps its draft.
+    for (const [name, value] of [
+      ["meterFillOpacity", get("meterFillOpacity")],
+      ["windowOpacity", get("windowOpacity")],
     ]) {
-      if (!input || !isSet(value) || String(input.value) === String(value)) continue;
-      input.value = String(value);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
+      if (isSet(value)) this.applyRemoteSettingChange(this.storageKeys[name], value);
     }
 
-    const limit = parseInt(get("playerLimit"), 10);
-    if (Number.isFinite(limit) && limit >= 1) this.playerLimit = limit;
-    const limitWrapper = document.querySelector(".playerLimitDropdownWrapper");
-    const limitText = limitWrapper?.querySelector(".playerLimitDropdownBtn .settingsDropdownText");
-    if (limitText) limitText.textContent = String(this.playerLimit);
-    limitWrapper?.querySelectorAll(".settingsDropdownItem").forEach((el) =>
-      el.classList.toggle("isActive", el.dataset.value === String(this.playerLimit))
-    );
+    const limit = get("playerLimit");
+    if (isSet(limit)) this.setPlayerLimit(limit);
 
     this.setBetaUi(get("betaUi") !== "false");
     this.setSlimMode(get("slimMode") === "true");
     this.applyTheme(get("theme") || this.theme);
+    const language = get("language");
+    if (isSet(language)) this.applyRemoteSettingChange(this.storageKeys.language, language);
     this.settingsSelections.language = this.i18n?.getLanguage?.() || this.settingsSelections.language;
     for (const name of Object.keys(SETTING_CHOICES)) {
       this.settingsSelections[name] = pickSettingChoice(name, get(name));
@@ -4130,6 +4126,8 @@ class DpsApp {
     // Both skins show the same placeholder text; only the type scale and the
     // uppercase transform differ, so the fitted size has to be recomputed.
     this.fitBossName();
+    this.syncSettingsDropdownSelection(this.meterLayoutDropdownBtn, this.meterLayoutDropdownMenu, this.getMeterLayout());
+    if (window.A2_VIEW === "main") window.javaBridge?.updateOverlaySize?.();
     if (persist) {
       this.safeSetSetting(this.storageKeys.betaUi, String(this.betaUi));
     }
@@ -4138,6 +4136,9 @@ class DpsApp {
   setSlimMode(enabled, { persist = false } = {}) {
     this.slimMode = !!enabled;
     document.querySelector(".meter")?.classList.toggle("slim", this.slimMode);
+    this.fitBossName();
+    this.syncSettingsDropdownSelection(this.meterLayoutDropdownBtn, this.meterLayoutDropdownMenu, this.getMeterLayout());
+    if (window.A2_VIEW === "main") window.javaBridge?.updateOverlaySize?.();
     if (persist) {
       this.safeSetSetting(this.storageKeys.slimMode, String(this.slimMode));
     }
@@ -4197,6 +4198,14 @@ class DpsApp {
     document.documentElement.dataset.theme = normalized;
     if (this.settingsSelections) {
       this.settingsSelections.theme = normalized;
+    }
+    const selected = this.syncSettingsDropdownSelection(this.themeDropdownBtn, this.themeDropdownMenu, normalized);
+    if (selected && this.themeDropdownBtn) {
+      for (const property of ["background", "color", "textShadow"]) {
+        this.themeDropdownBtn.style[property] = selected.style[property];
+      }
+      const text = this.themeDropdownBtn.querySelector(".settingsDropdownText");
+      if (text) text.style.textShadow = selected.style.textShadow;
     }
     if (persist) {
       this.safeSetSetting(this.storageKeys.theme, normalized);
@@ -4350,9 +4359,8 @@ class DpsApp {
   // duplicate that logic, set the control to the incoming value and fire the
   // same event a click would — one code path for local and remote changes.
   //
-  // Only the options that change what the meter draws are listed. Custom
-  // dropdowns (theme, layout, player limit) are not native inputs and need
-  // their own handling, so they are deliberately absent.
+  // Custom dropdowns and live appearance values apply directly: replaying
+  // their edit handlers would write back or resend backend combat parameters.
   applyRemoteSettingChange(key, value) {
     // A name typed in the Settings window. That window already told the
     // backend; this one only has to stop believing the old name, or it would
@@ -4365,6 +4373,68 @@ class DpsApp {
         this.characterNameInput.value = name;
       }
       this.renderCurrentRows();
+      return;
+    }
+    if (key === this.storageKeys.betaUi) {
+      this.setBetaUi(value !== "false", { persist: false });
+      return;
+    }
+    if (key === this.storageKeys.slimMode) {
+      this.setSlimMode(value === "true", { persist: false });
+      return;
+    }
+    if (key === this.storageKeys.theme) {
+      this.applyTheme(value, { persist: false });
+      return;
+    }
+    if (key === this.storageKeys.playerLimit) {
+      this.setPlayerLimit(value, { persist: false });
+      return;
+    }
+    if (key === this.storageKeys.meterFillOpacity || key === this.storageKeys.windowOpacity) {
+      const meterFill = key === this.storageKeys.meterFillOpacity;
+      const numeric = Number(value);
+      const normalized = meterFill ? this.normalizeMeterOpacity(value)
+        : Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : 40;
+      if (meterFill) this.applyMeterFillOpacity(normalized, { persist: false });
+      else this.applyWindowOpacity(normalized, { persist: false });
+      this.syncSettingsRangeValue(
+        meterFill ? this.meterOpacityInput : this.windowOpacityInput,
+        meterFill ? this.meterOpacityValue : this.windowOpacityValue,
+        normalized
+      );
+      return;
+    }
+    if (key === this.storageKeys.language) {
+      const language = String(value || "en");
+      this.settingsSelections ||= {};
+      const pending = this.i18n?.getLanguage?.() === language ? null
+        : this.i18n?.setLanguage?.(language, { persist: false });
+      this.settingsSelections.language = this.i18n?.getLanguage?.() || language;
+      this.syncSettingsDropdownSelection(this.languageDropdownBtn, this.languageDropdownMenu, this.settingsSelections.language);
+      Promise.resolve(pending).then(() => {
+        if (window.A2_VIEW === "main") window.javaBridge?.updateOverlaySize?.();
+      }).catch((error) => this.logDebug(`Language change failed: ${error?.message || error}`));
+      return;
+    }
+    const choices = {
+      defaultMeterMode: "defaultMeterMode",
+      trainSelectionMode: "trainSelectionMode",
+      allTargetsWindowMs: "allTargetsWindow",
+      targetSelectionWindowMs: "targetWindow",
+    };
+    for (const [name, control] of Object.entries(choices)) {
+      if (key !== this.storageKeys[name]) continue;
+      const normalized = pickSettingChoice(name, value);
+      this.settingsSelections ||= {};
+      this.settingsSelections[name] = normalized;
+      if (name === "defaultMeterMode") {
+        this.setTargetSelection(normalized, { persist: false, syncBackend: false, reason: "remote setting" });
+        if (window.A2_VIEW === "main") window.javaBridge?.updateOverlaySize?.();
+      } else if (name === "trainSelectionMode") {
+        this.trainSelectionMode = normalized;
+      }
+      this.syncSettingsDropdownSelection(this[`${control}DropdownBtn`], this[`${control}DropdownMenu`], normalized);
       return;
     }
     const selector = REMOTE_APPLIED_SETTING_CONTROLS[key];
@@ -4386,6 +4456,32 @@ class DpsApp {
     control.dispatchEvent(new Event("change", { bubbles: true }));
     if (control.type === "range") {
       control.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }
+
+  // Keep existing controls and their handlers; a remote update only changes
+  // the selected item and label, without rebuilding an open menu.
+  syncSettingsDropdownSelection(button, menu, value) {
+    let selected = null;
+    menu?.querySelectorAll(".settingsDropdownItem").forEach((item) => {
+      const active = String(item.dataset.value) === String(value);
+      item.classList.toggle("isActive", active);
+      if (active) selected = item;
+    });
+    const text = button?.querySelector(".settingsDropdownText");
+    if (text && selected) text.textContent = selected.textContent;
+    return selected;
+  }
+
+  syncSettingsRangeValue(input, label, value) {
+    if (!input || document.activeElement === input) return;
+    input.value = String(value);
+    if (label) label.textContent = `${value}%`;
+    const min = Number(input.min);
+    const max = Number(input.max);
+    if (Number.isFinite(min) && Number.isFinite(max) && max > min) {
+      const percent = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+      input.style.setProperty("--range-pct", `${percent}%`);
     }
   }
 
@@ -4465,6 +4561,22 @@ class DpsApp {
     });
   }
 
+  setPlayerLimit(value, { persist = false } = {}) {
+    const numeric = parseInt(value, 10);
+    const next = Number.isFinite(numeric) && numeric >= 1 ? numeric : 6;
+    const changed = this.playerLimit !== next;
+    this.playerLimit = next;
+    const wrapper = document.querySelector(".playerLimitDropdownWrapper");
+    const button = wrapper?.querySelector(".playerLimitDropdownBtn");
+    const menu = wrapper?.querySelector(".playerLimitDropdownMenu");
+    this.syncSettingsDropdownSelection(button, menu, next);
+    const text = button?.querySelector(".settingsDropdownText");
+    if (text) text.textContent = String(next);
+    if (persist) this.safeSetSetting(this.storageKeys.playerLimit, String(next));
+    if (changed) this.renderCurrentRows();
+    if (window.A2_VIEW === "main") window.javaBridge?.updateOverlaySize?.();
+  }
+
   initPlayerLimitDropdown() {
     const wrapper = document.querySelector(".playerLimitDropdownWrapper");
     if (!wrapper) return;
@@ -4483,14 +4595,8 @@ class DpsApp {
       item.dataset.value = String(val);
       if (val === this.playerLimit) item.classList.add("isActive");
       item.addEventListener("click", () => {
-        this.playerLimit = val;
-        this.safeSetSetting(this.storageKeys.playerLimit, String(val));
-        textEl.textContent = String(val);
-        menu.querySelectorAll(".settingsDropdownItem").forEach((el) =>
-          el.classList.toggle("isActive", el.dataset.value === String(val))
-        );
+        this.setPlayerLimit(val, { persist: true });
         menu.style.display = "none";
-        this.renderCurrentRows();
       });
       menu.appendChild(item);
     }

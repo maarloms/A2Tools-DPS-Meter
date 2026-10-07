@@ -610,14 +610,17 @@ test('showing a reused settings window refills its form without wiring controls 
   });
   const limitText = { textContent: '6' };
   const limitItems = ['6', '10'].map(value => ({ dataset: { value }, classList: { toggle(name, on) { this.on = on; } } }));
+  const limitButton = { querySelector: () => limitText };
+  const limitMenu = { querySelectorAll: () => limitItems };
   const window = { A2_VIEW: 'settings', addEventListener() {}, javaBridge: { getSetting: key => values[key] ?? null } };
   const context = vm.createContext({
     window, Event,
     localStorage: { getItem: () => null },
     document: {
+      documentElement: { style: { setProperty() {} } },
       readyState: 'loading', addEventListener() {}, querySelector: selector => (
         selector === '.playerLimitDropdownWrapper'
-          ? { querySelector: () => limitText, querySelectorAll: () => limitItems }
+          ? { querySelector: name => name === '.playerLimitDropdownBtn' ? limitButton : limitMenu }
           : null
       ),
     },
@@ -632,7 +635,11 @@ test('showing a reused settings window refills its form without wiring controls 
   });
   const remote = [];
   const order = [];
-  app.applyRemoteSettingChange = (key, value) => remote.push([key, value]);
+  const applyRemote = app.applyRemoteSettingChange.bind(app);
+  app.applyRemoteSettingChange = (key, value) => {
+    remote.push([key, value]);
+    if (key === app.storageKeys.meterFillOpacity) applyRemote(key, value);
+  };
   app.setBetaUi = enabled => { app.betaUi = enabled; };
   app.setSlimMode = enabled => { app.slimMode = enabled; };
   app.applyTheme = theme => { app.theme = theme; };
@@ -641,13 +648,13 @@ test('showing a reused settings window refills its form without wiring controls 
   app.initializeSettingsDropdowns = () => order.push(`dropdowns:${app.monitorList?.length ?? 0}`);
   app.refreshMonitorList = async () => { order.push('monitors'); app.monitorList = [{}, {}]; return app.monitorList; };
   await app.syncSettingsForm();
-  assert.deepEqual(remote, [['dpsMeter.roundDps', 'false']]);
+  assert.deepEqual(remote, [['dpsMeter.roundDps', 'false'], ['dpsMeter.meterFillOpacity', '55']]);
   assert.equal(app.bossLogsCheckbox.checked, true);
   assert.equal(app.autoHideMeterCheckbox.checked, false);
   assert.equal(app.saveRawPacketsCheckbox.checked, true);
   assert.equal(app.debugLoggingEnabled, true);
   assert.equal(app.meterOpacityInput.value, '55');
-  assert.deepEqual(app.meterOpacityInput.events, ['input']);
+  assert.equal(app.meterOpacityInput.events, undefined, 'refilling a slider does not replay its persist handler');
   assert.equal(app.playerLimit, 10);
   assert.equal(limitText.textContent, '10');
   assert.deepEqual(limitItems.map(item => item.classList.on), [false, true]);
