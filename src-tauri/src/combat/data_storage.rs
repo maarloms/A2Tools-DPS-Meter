@@ -427,6 +427,11 @@ struct Inner {
     actor_power_scalars: HashMap<i32, HashSet<i32>>,
     hostile_target_ids: HashSet<i32>,
     dead_entity_ids: HashSet<i32>,
+    /// Linked summons that left the world (`42 36` flag 7). Their damage over
+    /// time ticks on, but the game's Damage Analyzer counts no tick after the
+    /// spirit is gone, so the meter does not either. Kept through a reset, like
+    /// the links; cleared when the id comes back.
+    despawned_summon_ids: HashSet<i32>,
     /// Boss entity IDs identified from NPC DB boss flags
     boss_entity_ids: HashSet<i32>,
     /// Training dummies (scarecrows, punching bags) among the entities spawned,
@@ -511,6 +516,7 @@ impl DataStorage {
                 actor_power_scalars: HashMap::new(),
                 hostile_target_ids: HashSet::new(),
                 dead_entity_ids: HashSet::new(),
+                despawned_summon_ids: HashSet::new(),
                 boss_entity_ids: HashSet::new(),
                 training_dummy_ids: HashSet::new(),
                 held_dot_ticks: HashMap::new(),
@@ -816,11 +822,23 @@ impl DataStorage {
 
         // Not damage: a spirit and its owner naming each other.
         if let Some((summon, owner)) = owner_link(skill_code, actor_id, target_id) {
+            // Sent only while the spirit is out.
+            inner.despawned_summon_ids.remove(&summon);
             if link_summon(&mut inner, summon, owner) {
                 tracing::debug!("Summon {} linked to owner {} by skill {}", summon, owner, skill_code);
                 self.damage_generation.fetch_add(1, Ordering::Relaxed);
             }
             return;
+        }
+
+        // A tick from a spirit that has left the world: the game does not
+        // count it. A direct hit means the id is back.
+        if pdp.is_dot() {
+            if inner.despawned_summon_ids.contains(&actor_id) {
+                return;
+            }
+        } else {
+            inner.despawned_summon_ids.remove(&actor_id);
         }
 
         // NPC actors using NPC skills: track damage received on the player target, then skip
@@ -971,6 +989,15 @@ impl DataStorage {
 
     pub fn mark_entity_dead(&self, entity_id: i32) {
         self.inner.write().dead_entity_ids.insert(entity_id);
+    }
+
+    /// `id` left the world. Only a linked summon is marked: see
+    /// `Inner::despawned_summon_ids`.
+    pub fn note_despawn(&self, id: i32) {
+        let mut inner = self.inner.write();
+        if inner.summon_storage.contains_key(&id) {
+            inner.despawned_summon_ids.insert(id);
+        }
     }
 
     pub fn is_entity_dead(&self, entity_id: i32) -> bool {
@@ -1454,6 +1481,7 @@ impl DataStorage {
         inner.summon_storage.clear();
         inner.confirmed_summon_ids.clear();
         inner.summon_spawn_ids.clear();
+        inner.despawned_summon_ids.clear();
     }
 
     pub fn reset_nicknames(&self) {
@@ -1651,6 +1679,7 @@ fn link_summon(inner: &mut Inner, summon: i32, owner: i32) -> bool {
 /// What a linked summon did moves onto its owner, where it was shown anyway,
 /// so the new entity's owner does not inherit it.
 fn forget_entity(inner: &mut Inner, id: i32) {
+    inner.despawned_summon_ids.remove(&id);
     inner.confirmed_summon_ids.remove(&id);
     inner.summon_spawn_ids.remove(&id);
     inner.actor_jobs.remove(&id);

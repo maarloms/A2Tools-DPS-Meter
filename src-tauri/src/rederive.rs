@@ -348,6 +348,33 @@ pub fn derive_fight(
     skills_json: &str,
     dot_ids_json: &str,
 ) -> Result<DerivedFight, DeriveError> {
+    derive_fight_with(slice, npcs_json, skills_json, dot_ids_json, true).map(|(fight, _)| fight)
+}
+
+/// `derive_fight` without `hide_unplaced_summons`: the fight as the parser
+/// and the calculator give it, which is what the desktop meter saves, and the
+/// damage the service would hide from it. For checking tools: a record from
+/// the whole capture never goes through the hide, so comparing it with a
+/// hidden one finds every hidden row as a difference. The service stores
+/// `derive_fight`'s answer, not this one.
+pub fn derive_fight_unhidden(
+    slice: &[u8],
+    npcs_json: &str,
+    skills_json: &str,
+    dot_ids_json: &str,
+) -> Result<(DerivedFight, i64), DeriveError> {
+    derive_fight_with(slice, npcs_json, skills_json, dot_ids_json, false)
+}
+
+/// The fight, and the damage `hide_unplaced_summons` removes from it (or
+/// would, when `hide` is false and the record is returned whole).
+fn derive_fight_with(
+    slice: &[u8],
+    npcs_json: &str,
+    skills_json: &str,
+    dot_ids_json: &str,
+    hide: bool,
+) -> Result<(DerivedFight, i64), DeriveError> {
     let (records, blind_map) = evidence_slice::decode(slice).ok_or(DeriveError::NotASlice)?;
 
     let npcs = Arc::new(NpcLookup::new());
@@ -424,7 +451,11 @@ pub fn derive_fight(
         // someone else's scarecrow (2026-10-03).
         .min_by_key(|r| (r.start_time_ms.abs(), -totals.get(&r.target_id).copied().unwrap_or(0), r.target_id))
         .ok_or(DeriveError::NothingDerived)?;
-    let hidden = hide_unplaced_summons(&mut record, &named, &spawned);
+    let hidden = if hide {
+        hide_unplaced_summons(&mut record, &named, &spawned)
+    } else {
+        hide_unplaced_summons(&mut record.clone(), &named, &spawned)
+    };
     canonicalise(&mut record);
     let on_target = totals.get(&record.target_id).copied().unwrap_or(0);
     let (count, lifted, bundles) = slice_structure(&records);
@@ -438,14 +469,17 @@ pub fn derive_fight(
         damage: on_target,
     };
 
-    Ok(DerivedFight {
-        parser_version: parser_version(),
-        total_damage: on_target - hidden,
-        record,
-        blind_map: blind_map.into_iter().collect(),
-        records: records.len(),
-        checks,
-    })
+    Ok((
+        DerivedFight {
+            parser_version: parser_version(),
+            total_damage: if hide { on_target - hidden } else { on_target },
+            record,
+            blind_map: blind_map.into_iter().collect(),
+            records: records.len(),
+            checks,
+        },
+        hidden,
+    ))
 }
 
 #[cfg(test)]

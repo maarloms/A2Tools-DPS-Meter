@@ -67,6 +67,8 @@ pub struct DpsCalculator {
     /// target hit again after that is saved again, so a fight with a long
     /// pause keeps its second half.
     saved_boss_targets: HashMap<i32, i64>,
+    /// Count every boss fight as ours (`set_every_fight`).
+    every_fight: bool,
 }
 
 impl DpsCalculator {
@@ -89,7 +91,17 @@ impl DpsCalculator {
             all_targets_window_ms: 120_000,
             nickname_job_cache: HashMap::new(),
             saved_boss_targets: HashMap::new(),
+            every_fight: false,
         }
+    }
+
+    /// Snapshot every boss fight, whoever fought it, skipping `is_our_fight`.
+    /// For checking tools that replay a capture to hold another reading of
+    /// it (a slice, another meter's slice) to the same fights: an open-world
+    /// boss fought by others is a fight to compare all the same. The meter
+    /// itself never sets this.
+    pub fn set_every_fight(&mut self, on: bool) {
+        self.every_fight = on;
     }
 
     pub fn set_target_selection_mode(&mut self, id: &str) {
@@ -766,6 +778,9 @@ impl DpsCalculator {
     /// auto-uploaded under the local player's account (issue #19). Without
     /// either a local id or a party to go on, every fight counts, as before.
     fn is_our_fight(&self, target: &TargetCombatData) -> bool {
+        if self.every_fight {
+            return true;
+        }
         // An instance holds only the party: every fight in it is ours. Slices
         // from older meters often lack the self record and tie the party's
         // names to stale ids, and the checks below refused the uploader's
