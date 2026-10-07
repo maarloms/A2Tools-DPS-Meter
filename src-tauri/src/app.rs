@@ -2304,6 +2304,25 @@ pub fn run() {
             let capture_suspended = state.capture_suspended.clone();
 
             app.manage(state);
+
+            // On KDE, a KWin rule keeps the meter above a borderless game
+            // (see platform::kwin_rules). Once: a rule the player removes
+            // stays removed. Off the setup thread, as it runs KDE's tools.
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    const KEY: &str = "dpsMeter.kwinRuleAdded";
+                    let state = handle.state::<AppState>();
+                    let done = state.settings.get(KEY).as_deref() == Some("true");
+                    match platform::window_rules::keep_above_fullscreen(done) {
+                        Ok(true) if !done => {
+                            state.settings.set(KEY, "true");
+                        }
+                        Ok(_) => {}
+                        Err(e) => tracing::warn!("Could not add the KWin rule: {e}"),
+                    }
+                });
+            }
             {
                 let handle = app.handle().clone();
                 app.state::<AppState>().data_storage

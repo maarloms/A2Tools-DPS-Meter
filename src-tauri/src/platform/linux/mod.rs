@@ -18,6 +18,7 @@ pub mod secret;
 pub mod updater;
 pub mod window;
 pub mod window_detector;
+pub mod window_rules;
 
 #[path = "../unsupported/hotkeys.rs"]
 pub mod hotkeys;

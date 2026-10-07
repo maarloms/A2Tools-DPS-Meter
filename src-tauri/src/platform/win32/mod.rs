@@ -16,3 +16,5 @@ pub mod shell;
 pub mod updater;
 pub mod window;
 pub mod window_detector;
+#[path = "../unsupported/window_rules.rs"]
+pub mod window_rules;

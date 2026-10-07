@@ -33,10 +33,11 @@ mod os;
 mod os;
 
 pub mod hotkeys;
+pub mod kwin_rules;
 pub mod procfs;
 pub mod screenshot;
 
-pub use os::{admin, clock, dialog, pcap, process, secret, shell, updater, window, window_detector};
+pub use os::{admin, clock, dialog, pcap, process, secret, shell, updater, window, window_detector, window_rules};
 
 /// Why `secret::unprotect` could not give a stored secret back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
