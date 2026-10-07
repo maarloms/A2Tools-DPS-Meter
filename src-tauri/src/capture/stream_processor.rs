@@ -2950,6 +2950,30 @@ mod tests {
         assert!(!snapshot.contains_key(&10137) && !snapshot.contains_key(&2787));
     }
 
+    /// A heal tick from a capture (2026-10-05 17:31:46): target 5041, heal,
+    /// actor 5041, effect 190000131, 7351. The effect is abnormal 19000013,
+    /// Restore HP, which no skill owns: a full heal (5041's max HP was 6683
+    /// and went to full). Its code, 1900001, is no skill but has a name.
+    #[test]
+    fn a_heal_from_no_skill_has_a_name() {
+        let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/data");
+        let skills = Arc::new(SkillLookup::new());
+        let npcs = Arc::new(NpcLookup::new());
+        crate::i18n::lookup::load_language(&skills, &npcs, &data, "en");
+        let storage = Arc::new(DataStorage::new());
+        let mut p = StreamProcessor::new(storage.clone(), skills.clone(), npcs);
+        p.set_override_timestamp(Some(1_000));
+        p.parse_dot_packet(&hex("130538b12701b127b601032c530bb739"));
+        let heal = &storage.get_heal_snapshot()[&5041][&(1_900_001, false)];
+        assert_eq!((heal.total_heal, heal.tick_count), (7351, 1));
+        assert_eq!(skills.lookup_skill_name(1_900_001), "Restore HP");
+        for lang in ["de", "es", "fr", "ja", "ko", "pt", "ru"] {
+            let skills = SkillLookup::new();
+            crate::i18n::lookup::load_language(&skills, &NpcLookup::new(), &data, lang);
+            assert!(!skills.lookup_skill_name(1_900_001).is_empty(), "{lang}");
+        }
+    }
+
     /// Damage records from a live capture (2026-10-04, target 30001, actor
     /// 1395), each checked against the game's own Damage Analyzer record of
     /// the same fight: switch bit 0x20 marks a hit with additional hits.
