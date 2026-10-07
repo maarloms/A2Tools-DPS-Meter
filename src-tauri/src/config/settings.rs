@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use tracing::info;
 
 /// Application settings stored as key-value pairs.
@@ -10,6 +10,9 @@ use tracing::info;
 pub struct Settings {
     values: RwLock<HashMap<String, String>>,
     file_path: PathBuf,
+    /// Held from the snapshot to the rename, so an older snapshot never
+    /// lands after a newer one.
+    saving: Mutex<()>,
 }
 
 impl Settings {
@@ -35,6 +38,7 @@ impl Settings {
         let s = Self {
             values: RwLock::new(values),
             file_path,
+            saving: Mutex::new(()),
         };
         if !s.file_path.exists() {
             s.save();
@@ -79,9 +83,10 @@ impl Settings {
         if let Some(parent) = self.file_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let data = self.values.read();
-        if let Ok(json) = serde_json::to_string_pretty(&*data) {
-            let _ = std::fs::write(&self.file_path, json);
+        let _saving = self.saving.lock();
+        let json = serde_json::to_string_pretty(&*self.values.read());
+        if let Ok(json) = json {
+            let _ = crate::atomic_file::write(&self.file_path, json.as_bytes());
         }
     }
 

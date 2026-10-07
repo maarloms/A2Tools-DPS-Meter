@@ -59,6 +59,9 @@ pub struct AppState {
     pub ping_tracker: Arc<PingTracker>,
     pub port_detector: Arc<CombatPortDetector>,
     pub fight_history: FightHistoryManager,
+    /// Order fight snapshots and their writes together. Settings never take
+    /// this lock; the calculator guard is released before disk work.
+    pub fight_save: Mutex<()>,
     pub settings: Settings,
     pub skill_lookup: Arc<SkillLookup>,
     pub npc_lookup: Arc<NpcLookup>,
@@ -77,6 +80,8 @@ pub struct AppState {
     /// `Some(None)` signed out or `Some(Some(_))` signed in. Settings shows it
     /// at once instead of "checking" for as long as the server takes.
     pub account_seen: Mutex<Option<Option<crate::account::AccountSummary>>>,
+    /// The LAN stream overlay for OBS on another PC; off unless enabled.
+    pub stream_overlay: crate::stream_overlay::Manager,
 }
 
 /// The overlay's click-through lock: while locked, clicks go through the meter
@@ -162,19 +167,37 @@ fn get_app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
-#[tauri::command]
-fn get_dps_snapshot(state: tauri::State<'_, AppState>) -> DpsData {
-    state.dps_calculator.lock().get_dps()
+// Details read shared immutable lookups and storage snapshots, without taking
+// the mutable DPS calculator's mutex or copying its caches/target-selection state.
+fn details_reader(state: &AppState) -> DpsCalculator {
+    DpsCalculator::new(state.data_storage.clone(), state.skill_lookup.clone(),
+        state.npc_lookup.clone(), state.ping_tracker.clone())
 }
 
 #[tauri::command]
-fn get_skill_details(state: tauri::State<'_, AppState>, target_id: i32, actor_ids: Option<Vec<i32>>) -> TargetDetailsResponse {
-    state.dps_calculator.lock().get_target_details(target_id, actor_ids.as_deref())
+async fn get_dps_snapshot(app: tauri::AppHandle) -> Result<DpsData, String> {
+    crate::blocking::CALCULATIONS.run(move || {
+        app.state::<AppState>().dps_calculator.lock().get_dps()
+    }).await
 }
 
 #[tauri::command]
-fn get_details_context(state: tauri::State<'_, AppState>) -> DetailsContext {
-    state.dps_calculator.lock().get_details_context()
+async fn get_skill_details(app: tauri::AppHandle, target_id: i32, actor_ids: Option<Vec<i32>>, summary_only: Option<bool>) -> Result<TargetDetailsResponse, String> {
+    crate::blocking::CALCULATIONS.run(move || {
+        let calculator = details_reader(&app.state::<AppState>());
+        if summary_only.unwrap_or(false) {
+            calculator.get_hover_details(target_id, actor_ids.as_deref())
+        } else {
+            calculator.get_target_details(target_id, actor_ids.as_deref())
+        }
+    }).await
+}
+
+#[tauri::command]
+async fn get_details_context(app: tauri::AppHandle) -> Result<DetailsContext, String> {
+    crate::blocking::CALCULATIONS.run(move || {
+        details_reader(&app.state::<AppState>()).get_details_context()
+    }).await
 }
 
 #[tauri::command]
@@ -183,41 +206,54 @@ fn get_details_context(state: tauri::State<'_, AppState>) -> DetailsContext {
 /// ~350ms, during which no other IPC and no window painting can proceed. Each
 /// window calls this at startup and again every 10s, which is what made opening
 /// History feel like it hung.
-async fn get_fight_history(state: tauri::State<'_, AppState>) -> Result<Vec<FightSummary>, String> {
-    Ok(state.fight_history.list_fights())
+async fn get_fight_history(app: tauri::AppHandle) -> Result<Vec<FightSummary>, String> {
+    crate::blocking::HISTORY.run(move || {
+        app.state::<AppState>().fight_history.list_fights()
+    }).await
 }
 
 #[tauri::command]
-fn save_fight(state: tauri::State<'_, AppState>, record: FightRecord) -> Result<(), String> {
-    state.fight_history.save_fight(&record)
+async fn save_fight(app: tauri::AppHandle, record: FightRecord) -> Result<(), String> {
+    crate::blocking::HISTORY.run(move || {
+        let state = app.state::<AppState>();
+        let _saving = state.fight_save.lock();
+        state.fight_history.save_fight(&record)
+    }).await?
 }
 
 #[tauri::command]
-fn load_fight(state: tauri::State<'_, AppState>, id: String) -> Result<FightRecord, String> {
-    let mut record = state.fight_history.load_fight(&id)?;
+async fn load_fight(app: tauri::AppHandle, id: String) -> Result<FightRecord, String> {
+    crate::blocking::HISTORY.run(move || {
+        let state = app.state::<AppState>();
+        let mut record = state.fight_history.load_fight(&id)?;
 
-    // Re-resolve supporter status against the roster as it is *now*, rather
-    // than trusting the flag written when the fight was saved. Supporter status
-    // changes; a fight from last month opened today should show who is a
-    // supporter today, and every record saved before this feature existed has
-    // no flag at all.
-    //
-    // Party members are the honest limitation here. `obscure_nickname` masks
-    // their names before the record is written, so a name-keyed roster can only
-    // ever match the local player, whose name is stored intact. `dbid` is kept
-    // on each actor precisely so a dbid-keyed roster resolves everyone — see
-    // `crate::supporters::KeyKind`.
-    crate::supporters::apply_to_record(&mut record, &state.data_storage.supporters());
-    Ok(record)
+        // Re-resolve supporter status against the roster as it is *now*, rather
+        // than trusting the flag written when the fight was saved. Supporter status
+        // changes; a fight from last month opened today should show who is a
+        // supporter today, and every record saved before this feature existed has
+        // no flag at all.
+        //
+        // Party members are the honest limitation here. `obscure_nickname` masks
+        // their names before the record is written, so a name-keyed roster can only
+        // ever match the local player, whose name is stored intact. `dbid` is kept
+        // on each actor precisely so a dbid-keyed roster resolves everyone — see
+        // `crate::supporters::KeyKind`.
+        crate::supporters::apply_to_record(&mut record, &state.data_storage.supporters());
+        Ok(record)
+    }).await?
 }
 
 #[tauri::command]
-fn delete_fight(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+async fn delete_fight(app: tauri::AppHandle, id: String) -> Result<(), String> {
     if !crate::history::fight_history::is_plain_name(&id) {
         return Err(format!("Invalid fight id: {id:?}"));
     }
-    share::forget_slice(&state.app_data_dir, &id);
-    state.fight_history.delete_fight(&id)
+    crate::blocking::HISTORY.run(move || {
+        let state = app.state::<AppState>();
+        let _saving = state.fight_save.lock();
+        share::forget_slice(&state.app_data_dir, &id);
+        state.fight_history.delete_fight(&id)
+    }).await?
 }
 
 /// Upload a saved fight to a2tools.app as a log, and return its link.
@@ -271,7 +307,13 @@ fn save_fight_records(app: &tauri::AppHandle, state: &AppState, records: Vec<Fig
         let _ = state.fight_history.save_fight(record);
         if !record.is_train {
             if let Err(e) = share::save_slice(&state.app_data_dir, record, &state.data_storage) {
-                tracing::debug!("No slice for {}: {e}", record.id);
+                // A fight that began before the meter did is normal; anything
+                // else is why an upload will later say no packets were saved.
+                if e.starts_with("no packets in memory") {
+                    tracing::debug!("No slice for {}: {e}", record.id);
+                } else {
+                    tracing::warn!("No slice for {}: {e}", record.id);
+                }
             }
         }
     }
@@ -295,6 +337,7 @@ fn save_fight_records(app: &tauri::AppHandle, state: &AppState, records: Vec<Fig
 /// kill lost everything since the last 30-second save (issue #19).
 fn save_fights_before_reset(app: &tauri::AppHandle) {
     let Some(state) = app.try_state::<AppState>() else { return };
+    let _saving = state.fight_save.lock();
     if state.data_storage.damage_generation() <= 0 {
         return;
     }
@@ -453,6 +496,38 @@ fn account_sign_out(state: tauri::State<'_, AppState>) {
     tracing::info!("Account signed out on this machine");
 }
 
+/// The stream overlay as Settings shows it: on or off, the port, the URLs.
+#[tauri::command]
+fn stream_overlay_status(state: tauri::State<'_, AppState>) -> crate::stream_overlay::Status {
+    state.stream_overlay.status(&state.settings)
+}
+
+/// Turn the stream overlay on or off, or move it to another port. Async so a
+/// restart, which waits for the old port to close, never holds the UI thread.
+#[tauri::command]
+async fn stream_overlay_configure(
+    app: tauri::AppHandle,
+    enabled: bool,
+    port: u16,
+) -> Result<crate::stream_overlay::Status, String> {
+    if port < 1024 {
+        return Err("port must be between 1024 and 65535".into());
+    }
+    {
+        let state = app.state::<AppState>();
+        state.settings.set(crate::stream_overlay::PORT_KEY, &port.to_string());
+        state.settings.set(crate::stream_overlay::ENABLED_KEY, if enabled { "true" } else { "false" });
+    }
+    Ok(crate::stream_overlay::sync(&app))
+}
+
+/// A fresh overlay key: every URL handed out before stops working.
+#[tauri::command]
+async fn stream_overlay_new_key(app: tauri::AppHandle) -> Result<crate::stream_overlay::Status, String> {
+    crate::stream_overlay::regenerate_token(&app.state::<AppState>().settings);
+    Ok(crate::stream_overlay::sync(&app))
+}
+
 #[tauri::command]
 fn get_settings(state: tauri::State<'_, AppState>) -> std::collections::HashMap<String, String> {
     state.settings.get_all()
@@ -465,6 +540,15 @@ fn get_settings(state: tauri::State<'_, AppState>) -> std::collections::HashMap<
 /// "Round DPS" would appear to do nothing until the app restarted. Only real
 /// changes are emitted (see `Settings::set`), so the originating window's echo
 /// stops here rather than bouncing between windows.
+/// The All Targets time range (Settings), in milliseconds.
+const ALL_TARGETS_WINDOW_KEY: &str = "dpsMeter.allTargetsWindowMs";
+
+fn apply_all_targets_window(state: &AppState, value: &str) {
+    if let Ok(ms) = value.trim().parse::<i64>() {
+        state.dps_calculator.lock().set_all_targets_window_ms(ms);
+    }
+}
+
 #[tauri::command]
 fn update_settings(
     app: tauri::AppHandle,
@@ -473,13 +557,20 @@ fn update_settings(
     value: String,
 ) {
     if state.settings.set(&key, &value) {
+        if key == ALL_TARGETS_WINDOW_KEY {
+            apply_all_targets_window(&state, &value);
+        }
         let _ = app.emit("setting-changed", serde_json::json!({ "key": key, "value": value }));
+        if key.starts_with(crate::stream_overlay::ENABLED_KEY) {
+            crate::stream_overlay::sync(&app);
+        }
     }
 }
 
 #[tauri::command]
-fn clear_settings(state: tauri::State<'_, AppState>) {
+fn clear_settings(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
     state.settings.clear();
+    crate::stream_overlay::sync(&app);
 }
 
 #[tauri::command]
@@ -524,7 +615,11 @@ fn set_character_name(state: tauri::State<'_, AppState>, name: String, manual: O
     state.data_storage.set_local_character_name(Some(name));
     // If an actor ID was already bound, propagate the new character name
     // into nickname_storage immediately so the main meter window updates.
-    if !trimmed.is_empty() {
+    // Not onto an id only read from party-scope records unless typed: nothing
+    // ties a remembered or window-title name to it, and after a character
+    // switch it can be the last character's.
+    let typed = manual.unwrap_or(false);
+    if !trimmed.is_empty() && (typed || !state.data_storage.local_id_from_scope()) {
         if let Some(id) = state.data_storage.local_player_id() {
             state.data_storage.set_permanent_nickname(id as i32, &trimmed);
         }
@@ -551,7 +646,11 @@ fn bind_local_actor_id(state: tauri::State<'_, AppState>, actor_id: i64, manual:
     }
     // Always (re)apply the permanent nickname if we have a character name,
     // even when the actor_id was already bound — this handles the case where
-    // the character name was set AFTER the actor_id binding.
+    // the character name was set AFTER the actor_id binding. Except on an id
+    // the backend only read from party-scope records (see set_character_name).
+    if state.data_storage.local_id_from_scope() {
+        return;
+    }
     if let Some(name) = state.data_storage.local_character_name() {
         let trimmed = name.trim();
         if !trimmed.is_empty() {
@@ -578,6 +677,11 @@ fn bind_local_nickname(state: tauri::State<'_, AppState>, actor_id: i64, nicknam
     if actor_id >= 90_000_000 {
         return;
     }
+    // The id the party-scope records point at, still unnamed: the UI's name
+    // may be another character's (see set_character_name).
+    if state.data_storage.local_id_from_scope() && state.data_storage.local_player_id() == Some(actor_id) {
+        return;
+    }
     // Once the game's self record has named the player, it alone says who
     // they are: a window binding by name kept an id from before a zone change
     // and sent it back, and uploads then named a stale uploader (issue #19).
@@ -594,9 +698,10 @@ fn bind_local_nickname(state: tauri::State<'_, AppState>, actor_id: i64, nicknam
 fn reset_combat(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
     save_fights_before_reset(&app);
     state.dps_calculator.lock().restart_target_selection(true);
-    // Don't reset port detector or ping — keep the network connection alive
-    // Only clear combat data and re-learn nicknames from future packets
-    state.data_storage.reset_nicknames();
+    // Don't reset port detector or ping — keep the network connection alive.
+    // Clear combat data, and only the names a loose scan guessed: the game
+    // does not send the others again until everyone respawns.
+    state.data_storage.forget_guessed_nicknames();
     state.data_storage.hide_party_placeholders();
 }
 
@@ -646,12 +751,11 @@ fn reset_auto_detection(state: tauri::State<'_, AppState>) {
 }
 
 #[tauri::command]
-fn get_available_devices() -> Vec<String> {
-    // Load the OS's pcap library and enumerate devices
-    match crate::capture::pcap_capturer::list_device_labels() {
-        Ok(labels) => labels,
-        Err(_) => Vec::new(),
-    }
+async fn get_available_devices() -> Vec<String> {
+    // Device discovery can block in the OS/pcap library. Keep it off the UI loop.
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::capture::pcap_capturer::list_device_labels().unwrap_or_default()
+    }).await.unwrap_or_default()
 }
 
 #[tauri::command]
@@ -1972,8 +2076,8 @@ async fn replay_file(state: tauri::State<'_, AppState>, file_path: String) -> Re
 
     // Force snapshot boss fights from the replay
     {
-        let mut calc = state.dps_calculator.lock();
-        let records = calc.snapshot_boss_fights_force();
+        let _saving = state.fight_save.lock();
+        let records = state.dps_calculator.lock().snapshot_boss_fights_force();
         let mut sorted = records;
         sorted.sort_by(|a, b| b.total_damage.cmp(&a.total_damage));
         for record in sorted.iter().take(10) {
@@ -1984,7 +2088,7 @@ async fn replay_file(state: tauri::State<'_, AppState>, file_path: String) -> Re
             }
         }
         // Mark all targets as saved so the periodic auto-save loop doesn't re-process them
-        calc.mark_all_targets_saved();
+        state.dps_calculator.lock().mark_all_targets_saved();
     }
 
     count
@@ -2170,7 +2274,7 @@ pub fn run() {
             let ping_tracker = Arc::new(PingTracker::with_perf_clock(platform::clock::perf_clock()));
             let port_detector = Arc::new(CombatPortDetector::new());
 
-            let dps_calculator = DpsCalculator::new(
+            let mut dps_calculator = DpsCalculator::new(
                 data_storage.clone(),
                 skill_lookup.clone(),
                 npc_lookup.clone(),
@@ -2178,6 +2282,9 @@ pub fn run() {
             );
 
             let settings = Settings::new(app_data_dir.clone());
+            if let Some(ms) = settings.get(ALL_TARGETS_WINDOW_KEY).and_then(|v| v.trim().parse::<i64>().ok()) {
+                dps_calculator.set_all_targets_window_ms(ms);
+            }
 
             logging::logger::start_always_log(&app_data_dir); // fork
             // Load logging settings from saved state
@@ -2194,6 +2301,7 @@ pub fn run() {
                 ping_tracker: ping_tracker.clone(),
                 port_detector: port_detector.clone(),
                 fight_history: FightHistoryManager::new(app_data_dir.clone()),
+                fight_save: Mutex::new(()),
                 settings,
                 skill_lookup: skill_lookup.clone(),
                 npc_lookup: npc_lookup.clone(),
@@ -2208,6 +2316,7 @@ pub fn run() {
                 capture_suspended: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 overlay_lock: Arc::new(OverlayLock::default()),
                 account_seen: Mutex::new(None),
+                stream_overlay: crate::stream_overlay::Manager::default(),
             };
             let capture_suspended = state.capture_suspended.clone();
 
@@ -2218,6 +2327,7 @@ pub fn run() {
                     .set_before_reset(move || save_fights_before_reset(&handle));
             }
             crate::presence::spawn(app.handle().clone());
+            crate::stream_overlay::sync(app.handle());
 
             // Reopen the Details window if it was left enabled. Done here rather
             // than from JS because the backend already has settings loaded — the
@@ -2263,13 +2373,6 @@ pub fn run() {
             let npcap_available = platform::pcap::library_available();
             if !npcap_available {
                 tracing::error!("Npcap is not installed — packet capture disabled");
-                // Notify frontend to show install prompt
-                let handle_npcap = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    // Small delay so frontend has time to initialize
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    let _ = handle_npcap.emit("npcap-missing", ());
-                });
             }
 
             // Start capture pipeline
@@ -2278,6 +2381,9 @@ pub fn run() {
             let capturer = PcapCapturer::new(tx);
             if npcap_available {
                 capturer.start();
+            } else {
+                // Offer to install it, and start capturing once it is in.
+                crate::npcap_setup::offer(app.handle().clone(), capturer);
             }
 
             let mut dispatcher = CaptureDispatcher::new(
@@ -2324,7 +2430,7 @@ pub fn run() {
                         save_fights_before_reset(&h);
                         if let Some(state) = h.try_state::<AppState>() {
                             state.dps_calculator.lock().restart_target_selection(true);
-                            state.data_storage.reset_nicknames();
+                            state.data_storage.forget_guessed_nicknames();
                         }
                         // Notify frontend to clear UI
                         let _ = h.emit("combat-reset", ());
@@ -2367,6 +2473,7 @@ pub fn run() {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(500));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 let mut tick_count: u64 = 0;
                 let mut hide_delay: u64 = 0; // ticks to wait before hiding
                 loop {
@@ -2375,19 +2482,29 @@ pub fn run() {
 
                     if let Some(state) = handle.try_state::<AppState>() {
                         let t0 = std::time::Instant::now();
-                        let lock_guard = state.dps_calculator.lock();
-                        let lock_ms = t0.elapsed().as_millis();
-                        let dps = {
-                            let mut calc = lock_guard;
-                            calc.get_dps()
-                        };
-                        let calc_ms = t0.elapsed().as_millis();
-                        let _ = handle.emit("dps-update", &dps);
-                        let total_ms = t0.elapsed().as_millis();
-                        if total_ms > 200 {
-                            tracing::warn!("Slow: lock={}ms calc={}ms emit={}ms total={}ms gen={}",
-                                lock_ms, calc_ms - lock_ms, total_ms - calc_ms, total_ms,
-                                state.data_storage.damage_generation());
+                        let calculation_handle = handle.clone();
+                        let result = crate::blocking::DPS_TICK.run(move || {
+                            let state = calculation_handle.state::<AppState>();
+                            let started = std::time::Instant::now();
+                            let mut calc = state.dps_calculator.lock();
+                            let lock_ms = started.elapsed().as_millis();
+                            let calculating = std::time::Instant::now();
+                            let dps = calc.get_dps();
+                            (dps, lock_ms, calculating.elapsed().as_millis())
+                        }).await;
+                        match result {
+                            Ok((dps, lock_ms, calc_ms)) => {
+                                let emitting = std::time::Instant::now();
+                                let _ = handle.emit("dps-update", &dps);
+                                let emit_ms = emitting.elapsed().as_millis();
+                                let total_ms = t0.elapsed().as_millis();
+                                if total_ms > 200 {
+                                    tracing::warn!("Slow: lock={}ms calc={}ms emit={}ms total={}ms gen={}",
+                                        lock_ms, calc_ms, emit_ms, total_ms,
+                                        state.data_storage.damage_generation());
+                                }
+                            }
+                            Err(error) => tracing::warn!("DPS update failed: {error}"),
                         }
 
                         if let Some(ping) = state.ping_tracker.current_ping_ms() {
@@ -2499,20 +2616,22 @@ pub fn run() {
                 }
             });
 
-            // Separate task for boss fight auto-save (every 30s, on blocking thread)
+            // One blocking history job at a time; disk/JSON work never runs
+            // on Tokio's cooperative workers. The next tick waits for completion.
             let handle_save = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
                     tokio::time::sleep(Duration::from_secs(30)).await;
-                    if let Some(state) = handle_save.try_state::<AppState>() {
+                    let handle = handle_save.clone();
+                    if let Err(error) = crate::blocking::HISTORY.run(move || {
+                        let Some(state) = handle.try_state::<AppState>() else { return };
+                        let _saving = state.fight_save.lock();
                         if state.data_storage.damage_generation() > 0 {
-                            // Run on blocking thread to avoid starving the async runtime
-                            // snapshot_boss_fights acquires the dps_calculator lock
-                            // Run synchronously but only if lock is available
-                            if let Some(mut calc) = state.dps_calculator.try_lock() {
-                                let records = calc.snapshot_boss_fights();
-                                drop(calc);
-                                save_fight_records(&handle_save, &state, records);
+                            let records = state.dps_calculator.try_lock()
+                                .map(|mut calc| calc.snapshot_boss_fights());
+                            if let Some(records) = records {
+                                // The calculator guard is gone before any disk I/O.
+                                save_fight_records(&handle, &state, records);
                             }
                         }
                         // Automatic uploads that failed and are due again,
@@ -2522,10 +2641,12 @@ pub fn run() {
                             let now = crate::clock::now_ms();
                             for id in share::auto_upload_retries_due(&state.app_data_dir, now) {
                                 if let Ok(record) = state.fight_history.load_fight(&id) {
-                                    auto_upload(handle_save.clone(), record);
+                                    auto_upload(handle.clone(), record);
                                 }
                             }
                         }
+                    }).await {
+                        tracing::warn!("History maintenance failed: {error}");
                     }
                 }
             });
@@ -2614,6 +2735,9 @@ pub fn run() {
             account_status,
             account_status_cached,
             discord_activity_available,
+            stream_overlay_status,
+            stream_overlay_configure,
+            stream_overlay_new_key,
             account_begin_link,
             account_sign_out,
             get_settings,

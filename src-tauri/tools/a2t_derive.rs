@@ -2,21 +2,34 @@
 //!
 //!   a2t-derive <app-data-dir> [fight-id ...]   saved fights a capture covers
 //!   a2t-derive --capture <packets_*.txt>        every boss fight in a capture
+//!   a2t-derive --capture <packets_*.txt> --partner <dir>
+//!                                               the same, and each fight's slice
+//!                                               cut by another meter (see below)
 //!
 //! For each fight: replay the WHOLE capture the way the live meter reads it,
 //! cut the Evidence Slice an upload would send, run `rederive::derive_fight`
 //! over the slice alone (the function the service runs, with the same data
 //! tables), and compare the two record for record: per actor, per skill, hit
-//! counts. A saved fight's record is shown too, but only as context: it was
+//! counts. The comparison is made before the service hides unplaced summons
+//! (`hide_unplaced_summons`), which the whole-capture record never goes
+//! through; the damage the hide removes is printed on its own line. A saved fight's record is shown too, but only as context: it was
 //! made by whichever build was running that day, so it can differ from both
 //! for reasons that have nothing to do with the slice.
 //!
 //! "identical" here is the claim the upload design rests on: a log's numbers
 //! can be reproduced from the slice alone.
+//!
+//! `--partner` is the conformance check for other meters that upload to
+//! a2tools.app (docs/third-party-meters.md). Their meter cuts a slice for each
+//! boss fight in the same capture and writes them to `<dir>` (`.a2es` or
+//! `.a2es.gz`, any names). Each is derived as the service would derive it and
+//! held to the same standard as ours: the fight the whole capture shows, row
+//! for row, with nothing left unblinded. Everything runs locally; neither
+//! the capture nor the slices go anywhere.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use a2tools_dps_meter_lib::capture::evidence_slice::{self, CapturedPacket, NameMap};
 use a2tools_dps_meter_lib::capture::packet_accumulator::PacketAccumulator;
@@ -26,7 +39,7 @@ use a2tools_dps_meter_lib::combat::dps_calculator::DpsCalculator;
 use a2tools_dps_meter_lib::combat::ping_tracker::PingTracker;
 use a2tools_dps_meter_lib::entity::fight_record::FightRecord;
 use a2tools_dps_meter_lib::i18n::lookup::{NpcLookup, SkillLookup};
-use a2tools_dps_meter_lib::rederive::derive_fight;
+use a2tools_dps_meter_lib::rederive::{derive_fight_unhidden, DerivedFight};
 use a2tools_dps_meter_lib::share::{find_captures, read_capture};
 
 struct Tables {
@@ -48,8 +61,11 @@ fn main() {
         dots: std::fs::read_to_string(data.join("dot_skill_ids.json")).expect("dot_skill_ids.json"),
     };
 
+    let partner = args.iter().position(|a| a == "--partner")
+        .and_then(|i| args.get(i + 1))
+        .map(|dir| partner_slices(Path::new(dir), &t));
     let (tried, same) = if args[0] == "--capture" {
-        from_capture(Path::new(args.get(1).expect("capture path")), &t)
+        from_capture(Path::new(args.get(1).expect("capture path")), &t, partner.as_deref())
     } else {
         from_history(Path::new(&args[0]), &args[1..], &t)
     };
@@ -75,7 +91,7 @@ fn from_history(dir: &Path, wanted: &[String], t: &Tables) -> (usize, usize) {
         if packets.is_empty() {
             continue;
         }
-        let (storage, whole) = replay(&packets, t);
+        let (storage, whole) = replay(&packets, t, false);
         let Some(w) = whole
             .into_iter()
             .filter(|r| r.mob_code == saved.mob_code)
@@ -99,18 +115,14 @@ fn from_history(dir: &Path, wanted: &[String], t: &Tables) -> (usize, usize) {
 /// slice cut by `save_slice` as the auto-save would, read back and derived.
 fn ring_check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord, t: &Tables) {
     use std::io::Read;
-    use std::sync::Mutex;
     // The ring is process-wide, like the live one. Feed each capture once, or
     // a second fight from the same capture sees every packet twice.
     static FED: Mutex<Vec<i64>> = Mutex::new(Vec::new());
     let mark = packets.first().map(|p| p.captured_at_ms).unwrap_or(0);
     let fresh = { let mut fed = FED.lock().unwrap(); if fed.contains(&mark) { false } else { fed.push(mark); true } };
     for p in packets.iter().filter(|_| fresh) {
-        a2tools_dps_meter_lib::clock::set_override(Some(p.captured_at_ms));
-        let port: u16 = p.stream.trim_start_matches("Client:").parse().unwrap_or(0);
-        a2tools_dps_meter_lib::share::ring::record(port, &p.bytes);
+        a2tools_dps_meter_lib::share::ring::record_at(p.captured_at_ms, p.stream.clone(), &p.bytes);
     }
-    a2tools_dps_meter_lib::clock::set_override(None);
     let dir = std::env::temp_dir().join(format!("a2t-ring-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let result = a2tools_dps_meter_lib::share::save_slice(&dir, w, storage).and_then(|bytes| {
@@ -118,7 +130,7 @@ fn ring_check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord
             .map_err(|e| e.to_string())?;
         let mut slice = Vec::new();
         flate2::read::GzDecoder::new(&gz[..]).read_to_end(&mut slice).map_err(|e| e.to_string())?;
-        let d = derive_fight(&slice, &t.npcs, &t.skills, &t.dots).map_err(|e| format!("{e:?}"))?;
+        let (d, _) = derive(&slice, t).map_err(|e| format!("{e:?}"))?;
         Ok((bytes, d))
     });
     match result {
@@ -136,20 +148,91 @@ fn ring_check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord
 }
 
 /// Every boss fight in one capture file.
-fn from_capture(path: &Path, t: &Tables) -> (usize, usize) {
+fn from_capture(path: &Path, t: &Tables, partner: Option<&[(String, DerivedFight, i64)]>) -> (usize, usize) {
     let packets = read_capture(path).expect("capture");
-    let (storage, mut whole) = replay(&packets, t);
+    // Every boss fight in the capture, whoever fought it: the meter keeps
+    // only fights of yours or your party's (`is_our_fight`), which left out
+    // an open-world boss with no party and you not among its actors
+    // (Blooming Korin). A slice of it can still be compared.
+    let (storage, mut whole) = replay(&packets, t, true);
     whole.sort_by_key(|r| r.start_time_ms);
     let (mut tried, mut same) = (0, 0);
     for w in &whole {
         tried += 1;
         println!("\n== {} {} ({} ms, {} actors, total {})", w.id, w.boss_name, w.duration_ms,
                  w.actors.len(), w.details.total_target_damage);
-        if check(&packets, &storage, w, t) {
+        let ours = check(&packets, &storage, w, t);
+        let theirs = partner.is_none_or(|p| check_partner(p, w));
+        if ours && theirs {
             same += 1;
         }
     }
+    // A partner slice for a fight the whole capture does not show is a fight
+    // one of the two readings lost: say so rather than skip it.
+    for (name, d, _) in partner.unwrap_or(&[]) {
+        if whole.iter().any(|w| w.target_id == d.record.target_id) {
+            continue;
+        }
+        tried += 1;
+        println!("
+== partner {name}: {} (target {}, mob {}, {} ms, total {}) matches no fight in the whole capture -> DOES NOT CONFORM",
+                 d.record.boss_name, d.record.target_id, d.record.mob_code, d.record.duration_ms,
+                 d.record.details.total_target_damage);
+    }
     (tried, same)
+}
+
+/// Every slice in `dir`, derived as the log service derives it.
+fn partner_slices(dir: &Path, t: &Tables) -> Vec<(String, DerivedFight, i64)> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).expect("partner slice folder").flatten() {
+        let path = entry.path();
+        let file = path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+        if !(file.ends_with(".a2es") || file.ends_with(".a2es.gz")) {
+            continue;
+        }
+        let Ok(raw) = std::fs::read(&path) else { continue };
+        let slice = if raw.starts_with(&[0x1f, 0x8b]) {
+            let mut s = Vec::new();
+            if std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&raw[..]), &mut s).is_err() {
+                continue;
+            }
+            s
+        } else {
+            raw
+        };
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        match derive(&slice, t) {
+            Ok((d, hidden)) => out.push((name, d, hidden)),
+            Err(e) => println!("partner slice {name}: not derivable ({e:?})"),
+        }
+    }
+    println!("{} partner slices derived", out.len());
+    out
+}
+
+/// Hold another meter's slice of `w` to the standard ours is held to.
+fn check_partner(partner: &[(String, DerivedFight, i64)], w: &FightRecord) -> bool {
+    let Some((name, d, hidden)) = partner.iter().find(|(_, d, _)| d.record.target_id == w.target_id) else {
+        println!("   partner: NO SLICE for target {}", w.target_id);
+        return false;
+    };
+    let rows = |r: &FightRecord| -> HashMap<(i32, i32, bool), (i64, i32)> {
+        r.details.skills.iter().map(|s| ((s.actor_id, s.code, s.is_dot), (s.dmg as i64, s.time))).collect()
+    };
+    let (a, b) = (rows(w), rows(&d.record));
+    let differing = a.keys().chain(b.keys()).collect::<HashSet<_>>()
+        .into_iter().filter(|k| a.get(*k) != b.get(*k)).count();
+    let c = &d.checks;
+    let blinded = c.unblinded_names == 0;
+    let identical = w.mob_code == d.record.mob_code && differing == 0
+        && w.details.total_target_damage == d.record.details.total_target_damage;
+    println!("   partner {name}: total {} / {}  rows differing {}  unblinded {}  lifted {}/{}  bundles {}  -> {}",
+             w.details.total_target_damage, d.record.details.total_target_damage, differing,
+             c.unblinded_names, c.lifted, c.records, c.bundles,
+             if identical && blinded { "conforms" } else { "DOES NOT CONFORM" });
+    print_hidden(*hidden, d);
+    identical && blinded
 }
 
 fn covering(captures: &[PathBuf], at_ms: i64) -> Vec<CapturedPacket> {
@@ -174,7 +257,8 @@ fn lookups(t: &Tables) -> (Arc<NpcLookup>, Arc<SkillLookup>) {
 }
 
 /// The whole capture, reassembled and replayed the way the live meter reads it.
-fn replay(packets: &[CapturedPacket], t: &Tables) -> (Arc<DataStorage>, Vec<FightRecord>) {
+/// `every_fight` keeps boss fights the meter would leave as someone else's.
+fn replay(packets: &[CapturedPacket], t: &Tables, every_fight: bool) -> (Arc<DataStorage>, Vec<FightRecord>) {
     let (npc, sk) = lookups(t);
     let storage = Arc::new(DataStorage::new());
     let mut proc = StreamProcessor::new(storage.clone(), sk.clone(), npc.clone());
@@ -188,7 +272,26 @@ fn replay(packets: &[CapturedPacket], t: &Tables) -> (Arc<DataStorage>, Vec<Figh
     // player who changed entity id has had their damage moved off the old id,
     // and a dummy hit again has been reset, which made correct slices look wrong.
     let mut calc = DpsCalculator::new(storage.clone(), sk, npc, Arc::new(PingTracker::new()));
-    let mut saved: HashMap<String, FightRecord> = HashMap::new();
+    calc.set_every_fight(every_fight);
+    let calc = Arc::new(Mutex::new(calc));
+    let saved: Arc<Mutex<HashMap<String, FightRecord>>> = Arc::new(Mutex::new(HashMap::new()));
+    // And before combat is cleared (a zone change, the end of a party), as
+    // the meter does since #19: a fight followed by a teleport before the
+    // next tick was left at that tick's record, short of its end (Ultimate
+    // Berk, Caretaker Sinandash), or lost when it had no tick yet.
+    {
+        let (calc, saved, store) = (calc.clone(), saved.clone(), Arc::downgrade(&storage));
+        storage.set_before_reset(move || {
+            if store.upgrade().is_none_or(|s| s.damage_generation() <= 0) {
+                return;
+            }
+            let records = calc.lock().unwrap().snapshot_boss_fights_force();
+            let mut saved = saved.lock().unwrap();
+            for r in records {
+                saved.insert(r.id.clone(), r);
+            }
+        });
+    }
     let mut next_save = packets.first().map(|p| p.captured_at_ms + 30_000).unwrap_or(0);
     for p in packets {
         proc.set_override_timestamp(Some(p.captured_at_ms));
@@ -199,7 +302,9 @@ fn replay(packets: &[CapturedPacket], t: &Tables) -> (Arc<DataStorage>, Vec<Figh
             acc.discard_bytes(used);
         }
         if p.captured_at_ms >= next_save {
-            for r in calc.snapshot_boss_fights() {
+            let records = calc.lock().unwrap().snapshot_boss_fights();
+            let mut saved = saved.lock().unwrap();
+            for r in records {
                 saved.insert(r.id.clone(), r);
             }
             next_save = p.captured_at_ms + 30_000;
@@ -208,7 +313,9 @@ fn replay(packets: &[CapturedPacket], t: &Tables) -> (Arc<DataStorage>, Vec<Figh
     // Fights still running when the capture stops: the meter saves those on
     // its next tick, which a capture that ends never reaches. (Fights already
     // frozen are not in this snapshot.)
-    for r in calc.snapshot_boss_fights_force() {
+    let records = calc.lock().unwrap().snapshot_boss_fights_force();
+    let mut saved = std::mem::take(&mut *saved.lock().unwrap());
+    for r in records {
         saved.insert(r.id.clone(), r);
     }
     proc.set_override_timestamp(None);
@@ -232,7 +339,7 @@ fn check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord, t: 
             return false;
         }
     };
-    let d = match derive_fight(&slice, &t.npcs, &t.skills, &t.dots) {
+    let (d, hidden) = match derive(&slice, t) {
         Ok(d) => d,
         Err(e) => {
             println!("   derive failed: {e:?} ({} bytes of slice)", slice.len());
@@ -254,6 +361,19 @@ fn check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord, t: 
         }
     };
     let got = &d.record;
+    {
+        let names_in: Vec<String> = names.keys().cloned().collect();
+        let leaked = evidence_slice::decode(&slice)
+            .map(|(r, _)| evidence_slice::leaked_names(&r, &names_in))
+            .unwrap_or(0);
+        let c = &d.checks;
+        println!(
+            "   checks: unblinded {} leaked {}  lifted {}/{} ({:.1}%) bundles {}  killed {} damage {} max_hp {} -> {:.1}%",
+            c.unblinded_names, leaked, c.lifted, c.records,
+            if c.records > 0 { c.lifted as f64 * 100.0 / c.records as f64 } else { 0.0 },
+            c.bundles, c.killed, c.damage, c.max_hp,
+            if c.max_hp > 0 { c.damage as f64 * 100.0 / c.max_hp as f64 } else { 0.0 });
+    }
     if let Ok(dir) = std::env::var("A2_WRITE_SLICE") {
         // What an upload sends, and what the service must answer, for testing
         // the deployed Worker against this build.
@@ -291,7 +411,27 @@ fn check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord, t: 
     for k in diffs.iter().take(if std::env::var("A2_ALL_ROWS").is_ok() { usize::MAX } else { 12 }) {
         println!("     row {:?}: whole {:?} slice {:?}", k, a.get(k), b.get(k));
     }
+    print_hidden(hidden, &d);
     identical
+}
+
+/// The slice derived as the log service derives it, but before
+/// `hide_unplaced_summons`, and the damage that hide removes. The whole-capture
+/// record never goes through the hide, so the two are compared before it:
+/// compared after, every hidden row was a difference (Phantasm Kasia, 296
+/// unnamed actors, 4.1% of the damage). What the service stores is the hidden
+/// record; `print_hidden` says how far it is from the one compared.
+fn derive(slice: &[u8], t: &Tables) -> Result<(DerivedFight, i64), a2tools_dps_meter_lib::rederive::DeriveError> {
+    derive_fight_unhidden(slice, &t.npcs, &t.skills, &t.dots)
+}
+
+fn print_hidden(hidden: i64, d: &DerivedFight) {
+    if hidden != 0 {
+        println!("   the service hides unplaced summons: {} damage ({:.1}%), stored total {}",
+                 hidden,
+                 if d.total_damage > 0 { hidden as f64 * 100.0 / d.total_damage as f64 } else { 0.0 },
+                 d.total_damage - hidden);
+    }
 }
 
 fn gz_len(data: &[u8]) -> usize {

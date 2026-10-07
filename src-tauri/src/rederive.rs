@@ -191,6 +191,63 @@ pub struct DerivedFight {
     /// Sorted, so the serialised record is byte-identical on every run.
     pub blind_map: std::collections::BTreeMap<String, u64>,
     pub records: usize,
+    /// What the server checked about the slice itself, whoever built it. The
+    /// service reports; the site decides what to refuse or keep off the
+    /// leaderboards (see `SliceChecks`).
+    pub checks: SliceChecks,
+}
+
+/// Checks on the slice that do not depend on the client that cut it.
+///
+/// The service re-derives every number, but only from what the client chose
+/// to put in the slice: a client that drops records, or one whose capture
+/// reads garbage (Ethernet padding taken for payload, 2026-10-06), gives
+/// numbers that are faithfully derived and wrong. And a client that does not
+/// blind, or blinds by older rules, would have names stored. The service
+/// reports; the site decides what to refuse or keep off the leaderboards.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SliceChecks {
+    /// Name-shaped runs that are not tokens the slice declares: names the
+    /// blinder should have replaced. 0 for a slice this meter cut.
+    pub unblinded_names: usize,
+    /// Top-level records in the slice.
+    pub records: usize,
+    /// Of those, records lifted out of other packets (`LIFTED_HOST`). A clean
+    /// capture needs a few: on the captures checked, 0.05-4% of records. A
+    /// capture that loses the game's framing has its packets read as blobs,
+    /// and nearly everything recovered from them is lifted: 84-97% on the
+    /// padding-corrupted capture of 2026-10-06, whose kills read 77-80%.
+    pub lifted: usize,
+    /// Compressed bundles kept whole. Hundreds in a clean boss fight; a
+    /// garbled capture keeps almost none (3 to 29 on that capture).
+    pub bundles: usize,
+    /// The target's death is in the slice: the fight was a kill.
+    pub killed: bool,
+    /// The target's max HP as the parser read it (0 when unknown).
+    pub max_hp: i64,
+    /// All damage the parser found on the target, unplaced summons included,
+    /// against `max_hp`: on a kill, at least the max HP (more when the boss
+    /// healed or the last hit overshot). Short of it, records are missing.
+    pub damage: i64,
+}
+
+/// Records, bundles and lifted records at the top level of a slice.
+fn slice_structure(records: &[(i32, Vec<u8>)]) -> (usize, usize, usize) {
+    let (mut lifted, mut bundles) = (0, 0);
+    for (_, record) in records {
+        let li = crate::capture::stream_processor::read_varint(record, 0);
+        if li.length <= 0 {
+            continue;
+        }
+        let o = li.length as usize;
+        match record.get(o..o + 2) {
+            Some(op) if op == evidence_slice::LIFTED_HOST => lifted += 1,
+            Some([0xFF, 0xFF]) => bundles += 1,
+            _ => {}
+        }
+    }
+    (records.len(), lifted, bundles)
 }
 
 /// Put everything a HashMap produced into one fixed order.
@@ -291,6 +348,33 @@ pub fn derive_fight(
     skills_json: &str,
     dot_ids_json: &str,
 ) -> Result<DerivedFight, DeriveError> {
+    derive_fight_with(slice, npcs_json, skills_json, dot_ids_json, true).map(|(fight, _)| fight)
+}
+
+/// `derive_fight` without `hide_unplaced_summons`: the fight as the parser
+/// and the calculator give it, which is what the desktop meter saves, and the
+/// damage the service would hide from it. For checking tools: a record from
+/// the whole capture never goes through the hide, so comparing it with a
+/// hidden one finds every hidden row as a difference. The service stores
+/// `derive_fight`'s answer, not this one.
+pub fn derive_fight_unhidden(
+    slice: &[u8],
+    npcs_json: &str,
+    skills_json: &str,
+    dot_ids_json: &str,
+) -> Result<(DerivedFight, i64), DeriveError> {
+    derive_fight_with(slice, npcs_json, skills_json, dot_ids_json, false)
+}
+
+/// The fight, and the damage `hide_unplaced_summons` removes from it (or
+/// would, when `hide` is false and the record is returned whole).
+fn derive_fight_with(
+    slice: &[u8],
+    npcs_json: &str,
+    skills_json: &str,
+    dot_ids_json: &str,
+    hide: bool,
+) -> Result<(DerivedFight, i64), DeriveError> {
     let (records, blind_map) = evidence_slice::decode(slice).ok_or(DeriveError::NotASlice)?;
 
     let npcs = Arc::new(NpcLookup::new());
@@ -349,6 +433,7 @@ pub fn derive_fight(
     // entities spawned as summons (see `hide_unplaced_summons`).
     let named: std::collections::HashSet<i32> = storage.get_nicknames().keys().copied().collect();
     let spawned = storage.get_summon_spawn_ids();
+    let dead = storage.get_dead_entities();
 
     let mut calc = DpsCalculator::new(storage, skills, npcs, Arc::new(PingTracker::new()));
     let snapshot = calc.snapshot_boss_fights_force();
@@ -366,21 +451,49 @@ pub fn derive_fight(
         // someone else's scarecrow (2026-10-03).
         .min_by_key(|r| (r.start_time_ms.abs(), -totals.get(&r.target_id).copied().unwrap_or(0), r.target_id))
         .ok_or(DeriveError::NothingDerived)?;
-    let hidden = hide_unplaced_summons(&mut record, &named, &spawned);
+    let hidden = if hide {
+        hide_unplaced_summons(&mut record, &named, &spawned)
+    } else {
+        hide_unplaced_summons(&mut record.clone(), &named, &spawned)
+    };
     canonicalise(&mut record);
+    let on_target = totals.get(&record.target_id).copied().unwrap_or(0);
+    let (count, lifted, bundles) = slice_structure(&records);
+    let checks = SliceChecks {
+        unblinded_names: evidence_slice::unblinded_names(&records, &blind_map),
+        records: count,
+        lifted,
+        bundles,
+        killed: dead.contains(&record.target_id),
+        max_hp: record.details.max_hp as i64,
+        damage: on_target,
+    };
 
-    Ok(DerivedFight {
-        parser_version: parser_version(),
-        total_damage: totals.get(&record.target_id).copied().unwrap_or(0) - hidden,
-        record,
-        blind_map: blind_map.into_iter().collect(),
-        records: records.len(),
-    })
+    Ok((
+        DerivedFight {
+            parser_version: parser_version(),
+            total_damage: if hide { on_target - hidden } else { on_target },
+            record,
+            blind_map: blind_map.into_iter().collect(),
+            records: records.len(),
+            checks,
+        },
+        hidden,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slice_structure_counts_lifted_records_and_bundles() {
+        let lifted = vec![0x09, 0xE5, 0xA2, 0x04, 0x38, 0x01, 0x02];
+        let bundle = vec![0x0A, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let damage = vec![0x08, 0x04, 0x38, 0x01, 0x02, 0x03];
+        let records = vec![(0, lifted), (0, bundle.clone()), (0, bundle), (0, damage)];
+        assert_eq!(slice_structure(&records), (4, 1, 2));
+    }
 
     #[test]
     fn refuses_anything_that_is_not_a_slice() {

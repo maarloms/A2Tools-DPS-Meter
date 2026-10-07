@@ -90,7 +90,7 @@ impl FightHistoryManager {
         let file_path = self.history_dir.join(format!("{}.json", record.id));
         let json = serde_json::to_string_pretty(record)
             .map_err(|e| format!("Serialization error: {}", e))?;
-        std::fs::write(&file_path, json)
+        crate::atomic_file::write(&file_path, json.as_bytes())
             .map_err(|e| format!("Write error: {}", e))?;
         self.invalidate();
         info!("Fight saved: {}", record.id);

@@ -63,8 +63,18 @@
       "backTooltip": "背擊 %",
       "frontal": "正面",
       "frontalTooltip": "正面攻擊 %",
-      "powershard": "碎片",
-      "powershardTooltip": "能量碎片 %",
+      "shieldBlock": "盾擋",
+      "shieldBlockTooltip": "盾牌格擋 %",
+      "perfectBlock": "完擋",
+      "perfectBlockTooltip": "完美格擋 %",
+      "ironWall": "鐵壁",
+      "ironWallTooltip": "鐵壁 %",
+      "regeneration": "再生",
+      "regenerationTooltip": "再生 %",
+      "miss": "未中",
+      "missTooltip": "未命中",
+      "resist": "抵抗",
+      "resistTooltip": "抵抗",
       "regen": "回復",
       "regenTooltip": "吸血回復量",
       "multiHit": "MH%",
@@ -180,6 +190,7 @@
       "dps": "DPS"
     },
     "showPing": "顯示延遲",
+    "showTtk": "顯示預計擊殺時間（TTK）",
     "showTotalDps": "顯示總DPS/DMG",
     "roundDps": "DPS取整",
     "autoHideMeter": "自動隱藏面板",
@@ -194,6 +205,25 @@
       "title": "Discord",
       "activity": "在 Discord 顯示我正在玩的內容",
       "activityHint": "AION2 開啟時，你的 Discord 狀態會顯示角色名稱、職業、等級、伺服器，以及正在對戰的首領。透過這台電腦上的 Discord 應用程式顯示，不需要帳號。"
+    },
+    "streamOverlay": {
+      "title": "直播",
+      "enable": "直播疊加層（另一台電腦上的 OBS）",
+      "enableHint": "在區域網路內提供面板，讓第二台電腦上的 OBS 以瀏覽器來源顯示。",
+      "port": "連接埠",
+      "url": "瀏覽器來源網址",
+      "copy": "複製",
+      "copied": "已複製",
+      "newKey": "新金鑰",
+      "help": "在另一台電腦的 OBS 中，用此網址新增瀏覽器來源。第一次使用時 Windows 防火牆會詢問是否允許，請在私人網路上允許。區域網路內任何取得連結的人都能看到面板；按「新金鑰」會讓舊連結失效。",
+      "noAddress": "找不到網路位址。這台電腦是否已連上網路？",
+      "portInvalid": "請輸入 1024 到 65535 之間的連接埠。",
+      "error": "疊加層無法啟動：{error}",
+      "waiting": "等待戰鬥…",
+      "reconnecting": "正在重新連線面板…",
+      "player": "玩家",
+      "displayName": "直播中顯示的名字",
+      "displayNamePlaceholder": "你的角色名稱"
     },
     "version": "版本",
     "theme": {
@@ -322,6 +352,7 @@
   },
   "battleTime": {
     "analysing": "正在監控資料...",
+    "ttkTooltip": "依首領剩餘生命值和隊伍傷害估算的整場戰鬥時長",
     "idle": "閒置",
     "notRunning": "AION2 not running",
     "suspended": "應用程式已暫停",
@@ -401,5 +432,10 @@
     "signIn": "登入",
     "later": "稍後再說",
     "close": "關閉"
+  },
+  "npcapPrompt": {
+    "ask": "A2Tools DPS Meter 需要 Npcap 來讀取遊戲的網路流量，但 Npcap 未安裝或無法使用。\n\n現在安裝嗎？本工具會從 npcap.com 下載 Npcap 安裝程式並開啟它。Npcap 安裝完成後，本工具會自動開始擷取。\n\n選擇「否」可自行從 https://npcap.com/#download 安裝。",
+    "downloadFailed": "無法下載 Npcap 安裝程式（{error}）。\n\n請自行從 https://npcap.com/#download 安裝，然後重新開啟本工具。",
+    "stillMissing": "Npcap 仍然無法使用。如果安裝程式在完成前被關閉，請從 https://npcap.com/#download 安裝 Npcap，然後重新開啟本工具。"
   }
 }

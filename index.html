@@ -249,9 +249,44 @@
                         </span>
                       </label>
                       <label class="detailsSettingsToggle">
-                        <span class="detailsSettingsToggleLabel">P.Shard</span>
+                        <span class="detailsSettingsToggleLabel" data-i18n="details.skills.shieldBlockTooltip">Shield Block %</span>
                         <span class="detailsSettingsToggleControl">
-                          <input type="checkbox" class="detailsColumnToggle" data-column="powershard" />
+                          <input type="checkbox" class="detailsColumnToggle" data-column="block" />
+                          <span class="detailsSettingsToggleTrack" aria-hidden="true"></span>
+                        </span>
+                      </label>
+                      <label class="detailsSettingsToggle">
+                        <span class="detailsSettingsToggleLabel" data-i18n="details.skills.perfectBlockTooltip">Perfect Block %</span>
+                        <span class="detailsSettingsToggleControl">
+                          <input type="checkbox" class="detailsColumnToggle" data-column="perfectblock" />
+                          <span class="detailsSettingsToggleTrack" aria-hidden="true"></span>
+                        </span>
+                      </label>
+                      <label class="detailsSettingsToggle">
+                        <span class="detailsSettingsToggleLabel" data-i18n="details.skills.ironWallTooltip">Endurance %</span>
+                        <span class="detailsSettingsToggleControl">
+                          <input type="checkbox" class="detailsColumnToggle" data-column="ironwall" />
+                          <span class="detailsSettingsToggleTrack" aria-hidden="true"></span>
+                        </span>
+                      </label>
+                      <label class="detailsSettingsToggle">
+                        <span class="detailsSettingsToggleLabel" data-i18n="details.skills.regenerationTooltip">Regeneration %</span>
+                        <span class="detailsSettingsToggleControl">
+                          <input type="checkbox" class="detailsColumnToggle" data-column="regeneration" />
+                          <span class="detailsSettingsToggleTrack" aria-hidden="true"></span>
+                        </span>
+                      </label>
+                      <label class="detailsSettingsToggle">
+                        <span class="detailsSettingsToggleLabel" data-i18n="details.skills.missTooltip">Misses</span>
+                        <span class="detailsSettingsToggleControl">
+                          <input type="checkbox" class="detailsColumnToggle" data-column="miss" />
+                          <span class="detailsSettingsToggleTrack" aria-hidden="true"></span>
+                        </span>
+                      </label>
+                      <label class="detailsSettingsToggle">
+                        <span class="detailsSettingsToggleLabel" data-i18n="details.skills.resistTooltip">Resists</span>
+                        <span class="detailsSettingsToggleControl">
+                          <input type="checkbox" class="detailsColumnToggle" data-column="resist" />
                           <span class="detailsSettingsToggleTrack" aria-hidden="true"></span>
                         </span>
                       </label>
@@ -338,7 +373,12 @@
                     <div class="cell center double" data-sort-key="double" data-i18n="details.skills.double" data-tip="Double %" data-i18n-tip="details.skills.doubleTooltip">Dbl</div>
                     <div class="cell center back" data-sort-key="back" data-i18n="details.skills.back" data-tip="Back Attack %" data-i18n-tip="details.skills.backTooltip">Back</div>
                     <div class="cell center frontal" data-sort-key="frontal" data-i18n="details.skills.frontal" data-tip="Frontal %" data-i18n-tip="details.skills.frontalTooltip">Front</div>
-                    <div class="cell center powershard" data-sort-key="powershard" data-i18n="details.skills.powershard" data-tip="PowerShard %" data-i18n-tip="details.skills.powershardTooltip">PS</div>
+                    <div class="cell center block" data-sort-key="block" data-i18n="details.skills.shieldBlock" data-tip="Shield Block %" data-i18n-tip="details.skills.shieldBlockTooltip">Blk</div>
+                    <div class="cell center perfectblock" data-sort-key="perfectblock" data-i18n="details.skills.perfectBlock" data-tip="Perfect Block %" data-i18n-tip="details.skills.perfectBlockTooltip">PBlk</div>
+                    <div class="cell center ironwall" data-sort-key="ironwall" data-i18n="details.skills.ironWall" data-tip="Endurance %" data-i18n-tip="details.skills.ironWallTooltip">Endr</div>
+                    <div class="cell center regeneration" data-sort-key="regeneration" data-i18n="details.skills.regeneration" data-tip="Regeneration %" data-i18n-tip="details.skills.regenerationTooltip">Rgn</div>
+                    <div class="cell center miss" data-sort-key="miss" data-i18n="details.skills.miss" data-tip="Misses" data-i18n-tip="details.skills.missTooltip">Miss</div>
+                    <div class="cell center resist" data-sort-key="resist" data-i18n="details.skills.resist" data-tip="Resists" data-i18n-tip="details.skills.resistTooltip">Res</div>
                     <div class="cell center regen" data-sort-key="regen" data-i18n="details.skills.regen" data-tip="Life-steal Regen" data-i18n-tip="details.skills.regenTooltip">Reg</div>
                     <div class="cell center mindmg" data-sort-key="mindmg" data-i18n="details.skills.minDmg" data-tip="Min Damage" data-i18n-tip="details.skills.minDmgTooltip">Min</div>
                     <div class="cell center avgdmg" data-sort-key="avgdmg" data-i18n="details.skills.avgDmg" data-tip="Avg Damage" data-i18n-tip="details.skills.avgDmgTooltip">Avg</div>
@@ -631,6 +671,13 @@
                     </span>
                   </label>
                   <label class="settingsToggle">
+                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showTtk">Show time to kill (TTK)</span>
+                    <span class="settingsToggleControl">
+                      <input type="checkbox" class="showTtkCheckbox" />
+                      <span class="settingsToggleTrack" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                  <label class="settingsToggle">
                     <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showTotalDps">Show total DPS/DMG</span>
                     <span class="settingsToggleControl">
                       <input type="checkbox" class="showTotalDpsCheckbox" />
@@ -701,6 +748,53 @@
                   <div class="accountCodeLabel" data-i18n="settings.account.codePrompt">Approve this code in your browser:</div>
                   <div class="accountCode"></div>
                   <div class="accountCodeHint" data-i18n="settings.account.codeHint">The page should have opened already. The code expires in 10 minutes.</div>
+                </div>
+              </div>
+            </section>
+            <section class="settingsGroup streamOverlayGroup" style="display:none">
+              <div class="settingsMiniTitle" data-i18n="settings.streamOverlay.title">Streaming</div>
+              <div class="settingsGroupBody">
+                <label class="settingsToggle" title="Serves the meter on your home network so OBS on a second PC can show it as a Browser Source." data-i18n-title="settings.streamOverlay.enableHint">
+                  <span class="settingsToggleLabel settingsLabel" data-i18n="settings.streamOverlay.enable">Stream overlay (OBS on another PC)</span>
+                  <span class="settingsToggleControl">
+                    <input type="checkbox" class="streamOverlayCheckbox" />
+                    <span class="settingsToggleTrack" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <div class="streamOverlayDetails" style="display:none">
+                  <div class="settingsRow">
+                    <label class="settingsLabel" for="streamOverlayPortInput" data-i18n="settings.streamOverlay.port">Port</label>
+                    <div class="settingsRowEnd">
+                      <input
+                        id="streamOverlayPortInput"
+                        class="streamOverlayPortInput"
+                        type="number"
+                        min="1024"
+                        max="65535"
+                        autocomplete="off" />
+                      <button class="settingsAction streamOverlayNewKeyBtn" type="button" data-i18n="settings.streamOverlay.newKey">New key</button>
+                    </div>
+                  </div>
+                  <div class="settingsRow">
+                    <label class="settingsLabel" for="streamOverlayNameInput" data-i18n="settings.streamOverlay.displayName">Your name on stream</label>
+                    <div class="settingsRowEnd">
+                      <input
+                        id="streamOverlayNameInput"
+                        class="streamOverlayNameInput"
+                        type="text"
+                        maxlength="24"
+                        spellcheck="false"
+                        autocomplete="off"
+                        placeholder="Your character name"
+                        data-i18n-placeholder="settings.streamOverlay.displayNamePlaceholder" />
+                    </div>
+                  </div>
+                  <div class="streamOverlayUrlBlock">
+                    <div class="settingsLabel" data-i18n="settings.streamOverlay.url">Browser Source URL</div>
+                    <div class="streamOverlayUrls"></div>
+                    <div class="streamOverlayStatus"></div>
+                    <div class="streamOverlayHelp" data-i18n="settings.streamOverlay.help">In OBS on the other PC, add a Browser Source with this URL. The first time, Windows Firewall asks about the meter: allow it on private networks. Anyone on your network with the link can see the meter; New key cuts off old links.</div>
+                  </div>
                 </div>
               </div>
             </section>
@@ -895,6 +989,7 @@
           <div class="battleTime">
             <div class="status"></div>
             <div class="tick"></div>
+            <div class="ttk" data-i18n-title="battleTime.ttkTooltip" title="Estimated length of the whole boss fight"></div>
             <div class="analysisStatus" data-i18n="battleTime.analysing">
               Monitoring data...
             </div>
@@ -1123,6 +1218,7 @@
     </div>
     <script src="/src/js/tauriBridge.js?v=202b2"></script>
     <script src="/src/js/battleTime.js"></script>
+    <script src="/src/js/ttk.js"></script>
     <script src="/src/js/meter.js"></script>
     <script src="/src/js/skillIcons.js"></script>
     <script src="/src/js/details.js?v=2021a"></script>

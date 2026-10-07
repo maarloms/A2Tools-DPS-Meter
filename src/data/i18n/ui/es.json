@@ -63,8 +63,18 @@
       "backTooltip": "Ataque por la espalda %",
       "frontal": "Frnt",
       "frontalTooltip": "Frontal %",
-      "powershard": "FP",
-      "powershardTooltip": "Fragmento de poder %",
+      "shieldBlock": "Blq",
+      "shieldBlockTooltip": "Bloqueo con escudo %",
+      "perfectBlock": "BlqP",
+      "perfectBlockTooltip": "Bloqueo perfecto %",
+      "ironWall": "Agu",
+      "ironWallTooltip": "Aguante %",
+      "regeneration": "Rgn",
+      "regenerationTooltip": "Regeneración %",
+      "miss": "Fallo",
+      "missTooltip": "Fallos",
+      "resist": "Res",
+      "resistTooltip": "Resistidos",
       "regen": "Reg",
       "regenTooltip": "Regeneración por robo de vida",
       "multiHit": "GM%",
@@ -175,6 +185,7 @@
       "dps": "DPS"
     },
     "showPing": "Mostrar ping",
+    "showTtk": "Mostrar tiempo hasta la muerte (TTK)",
     "showTotalDps": "Mostrar DPS/DÑO total",
     "roundDps": "Redondear DPS",
     "autoHideMeter": "Ocultar el medidor automáticamente",
@@ -189,6 +200,25 @@
       "title": "Discord",
       "activity": "Mostrar en Discord a qué estoy jugando",
       "activityHint": "Mientras AION2 está abierto, tu estado de Discord muestra el nombre de tu personaje, su clase, nivel y servidor, y el jefe contra el que luchas. Se hace a través de la aplicación de Discord de este equipo; no hace falta cuenta."
+    },
+    "streamOverlay": {
+      "title": "Streaming",
+      "enable": "Overlay para stream (OBS en otro PC)",
+      "enableHint": "Comparte el medidor en tu red local para que OBS en un segundo PC lo muestre como fuente de navegador.",
+      "port": "Puerto",
+      "url": "URL de la fuente de navegador",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "newKey": "Nueva clave",
+      "help": "En OBS en el otro PC, añade una fuente de navegador con esta URL. La primera vez, el Firewall de Windows preguntará por el medidor: permítelo en redes privadas. Cualquiera en tu red con el enlace puede ver el medidor; «Nueva clave» invalida los enlaces anteriores.",
+      "noAddress": "No se encontró ninguna dirección de red. ¿Está este PC conectado a tu red?",
+      "portInvalid": "Introduce un puerto entre 1024 y 65535.",
+      "error": "No se pudo iniciar el overlay: {error}",
+      "waiting": "Esperando combate…",
+      "reconnecting": "Reconectando con el medidor…",
+      "player": "Jugador",
+      "displayName": "Tu nombre en el directo",
+      "displayNamePlaceholder": "Nombre de tu personaje"
     },
     "version": "Versión",
     "theme": {
@@ -315,6 +345,7 @@
   },
   "battleTime": {
     "analysing": "Supervisando datos...",
+    "ttkTooltip": "Duración estimada de todo el combate contra el jefe, según su vida restante y el daño del grupo",
     "idle": "Inactivo",
     "notRunning": "AION2 no está en ejecución",
     "suspended": "Aplicación en pausa",
@@ -394,5 +425,10 @@
     "signIn": "Iniciar sesión",
     "later": "Ahora no",
     "close": "Cerrar"
+  },
+  "npcapPrompt": {
+    "ask": "A2Tools DPS Meter necesita Npcap para leer el tráfico de red del juego, y Npcap falta o no funciona.\n\n¿Instalarlo ahora? El medidor descarga el instalador de Npcap desde npcap.com y lo abre. Cuando Npcap esté instalado, el medidor empezará a capturar por sí solo.\n\nElige No para instalarlo tú mismo desde https://npcap.com/#download",
+    "downloadFailed": "No se pudo descargar el instalador de Npcap ({error}).\n\nInstálalo tú mismo desde https://npcap.com/#download y vuelve a abrir el medidor.",
+    "stillMissing": "Npcap sigue sin funcionar. Si cerraste el instalador antes de terminar, instala Npcap desde https://npcap.com/#download y vuelve a abrir el medidor."
   }
 }

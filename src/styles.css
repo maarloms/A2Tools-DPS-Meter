@@ -916,8 +916,9 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   inset: -3px;
   border-radius: 999px;
   background: var(--indicator-combat);
+  /* A still halo: the dot says "in combat" by colour alone. A pulse that
+     never stopped had the whole window redrawn every frame (about 2% CPU). */
   opacity: 0.3;
-  animation: hudBeacon 1.6s ease-in-out infinite;
 }
 .battleTime.state-grace .status { background: var(--indicator-wait); }
 .battleTime.state-ended .status { background: var(--indicator-end); }
@@ -931,6 +932,18 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   line-height: 1;
   color: rgba(255, 255, 255, 0.8);
 }
+.battleTime .ttk {
+  flex: 0 0 auto;
+  margin-left: -4px;
+  font-family: var(--hud-tech);
+  font-variation-settings: "wght" 500, "wdth" 87.5;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.5);
+}
+.battleTime .ttk:empty { display: none; }
+.battleTime:not(.state-fighting) .ttk { display: none; }
 .battleTime .analysisStatus {
   min-width: 0;
   flex: 1 1 auto;
@@ -1030,12 +1043,7 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   border-bottom: 2px solid rgba(255, 255, 255, 0.7);
 }
 
-@keyframes hudBeacon {
-  0%, 100% { opacity: 0.32; transform: scale(1); }
-  50% { opacity: 0.08; transform: scale(1.55); }
-}
 @media (prefers-reduced-motion: reduce) {
-  .battleTime.state-fighting .status::after { animation: none; }
   .list .item .fill,
   .bossHpFill { transition: none; }
 }
@@ -1444,6 +1452,75 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   gap: 4px;
   color: var(--hud-faint);
   font-size: 12px;
+}
+
+/* ---------- stream overlay ---------- */
+
+.settingsPanel .streamOverlayPortInput,
+.settingsPanel .streamOverlayNameInput,
+.settingsPanel .streamOverlayUrlInput {
+  height: var(--set-field-h);
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--set-field-border);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.92);
+  font-family: var(--hud-tech);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.settingsPanel .streamOverlayPortInput {
+  width: 76px;
+}
+.settingsPanel .streamOverlayNameInput {
+  width: 160px;
+}
+.settingsPanel .streamOverlayPortInput:focus,
+.settingsPanel .streamOverlayNameInput:focus,
+.settingsPanel .streamOverlayUrlInput:focus {
+  outline: none;
+  border-color: var(--isUser-fill);
+}
+.settingsPanel .streamOverlayPortInput.isInvalid {
+  border-color: var(--error-fill);
+}
+.settingsPanel .streamOverlayUrlBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0 4px;
+  min-width: 0;
+}
+.settingsPanel .streamOverlayUrls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.settingsPanel .streamOverlayUrlRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.settingsPanel .streamOverlayUrlInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11.5px;
+}
+.settingsPanel .streamOverlayStatus {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--error-fill);
+}
+.settingsPanel .streamOverlayStatus:empty {
+  display: none;
+}
+.settingsPanel .streamOverlayHelp {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 /* ---------- capture device ---------- */
@@ -2245,8 +2322,8 @@ body.legacyUi .meter .item .content .name.isSupporter,
   justify-content: center;
   margin-left: 4px;
   flex: 0 0 auto;
-  color: var(--supporter-name, #ffcf5c);
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.9));
+  color: #ffe08a;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 4px rgba(255, 205, 90, 0.75));
   line-height: 0;
 }
 
@@ -2255,20 +2332,21 @@ body.legacyUi .meter .item .content .name.isSupporter,
   height: 9px;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  @supports ((background-clip: text) or (-webkit-background-clip: text)) {
-    .supporterBadge {
-      animation: a2toolsBadgeGlow 3s ease-in-out infinite;
-    }
-  }
-}
-
-/* Paired with the name sweep rather than matching it exactly: the star is a few
-   pixels across, so a travelling band would be invisible on it. A brightness
-   pulse on the same 3s period reads as the same effect. */
-@keyframes a2toolsBadgeGlow {
-  0%, 100% { color: #d9a13c; filter: drop-shadow(0 1px 1px rgba(0,0,0,.9)); }
-  50%      { color: #fff3c8; filter: drop-shadow(0 1px 1px rgba(0,0,0,.9)) drop-shadow(0 0 4px rgba(255,205,90,.85)); }
+/* A supporter's row carries a gold hairline along its foot, fading out to the
+   right: visible at a glance in every layout, and still. The left edge is
+   your own row's rail. Nothing here loops: the meter is a transparent window
+   over the game, and anything that never stops animating has it redrawn every
+   frame (an endless sweep and glow cost about 5% CPU, 2026-10-07). */
+.list .item.isSupporterRow::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(255, 214, 110, 0.95) 0%, rgba(255, 214, 110, 0.35) 45%, rgba(255, 214, 110, 0) 80%);
 }
 
 /* A narrow bright band travelling across a warm gold base. The band is only a
@@ -2330,7 +2408,9 @@ body.legacyUi .meter .item .content .name.isSupporter,
     filter:
       drop-shadow(0 1px 1px rgba(0, 0, 0, 0.92))
       drop-shadow(0 0 5px rgba(255, 190, 60, 0.42));
-    animation: a2toolsGoldSweep 3s linear infinite;
+    /* Once, when the name turns gold (a supporter joins the meter), then it
+       holds with a band across the start of the name. */
+    animation: a2toolsGoldSweep 2.4s ease-out 1 both;
   }
 }
 
@@ -3677,8 +3757,12 @@ body.legacyUi .meter .item .content .name.isSupporter,
     minmax(34px, 0.9fr)  /* perfect */
     minmax(28px, 0.7fr)  /* double */
     minmax(24px, 0.7fr)  /* back */
-    minmax(28px, 0.7fr)  /* smite */
-    minmax(28px, 0.7fr)  /* powershard */
+    minmax(28px, 0.7fr)  /* block */
+    minmax(28px, 0.7fr)  /* perfectblock */
+    minmax(28px, 0.7fr)  /* ironwall */
+    minmax(28px, 0.7fr)  /* regeneration */
+    minmax(28px, 0.7fr)  /* miss */
+    minmax(28px, 0.7fr)  /* resist */
     minmax(50px, 0.8fr)  /* regen */
     minmax(50px, 0.8fr)  /* mindmg */
     minmax(50px, 0.8fr)  /* avgdmg */
@@ -3695,8 +3779,12 @@ body.legacyUi .meter .item .content .name.isSupporter,
 .detailsPanel.hide-col-perfect .detailsSkills .cell.perfect,
 .detailsPanel.hide-col-double .detailsSkills .cell.double,
 .detailsPanel.hide-col-back .detailsSkills .cell.back,
-.detailsPanel.hide-col-smite .detailsSkills .cell.smite,
-.detailsPanel.hide-col-powershard .detailsSkills .cell.powershard,
+.detailsPanel.hide-col-block .detailsSkills .cell.block,
+.detailsPanel.hide-col-perfectblock .detailsSkills .cell.perfectblock,
+.detailsPanel.hide-col-ironwall .detailsSkills .cell.ironwall,
+.detailsPanel.hide-col-regeneration .detailsSkills .cell.regeneration,
+.detailsPanel.hide-col-miss .detailsSkills .cell.miss,
+.detailsPanel.hide-col-resist .detailsSkills .cell.resist,
 .detailsPanel.hide-col-regen .detailsSkills .cell.regen,
 .detailsPanel.hide-col-mindmg .detailsSkills .cell.mindmg,
 .detailsPanel.hide-col-avgdmg .detailsSkills .cell.avgdmg,
@@ -4484,6 +4572,8 @@ body.legacyUi .meter .item .content .name.isSupporter,
 
 .hoverDetailsTooltip {
   position: absolute;
+  left: 0;
+  top: 0;
   z-index: 40;
   min-width: 200px;
   max-width: 380px;
@@ -4497,14 +4587,12 @@ body.legacyUi .meter .item .content .name.isSupporter,
   color: var(--title);
   text-shadow: var(--text-shadow);
   opacity: 0;
-  transform: translateY(2px);
   pointer-events: none;
-  transition: opacity 80ms ease, transform 80ms ease;
+  transition: opacity 80ms ease;
 }
 
 .hoverDetailsTooltip.isVisible {
   opacity: 1;
-  transform: translateY(0);
 }
 
 .hoverDetailsTooltipHeader {

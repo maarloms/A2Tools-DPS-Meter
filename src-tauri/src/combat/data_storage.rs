@@ -73,6 +73,27 @@ pub struct HealSkillData {
     pub tick_count: i32,
 }
 
+/// A hit the game reports with no damage, by its hit type (`EHitType`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoDamageHit {
+    /// Hit type 1.
+    Miss,
+    /// Hit type 6. In the 2026-10-04 captures nearly every one comes with a
+    /// damage record of the same skill on the same target: what was resisted
+    /// is the skill's effect, not its damage.
+    Resist,
+}
+
+impl NoDamageHit {
+    pub fn from_hit_type(hit_type: i32) -> Option<Self> {
+        match hit_type {
+            1 => Some(Self::Miss),
+            6 => Some(Self::Resist),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SkillCombatData {
     pub skill_code: i32,
@@ -84,11 +105,17 @@ pub struct SkillCombatData {
     pub crit_count: i32,
     pub back_count: i32,
     pub frontal_count: i32,
+    pub shield_block_count: i32,
     pub parry_count: i32,
     pub perfect_count: i32,
     pub double_count: i32,
-    pub smite_count: i32,
-    pub powershard_count: i32,
+    pub iron_wall_count: i32,
+    pub regeneration_count: i32,
+    pub perfect_block_count: i32,
+    /// Hits with no damage: hit type 1 (Miss) and 6 (Resist). Not in
+    /// `hit_count`.
+    pub miss_count: i32,
+    pub resist_count: i32,
     pub multi_hit_count: i32,
     pub multi_hit_damage: i32,
     pub multi_hit_hits: i32,
@@ -116,11 +143,15 @@ impl SkillCombatData {
             crit_count: self.crit_count,
             back_count: self.back_count,
             frontal_count: self.frontal_count,
+            shield_block_count: self.shield_block_count,
             parry_count: self.parry_count,
             perfect_count: self.perfect_count,
             double_count: self.double_count,
-            smite_count: self.smite_count,
-            powershard_count: self.powershard_count,
+            iron_wall_count: self.iron_wall_count,
+            regeneration_count: self.regeneration_count,
+            perfect_block_count: self.perfect_block_count,
+            miss_count: self.miss_count,
+            resist_count: self.resist_count,
             multi_hit_count: self.multi_hit_count,
             multi_hit_damage: self.multi_hit_damage,
             multi_hit_hits: self.multi_hit_hits,
@@ -139,11 +170,15 @@ impl SkillCombatData {
         self.crit_count += other.crit_count;
         self.back_count += other.back_count;
         self.frontal_count += other.frontal_count;
+        self.shield_block_count += other.shield_block_count;
         self.parry_count += other.parry_count;
         self.perfect_count += other.perfect_count;
         self.double_count += other.double_count;
-        self.smite_count += other.smite_count;
-        self.powershard_count += other.powershard_count;
+        self.iron_wall_count += other.iron_wall_count;
+        self.regeneration_count += other.regeneration_count;
+        self.perfect_block_count += other.perfect_block_count;
+        self.miss_count += other.miss_count;
+        self.resist_count += other.resist_count;
         self.multi_hit_count += other.multi_hit_count;
         self.multi_hit_damage = self.multi_hit_damage.saturating_add(other.multi_hit_damage);
         self.multi_hit_hits += other.multi_hit_hits;
@@ -166,11 +201,15 @@ impl SkillCombatData {
             crit_count: 0,
             back_count: 0,
             frontal_count: 0,
+            shield_block_count: 0,
             parry_count: 0,
             perfect_count: 0,
             double_count: 0,
-            smite_count: 0,
-            powershard_count: 0,
+            iron_wall_count: 0,
+            regeneration_count: 0,
+            perfect_block_count: 0,
+            miss_count: 0,
+            resist_count: 0,
             multi_hit_count: 0,
             multi_hit_damage: 0,
             multi_hit_hits: 0,
@@ -281,6 +320,29 @@ pub struct TargetCombatData {
 }
 
 impl TargetCombatData {
+    fn clone_light(&self) -> Self {
+        let actors = self.actors.iter().map(|(&id, actor)| {
+            (id, ActorCombatData {
+                total_damage: actor.total_damage,
+                party_heal: actor.party_heal,
+                regen: actor.regen,
+                damage_received: actor.damage_received,
+                hits_received: actor.hits_received,
+                last_damage_time: actor.last_damage_time,
+                job: actor.job,
+                skills: actor.skills.iter().map(|(&key, skill)| (key, skill.clone_light())).collect(),
+            })
+        }).collect();
+        Self {
+            target_id: self.target_id,
+            total_damage: self.total_damage,
+            first_damage_time: self.first_damage_time,
+            last_damage_time: self.last_damage_time,
+            last_packet_id: self.last_packet_id,
+            actors,
+        }
+    }
+
     fn new(target_id: i32, timestamp: i64) -> Self {
         Self {
             target_id,
@@ -317,6 +379,9 @@ struct Inner {
     actor_jobs: HashMap<i32, JobClass>,
 
     nickname_storage: HashMap<i32, String>,
+    /// Bumped whenever `nickname_storage` changes, so the meter redraws a
+    /// name that arrives after the last hit (see `names_generation`).
+    names_generation: u64,
     pending_nicknames: HashMap<i32, String>,
     /// fork: when a name for each id last came in, so a zone change keeps the
     /// names that arrived with it (see `forget_entities`).
@@ -378,11 +443,25 @@ struct Inner {
     actor_power_scalars: HashMap<i32, HashSet<i32>>,
     hostile_target_ids: HashSet<i32>,
     dead_entity_ids: HashSet<i32>,
+    /// Linked summons that left the world (`42 36` flag 7). Their damage over
+    /// time ticks on, but the game's Damage Analyzer counts no tick after the
+    /// spirit is gone, so the meter does not either. Kept through a reset, like
+    /// the links; cleared when the id comes back.
+    despawned_summon_ids: HashSet<i32>,
     /// Boss entity IDs identified from NPC DB boss flags
     boss_entity_ids: HashSet<i32>,
     /// Training dummies (scarecrows, punching bags) among the entities spawned,
     /// from the NPC table. Damage on them follows `held_dot_ticks`.
     training_dummy_ids: HashSet<i32>,
+    /// Entities whose live HP was seen at exactly 1, the floor a training
+    /// dummy stops at instead of dying.
+    hp_floored_ids: HashSet<i32>,
+    /// Entities that came back up from that floor without dying: training
+    /// dummies, for those whose spawn (and with it the NPC code) the meter
+    /// never saw. Town dummies are spawned once, so a meter started, or
+    /// restarted, next to them never learned what they were, and Train mode
+    /// showed nothing however long the player hit them (2026-10-07).
+    hp_reset_dummy_ids: HashSet<i32>,
     /// On a training dummy, DoT ticks that landed after their actor's latest
     /// direct hit, keyed (target, actor). They are counted when that actor
     /// hits directly again; if the player has stopped attacking, they never
@@ -430,6 +509,11 @@ struct LootIdentity {
     /// and your party, never to strangers fighting nearby, so a loot owner
     /// outside this set is someone else's kill. See `note_party_scope`.
     party_scope: HashSet<i32>,
+    /// How many `06 38` records named each entity. See `scope_leader`.
+    scope_counts: HashMap<i32, u32>,
+    /// The local id in force was read from those counts, not stated by the
+    /// game or chosen in the UI. See `note_party_scope`.
+    local_from_scope: bool,
     /// The local identity currently in force came from them, not from the
     /// self record.
     applied: bool,
@@ -445,6 +529,7 @@ impl DataStorage {
                 target_combat: HashMap::new(),
                 actor_jobs: HashMap::new(),
                 nickname_storage: HashMap::new(),
+                names_generation: 0,
                 pending_nicknames: HashMap::new(),
             name_seen_ms: HashMap::new(),
             last_self_id: None,
@@ -468,8 +553,11 @@ impl DataStorage {
                 actor_power_scalars: HashMap::new(),
                 hostile_target_ids: HashSet::new(),
                 dead_entity_ids: HashSet::new(),
+                despawned_summon_ids: HashSet::new(),
                 boss_entity_ids: HashSet::new(),
                 training_dummy_ids: HashSet::new(),
+                hp_floored_ids: HashSet::new(),
+                hp_reset_dummy_ids: HashSet::new(),
                 held_dot_ticks: HashMap::new(),
                 has_boss_in_segment: false,
                 current_target: 0,
@@ -706,6 +794,40 @@ impl DataStorage {
         if scope.len() < 10_000 {
             scope.insert(entity_id);
         }
+        let counts = &mut inner.loot_identity.scope_counts;
+        if counts.len() >= 10_000 && !counts.contains_key(&entity_id) {
+            return;
+        }
+        let count = counts.entry(entity_id).or_insert(0);
+        *count += 1;
+        // A meter opened mid-session has no self record until the next zone
+        // load, and loot records only come with kills: at the training dummies
+        // that was 18 minutes of not knowing who you are (2026-10-07), so no
+        // fight of yours in Boss mode and your row unmarked. These records
+        // name you all along, so until the game says otherwise, you are the
+        // player they name far more often than anyone.
+        if *count % 8 != 0 {
+            return;
+        }
+        let undecided = inner.local_player_id.is_none() || inner.loot_identity.local_from_scope;
+        if inner.local_identity_from_game || !undecided {
+            return;
+        }
+        if let Some(leader) = scope_leader(&inner) {
+            if inner.local_player_id != Some(leader as i64) {
+                tracing::info!("party-scope records: local player -> entity {}", leader);
+                inner.local_player_id = Some(leader as i64);
+                inner.loot_identity.local_from_scope = true;
+            }
+        }
+    }
+
+    /// The local id was read from `06 38` counts rather than stated by the
+    /// game or the UI. Such an id has no name: the UI's is not attached to it,
+    /// since after a character switch the window title and the remembered
+    /// name can be another character's.
+    pub fn local_id_from_scope(&self) -> bool {
+        self.inner.read().loot_identity.local_from_scope
     }
 
     /// `name`'s home server, as a self or loot record states it.
@@ -807,7 +929,11 @@ impl DataStorage {
     }
 
     pub fn set_local_player_id(&self, id: Option<i64>) {
-        self.inner.write().local_player_id = id;
+        let mut inner = self.inner.write();
+        if inner.local_player_id != id {
+            inner.loot_identity.local_from_scope = false;
+        }
+        inner.local_player_id = id;
     }
 
     pub fn local_player_id(&self) -> Option<i64> {
@@ -822,11 +948,23 @@ impl DataStorage {
 
         // Not damage: a spirit and its owner naming each other.
         if let Some((summon, owner)) = owner_link(skill_code, actor_id, target_id) {
+            // Sent only while the spirit is out.
+            inner.despawned_summon_ids.remove(&summon);
             if link_summon(&mut inner, summon, owner) {
                 tracing::debug!("Summon {} linked to owner {} by skill {}", summon, owner, skill_code);
                 self.damage_generation.fetch_add(1, Ordering::Relaxed);
             }
             return;
+        }
+
+        // A tick from a spirit that has left the world: the game does not
+        // count it. A direct hit means the id is back.
+        if pdp.is_dot() {
+            if inner.despawned_summon_ids.contains(&actor_id) {
+                return;
+            }
+        } else {
+            inner.despawned_summon_ids.remove(&actor_id);
         }
 
         // NPC actors using NPC skills: track damage received on the player target, then skip
@@ -839,12 +977,9 @@ impl DataStorage {
             let resolved_target = summon_resolver::resolve(target_id, &inner.summon_storage);
             if inner.known_player_ids.contains(&resolved_target) {
                 let dmg = pdp.total_damage() as i64;
-                for target_data in inner.target_combat.values_mut() {
-                    if let Some(actor_data) = target_data.actors.get_mut(&resolved_target) {
-                        actor_data.damage_received += dmg;
-                        actor_data.hits_received += 1;
-                        break;
-                    }
+                if let Some(actor_data) = fight_of(&mut inner, resolved_target, Some(actor_id)) {
+                    actor_data.damage_received += dmg;
+                    actor_data.hits_received += 1;
                 }
             }
             return;
@@ -866,12 +1001,8 @@ impl DataStorage {
         if is_friendly_action(&inner, actor_id, target_id) {
             let heal_amount = pdp.total_damage();
             if heal_amount > 0 {
-                // Record party heal on the actor's data in all targets they appear in
-                for target_data in inner.target_combat.values_mut() {
-                    if let Some(actor_data) = target_data.actors.get_mut(&actor_id) {
-                        actor_data.party_heal += heal_amount as i64;
-                        break;
-                    }
+                if let Some(actor_data) = fight_of(&mut inner, actor_id, None) {
+                    actor_data.party_heal += heal_amount as i64;
                 }
                 // Also record per-skill so ally heals show in the HEAL view (the
                 // self-heal path does this via append_heal; mirror it for ally heals).
@@ -937,10 +1068,34 @@ impl DataStorage {
         }
     }
 
+    /// A hit that did no damage, on the skill's row: only where the actor
+    /// already has damage on this target, so no target or meter row appears
+    /// and no total, hit count or fight time moves. False when not counted.
+    pub fn append_no_damage_hit(&self, target_id: i32, actor_id: i32, skill_code: i32, kind: NoDamageHit) -> bool {
+        let mut inner = self.inner.write();
+        let Some(actor) = inner.target_combat.get_mut(&target_id).and_then(|t| t.actors.get_mut(&actor_id)) else {
+            return false;
+        };
+        let skill = actor
+            .skills
+            .entry((skill_code, false))
+            .or_insert_with(|| SkillCombatData::new(skill_code, false));
+        match kind {
+            NoDamageHit::Miss => skill.miss_count += 1,
+            NoDamageHit::Resist => skill.resist_count += 1,
+        }
+        drop(inner);
+        self.damage_generation.fetch_add(1, Ordering::Relaxed);
+        true
+    }
+
     pub fn append_mob(&self, mid: i32, code: i32) {
         if let Some(hook) = MOB_LIFE_HOOK.get() { hook(code, false); } // fork
         let mut inner = self.inner.write();
         inner.mob_storage.insert(mid, code);
+        // A spawn names the NPC: the table says what it is from here on.
+        inner.hp_floored_ids.remove(&mid);
+        inner.hp_reset_dummy_ids.remove(&mid);
 
         // NPC unclassification: if this entity was previously classified as a player
         // (damage with player-band skills arrived before the 0x3640 spawn packet),
@@ -965,10 +1120,20 @@ impl DataStorage {
     pub fn mark_entity_dead(&self, entity_id: i32) {
         let code = {
             let mut inner = self.inner.write();
+            inner.hp_floored_ids.remove(&entity_id);
             inner.dead_entity_ids.insert(entity_id).then(|| inner.mob_storage.get(&entity_id).copied()).flatten()
         };
         // fork: field boss kill tracking
         if let (Some(code), Some(hook)) = (code, MOB_LIFE_HOOK.get()) { hook(code, true); }
+    }
+
+    /// `id` left the world. Only a linked summon is marked: see
+    /// `Inner::despawned_summon_ids`.
+    pub fn note_despawn(&self, id: i32) {
+        let mut inner = self.inner.write();
+        if inner.summon_storage.contains_key(&id) {
+            inner.despawned_summon_ids.insert(id);
+        }
     }
 
     pub fn is_entity_dead(&self, entity_id: i32) -> bool {
@@ -1124,10 +1289,13 @@ impl DataStorage {
     /// last instance's dungeon id. A teleport inside an instance names the
     /// instance's own map, so it keeps the id.
     pub fn note_map_load(&self, map_id: i32) {
+        let mut inner = self.inner.write();
+        // A load hands out new entity ids: counts of the old ones would name
+        // an entity that is gone.
+        inner.loot_identity.scope_counts.clear();
         if !is_open_world_map(map_id) {
             return;
         }
-        let mut inner = self.inner.write();
         if inner.current_dungeon_id != 0 {
             tracing::debug!("Map {map_id} is open world: leaving dungeon {}", inner.current_dungeon_id);
             inner.current_dungeon_id = 0;
@@ -1365,10 +1533,25 @@ impl DataStorage {
         }
         let mut inner = self.inner.write();
         inner.mob_current_hp.insert(id, hp);
+        if hp == 1 {
+            inner.hp_floored_ids.insert(id);
+        } else if hp > 1
+            && inner.hp_floored_ids.contains(&id)
+            && !inner.dead_entity_ids.contains(&id)
+        {
+            inner.hp_reset_dummy_ids.insert(id);
+        }
         let max = inner.mob_hp_data.entry(id).or_insert(0);
         if hp > *max {
             *max = hp;
         }
+    }
+
+    /// Whether `id` behaved as a training dummy does: its HP stopped at 1 and
+    /// came back up, without it dying. Only for an entity whose NPC code is
+    /// unknown is this the answer; one whose spawn was seen goes by the table.
+    pub fn is_hp_reset_dummy(&self, id: i32) -> bool {
+        self.inner.read().hp_reset_dummy_ids.contains(&id)
     }
 
     pub fn get_mob_current_hp(&self, id: i32) -> Option<i32> {
@@ -1393,7 +1576,13 @@ impl DataStorage {
     }
 
     pub fn get_heal_snapshot(&self) -> HashMap<i32, HashMap<(i32, bool), HealSkillData>> {
-        self.inner.read().heal_storage.clone()
+        let inner = self.inner.read();
+        inner
+            .heal_storage
+            .iter()
+            .filter(|(id, _)| !is_mob(&inner, **id))
+            .map(|(&id, skills)| (id, skills.clone()))
+            .collect()
     }
 
     /// The NPC code entity `id` spawned as, if it is a known mob.
@@ -1419,6 +1608,11 @@ impl DataStorage {
         self.inner.read().target_combat.clone()
     }
 
+    /// Full details need this target's timeline, never other targets' hits.
+    pub fn get_target_snapshot(&self, target_id: i32) -> Option<TargetCombatData> {
+        self.inner.read().target_combat.get(&target_id).cloned()
+    }
+
     /// Like `get_combat_snapshot` but without per-skill `hit_timestamps`.
     /// `hit_timestamps` grows unbounded over a fight and is only needed by
     /// `get_target_details`. The 500ms hot paths (`get_dps`,
@@ -1426,48 +1620,15 @@ impl DataStorage {
     /// their per-tick clone cost flat over fight duration instead of growing
     /// linearly — the root cause of the long-fight FPS drops.
     pub fn get_combat_snapshot_light(&self) -> HashMap<i32, TargetCombatData> {
-        let inner = self.inner.read();
-        inner
-            .target_combat
-            .iter()
-            .map(|(&tid, td)| {
-                let actors = td
-                    .actors
-                    .iter()
-                    .map(|(&aid, ad)| {
-                        let skills = ad
-                            .skills
-                            .iter()
-                            .map(|(&k, sd)| (k, sd.clone_light()))
-                            .collect();
-                        (
-                            aid,
-                            ActorCombatData {
-                                total_damage: ad.total_damage,
-                                party_heal: ad.party_heal,
-                                regen: ad.regen,
-                                damage_received: ad.damage_received,
-                                hits_received: ad.hits_received,
-                                last_damage_time: ad.last_damage_time,
-                                job: ad.job,
-                                skills,
-                            },
-                        )
-                    })
-                    .collect();
-                (
-                    tid,
-                    TargetCombatData {
-                        target_id: td.target_id,
-                        total_damage: td.total_damage,
-                        first_damage_time: td.first_damage_time,
-                        last_damage_time: td.last_damage_time,
-                        last_packet_id: td.last_packet_id,
-                        actors,
-                    },
-                )
-            })
+        self.inner.read().target_combat.iter()
+            .map(|(&tid, td)| (tid, td.clone_light()))
             .collect()
+    }
+
+    /// Hover needs one target's aggregates, never the per-hit timeline or
+    /// unrelated targets. Release the capture lock before resolving actors.
+    pub fn get_target_snapshot_light(&self, target_id: i32) -> Option<TargetCombatData> {
+        self.inner.read().target_combat.get(&target_id).map(TargetCombatData::clone_light)
     }
 
     /// Clear combat. Who owns which summon is kept: a summon is linked when it
@@ -1487,6 +1648,8 @@ impl DataStorage {
         inner.has_boss_in_segment = false;
         inner.mob_hp_data.clear();
         inner.mob_current_hp.clear();
+        inner.hp_floored_ids.clear();
+        inner.hp_reset_dummy_ids.clear();
         inner.heal_storage.clear();
         inner.current_target = 0;
     }
@@ -1504,6 +1667,8 @@ impl DataStorage {
         inner.has_boss_in_segment = false;
         inner.mob_hp_data.clear();
         inner.mob_current_hp.clear();
+        inner.hp_floored_ids.clear();
+        inner.hp_reset_dummy_ids.clear();
         inner.heal_storage.clear();
         inner.current_target = 0;
     }
@@ -1515,10 +1680,47 @@ impl DataStorage {
         inner.summon_storage.clear();
         inner.confirmed_summon_ids.clear();
         inner.summon_spawn_ids.clear();
+        inner.despawned_summon_ids.clear();
+    }
+
+    /// What the reset button and hotkey do to names: forget the ones only a
+    /// loose scan guessed, keep the ones the game stated.
+    ///
+    /// The game names a player once, in the spawn (`44/45 36`) sent when they
+    /// come into view, and you in the self record (`33 36`) on a zone load.
+    /// Nothing repeats them while everyone stays put, so a reset that cleared
+    /// every name left the party, the players around and the local player as
+    /// `#id` rows until the next zone load. Replayed with three resets in
+    /// town, a player's two-hour capture (2026-10-07, EU) went from 23 ticks
+    /// of Boss mode with such a row to 2,326, her own row among them, and a
+    /// nameless row of yours was not marked as yours, so it could fall off
+    /// the bottom of the meter. A wrong name from a loose scan is still
+    /// dropped here, which is what the reset is for.
+    pub fn forget_guessed_nicknames(&self) {
+        let mut inner = self.inner.write();
+        let local = inner.local_player_id.map(|id| id as i32);
+        let local_name = inner.local_character_name.clone();
+        let Inner { nickname_storage, authoritative_name_ids, .. } = &mut *inner;
+        nickname_storage.retain(|id, name| {
+            authoritative_name_ids.contains(id)
+                || (Some(*id) == local && local_name.as_deref().map(str::trim) == Some(name.trim()))
+        });
+        inner.pending_nicknames.clear();
+        let permanent: Vec<(i32, String)> = inner.permanent_nicknames.iter().map(|(&k, v)| (k, v.clone())).collect();
+        for (uid, nick) in permanent {
+            inner.nickname_storage.insert(uid, nick);
+        }
+        inner.names_generation += 1;
+    }
+
+    /// Changes whenever a name is bound, replaced or dropped.
+    pub fn names_generation(&self) -> u64 {
+        self.inner.read().names_generation
     }
 
     pub fn reset_nicknames(&self) {
         let mut inner = self.inner.write();
+        inner.names_generation += 1;
         inner.nickname_storage.clear();
         inner.pending_nicknames.clear();
         inner.authoritative_name_ids.clear();
@@ -1635,11 +1837,18 @@ fn apply_damage(inner: &mut Inner, pdp: &ParsedDamagePacket) {
     if pdp.is_crit() { skill_data.crit_count += 1; }
     if pdp.specials().contains(&SpecialDamage::Back) { skill_data.back_count += 1; }
     if pdp.specials().contains(&SpecialDamage::Frontal) { skill_data.frontal_count += 1; }
-    if pdp.specials().contains(&SpecialDamage::Parry) { skill_data.parry_count += 1; }
-    if pdp.specials().contains(&SpecialDamage::Perfect) { skill_data.perfect_count += 1; }
-    if pdp.specials().contains(&SpecialDamage::Double) { skill_data.double_count += 1; }
-    if pdp.specials().contains(&SpecialDamage::Smite) { skill_data.smite_count += 1; }
-    if pdp.specials().contains(&SpecialDamage::PowerShard) { skill_data.powershard_count += 1; }
+    for special in pdp.specials() {
+        match special {
+            SpecialDamage::ShieldBlock => skill_data.shield_block_count += 1,
+            SpecialDamage::Parry => skill_data.parry_count += 1,
+            SpecialDamage::Perfect => skill_data.perfect_count += 1,
+            SpecialDamage::Double => skill_data.double_count += 1,
+            SpecialDamage::IronWall => skill_data.iron_wall_count += 1,
+            SpecialDamage::Regeneration => skill_data.regeneration_count += 1,
+            SpecialDamage::PerfectBlock => skill_data.perfect_block_count += 1,
+            SpecialDamage::Back | SpecialDamage::Frontal | SpecialDamage::Critical => {}
+        }
+    }
     if pdp.multi_hit_count() > 0 {
         skill_data.multi_hit_count += 1;
         skill_data.multi_hit_damage = skill_data.multi_hit_damage.saturating_add(pdp.multi_hit_damage());
@@ -1741,6 +1950,7 @@ fn link_summon(inner: &mut Inner, summon: i32, owner: i32) -> bool {
 /// What a linked summon did moves onto its owner, where it was shown anyway,
 /// so the new entity's owner does not inherit it.
 fn forget_entity(inner: &mut Inner, id: i32) {
+    inner.despawned_summon_ids.remove(&id);
     inner.confirmed_summon_ids.remove(&id);
     inner.summon_spawn_ids.remove(&id);
     inner.actor_jobs.remove(&id);
@@ -1774,9 +1984,51 @@ fn forget_entity(inner: &mut Inner, id: i32) {
 }
 
 fn set_game_identity(inner: &mut Inner, id: i64, name: Option<String>) {
+    inner.loot_identity.local_from_scope = false;
     inner.local_identity_from_game = true;
     inner.local_player_id = Some(id);
     inner.local_character_name = name;
+}
+
+/// The player the `06 38` records name far more than anyone: at least 24
+/// times, and four times as often as the next player. Only entities that
+/// fought as players count; the records also name the mobs you hit.
+///
+/// On the captures at hand: the local player 2,421 times in 18 minutes at the
+/// training dummies, with a dozen other players around and none of them
+/// named once (2026-10-07, EU).
+fn scope_leader(inner: &Inner) -> Option<i32> {
+    const MIN_RECORDS: u32 = 24;
+    const LEAD: u32 = 4;
+    let mut best: Option<(i32, u32)> = None;
+    let mut second = 0;
+    for (&id, &n) in &inner.loot_identity.scope_counts {
+        let player = inner.known_player_ids.contains(&id)
+            && !inner.summon_storage.contains_key(&id)
+            && !inner.summon_spawn_ids.contains(&id)
+            && !inner.mob_storage.contains_key(&id);
+        if !player {
+            continue;
+        }
+        match best {
+            Some((_, top)) if n <= top => second = second.max(n),
+            _ => {
+                if let Some((_, top)) = best {
+                    second = second.max(top);
+                }
+                best = Some((id, n));
+            }
+        }
+    }
+    let (id, n) = best?;
+    (n >= MIN_RECORDS && n >= LEAD * second.max(1)).then_some(id)
+}
+
+/// For diagnostics and tests: who `scope_leader` would pick now.
+impl DataStorage {
+    pub fn party_scope_leader(&self) -> Option<i32> {
+        scope_leader(&self.inner.read())
+    }
 }
 
 fn append_nickname_inner(inner: &mut Inner, uid: i32, nickname: &str) {
@@ -1835,6 +2087,7 @@ fn append_nickname_inner_with_force(inner: &mut Inner, uid: i32, nickname: &str,
         // bound may have been on someone else, so that damage is still dropped.
         let same_character = force && inner.authoritative_name_ids.contains(&old_id);
         inner.nickname_storage.remove(&old_id);
+        inner.names_generation += 1;
         inner.known_player_ids.remove(&old_id);
         inner.authoritative_name_ids.remove(&old_id);
         inner.pending_nicknames.remove(&old_id);
@@ -1860,6 +2113,7 @@ fn append_nickname_inner_with_force(inner: &mut Inner, uid: i32, nickname: &str,
     }
 
     inner.nickname_storage.insert(uid, nickname.to_string());
+    inner.names_generation += 1;
 
     if !inner.confirmed_summon_ids.contains(&uid) {
         inner.summon_storage.remove(&uid);
@@ -1971,6 +2225,23 @@ fn apply_pending_nickname(inner: &mut Inner, uid: i32) {
     }
 }
 
+/// Where healing or damage taken by `actor` counts: neither has a target of
+/// its own. The fight against `mob` when the actor is in it, else the target
+/// the actor hit last (ties to the lowest id), so it is never left to the
+/// map's order.
+fn fight_of(inner: &mut Inner, actor: i32, mob: Option<i32>) -> Option<&mut ActorCombatData> {
+    let fights = |tid: &i32| inner.target_combat.get(tid).is_some_and(|td| td.actors.contains_key(&actor));
+    let tid = mob.filter(fights).or_else(|| {
+        inner
+            .target_combat
+            .iter()
+            .filter_map(|(&tid, td)| td.actors.get(&actor).map(|a| (a.last_damage_time, std::cmp::Reverse(tid))))
+            .max()
+            .map(|(_, std::cmp::Reverse(tid))| tid)
+    })?;
+    inner.target_combat.get_mut(&tid)?.actors.get_mut(&actor)
+}
+
 fn is_friendly_action(inner: &Inner, actor_id: i32, target_id: i32) -> bool {
     let resolved_actor = summon_resolver::resolve(actor_id, &inner.summon_storage);
     let resolved_target = summon_resolver::resolve(target_id, &inner.summon_storage);
@@ -2014,6 +2285,17 @@ pub fn is_player_skill(skill_code: i32) -> bool {
     (11_000_000..=19_999_999).contains(&skill_code)
         || (3_000_000..=3_999_999).contains(&skill_code)
         || (100_000..=199_999).contains(&skill_code)
+}
+
+/// A mob is no healer. Protection Circle HoT ticks on a player carry a mob
+/// in the healer field (the boss, 2026-10-05), and saved boss fights listed
+/// the boss as a healer. A summon spawns like a mob, so a linked one is kept;
+/// so is an id the game named as a player since.
+fn is_mob(inner: &Inner, id: i32) -> bool {
+    inner.mob_storage.contains_key(&id)
+        && !inner.summon_storage.contains_key(&id)
+        && !inner.known_player_ids.contains(&id)
+        && !inner.nickname_storage.contains_key(&id)
 }
 
 #[cfg(test)]
@@ -2418,6 +2700,45 @@ mod tests {
     }
 
     #[test]
+    fn damage_taken_and_party_heal_land_on_the_fight_they_belong_to() {
+        let s = DataStorage::new();
+        // You and a party member, on fifty mobs; mob 830 last.
+        for (i, t) in (800..850).filter(|&t| t != 830).chain([830]).enumerate() {
+            s.append_mob(t, 1);
+            s.append_damage(hit(100, t, 1_000 + i as i64, 500, false));
+            s.append_damage(hit(200, t, 1_000 + i as i64, 500, false));
+        }
+        let taken = |s: &DataStorage, t: i32| s.get_combat_snapshot_light()[&t].actors[&100].damage_received;
+        s.append_damage(with_skill(hit(810, 100, 3_000, 300, false), 1_200_001));
+        assert_eq!(taken(&s, 810), 300, "on the fight with the mob that hit you");
+
+        // A mob you never hit: the fight you were in last.
+        s.append_mob(900, 1);
+        s.append_damage(with_skill(hit(900, 100, 3_100, 70, false), 1_200_001));
+        assert_eq!(taken(&s, 830), 70);
+
+        s.append_damage(hit(200, 100, 3_200, 400, false));
+        let snapshot = s.get_combat_snapshot_light();
+        assert_eq!(snapshot[&830].actors[&200].party_heal, 400);
+        assert_eq!(snapshot.values().map(|t| t.actors[&200].party_heal).sum::<i64>(), 400);
+    }
+
+    #[test]
+    fn only_players_and_their_summons_heal() {
+        let s = DataStorage::new();
+        s.append_mob(22809, 2310171);
+        s.append_mob(500, 1);
+        s.append_summon(14409, 500);
+        s.append_nickname_authoritative(14274, "Templar");
+        for (actor, skill) in [(22809, 18_730_003), (500, 16_770_000), (14274, 18_730_003), (14409, 2_011_101)] {
+            s.append_heal(actor, skill, 100, true);
+        }
+        let mut healers: Vec<i32> = s.get_heal_snapshot().into_keys().collect();
+        healers.sort();
+        assert_eq!(healers, vec![500, 14274, 14409], "the boss is not one");
+    }
+
+    #[test]
     fn link_records_link_a_spirit_and_are_not_damage() {
         let s = DataStorage::new();
         s.append_nickname_authoritative(100, "Owner");
@@ -2518,6 +2839,147 @@ mod tests {
         assert_eq!(s.local_player_id(), Some(4099));
         assert!(!s.note_loot_owner(900, 1454, "ApexZ"));
         assert_eq!(who(&s), (Some(4099), Some("Misti".into()), false));
+    }
+
+    /// A dummy is one whose HP came back up from 1; a mob that died on the
+    /// way, or one whose spawn said what it is, is not.
+    #[test]
+    fn hp_back_up_from_the_floor_marks_a_dummy() {
+        let s = DataStorage::new();
+        for (id, hp) in [(500, 40_000), (500, 1), (500, 119_700)] {
+            s.set_mob_current_hp(id, hp);
+        }
+        assert!(s.is_hp_reset_dummy(500));
+
+        // Died at the floor; the id later reused by something at full HP.
+        s.set_mob_current_hp(501, 1);
+        s.mark_entity_dead(501);
+        s.set_mob_current_hp(501, 90_000);
+        assert!(!s.is_hp_reset_dummy(501));
+
+        // Never at 1: a heal or a phase is not a dummy.
+        for hp in [50_000, 20_000, 60_000] {
+            s.set_mob_current_hp(502, hp);
+        }
+        assert!(!s.is_hp_reset_dummy(502));
+
+        // A spawn names the NPC, and the table decides from then on.
+        s.append_mob(500, 2_300_401);
+        assert!(!s.is_hp_reset_dummy(500));
+
+        s.set_mob_current_hp(503, 1);
+        s.set_mob_current_hp(503, 2);
+        assert!(s.is_hp_reset_dummy(503));
+        s.flush_combat_only();
+        assert!(!s.is_hp_reset_dummy(503), "a zone change: ids may name other entities now");
+    }
+
+    fn player_hit(s: &DataStorage, actor: i32, target: i32) {
+        let mut p = ParsedDamagePacket::new();
+        p.set_actor_id(actor);
+        p.set_target_id(target);
+        p.set_skill_code(13_720_000);
+        p.set_damage(100);
+        s.append_damage(p);
+    }
+
+    /// The reset button forgets damage, and names only a loose scan guessed.
+    /// The ones the game stated (spawns, the self record) are not sent again
+    /// until everyone respawns, so dropping them left every row an `#id`.
+    #[test]
+    fn a_reset_keeps_the_names_the_game_stated() {
+        let s = DataStorage::new();
+        s.set_local_identity_from_game(2737, Some("Mine".into()));
+        s.append_nickname_authoritative(2737, "Mine");
+        s.append_nickname_authoritative(4227, "Spawned");
+        player_hit(&s, 5001, 900);
+        s.append_nickname(5001, "Guessed");
+        s.set_permanent_nickname(6001, "Typed");
+        let generation = s.names_generation();
+
+        s.flush();
+        s.forget_guessed_nicknames();
+        assert_eq!(s.get_nickname(2737).as_deref(), Some("Mine"));
+        assert_eq!(s.get_nickname(4227).as_deref(), Some("Spawned"));
+        assert_eq!(s.get_nickname(6001).as_deref(), Some("Typed"));
+        assert_eq!(s.get_nickname(5001), None, "a guess goes");
+        assert_ne!(s.names_generation(), generation);
+
+        // A local name from a loot record (no self record) is yours, and stays.
+        let loot = DataStorage::new();
+        loot.note_party_scope(1454);
+        player_hit(&loot, 1454, 900);
+        loot.append_nickname(1454, "Looter"); // as the parser does with a loot record
+        assert!(loot.note_loot_owner(900, 1454, "Looter"));
+        loot.forget_guessed_nicknames();
+        assert_eq!(loot.get_nickname(1454).as_deref(), Some("Looter"));
+
+        // Loading a replay still starts from nothing.
+        s.reset_nicknames();
+        assert_eq!(s.get_nickname(4227), None);
+    }
+
+    fn scope(s: &DataStorage, id: i32, times: usize) {
+        for _ in 0..times {
+            s.note_party_scope(id);
+        }
+    }
+
+    /// A meter opened mid-session knows who you are from the `06 38` records
+    /// long before the next zone load or kill: they name you several times a
+    /// second, and the players around you not at all.
+    #[test]
+    fn party_scope_records_name_you_until_the_game_does() {
+        let s = DataStorage::new();
+        s.set_local_character_name(Some("Remembered".into()));
+        player_hit(&s, 2737, 25_839);
+        player_hit(&s, 4227, 25_839);
+        s.append_mob(25_839, 2_000_001);
+        scope(&s, 25_839, 200); // the dummy you hit: not a player
+        scope(&s, 2737, 23);
+        assert_eq!(s.local_player_id(), None, "not on a handful of records");
+        scope(&s, 2737, 1);
+        assert_eq!(s.local_player_id(), Some(2737));
+        assert!(s.local_id_from_scope());
+        assert!(!s.local_identity_from_game());
+        assert_eq!(s.get_nickname(2737), None, "no name comes with it");
+        assert_eq!(s.local_character_name().as_deref(), Some("Remembered"));
+
+        // The self record has the last word, and the counts no longer matter.
+        s.set_local_identity_from_game(12_870, Some("Mine".into()));
+        assert!(!s.local_id_from_scope());
+        scope(&s, 2737, 200);
+        assert_eq!(s.local_player_id(), Some(12_870));
+    }
+
+    #[test]
+    fn party_scope_records_decide_nothing_without_a_clear_lead() {
+        // Older Korean/Taiwanese captures name party members too.
+        let s = DataStorage::new();
+        player_hit(&s, 101, 900);
+        player_hit(&s, 202, 900);
+        for _ in 0..40 {
+            scope(&s, 101, 3);
+            scope(&s, 202, 1);
+        }
+        assert_eq!(s.local_player_id(), None, "three to one is no lead");
+        scope(&s, 101, 40);
+        assert_eq!(s.local_player_id(), Some(101), "four to one is");
+
+        // A zone load hands out new ids: the old counts go with them.
+        let s = DataStorage::new();
+        player_hit(&s, 101, 900);
+        scope(&s, 101, 16);
+        s.note_map_load(1);
+        scope(&s, 101, 16);
+        assert_eq!(s.local_player_id(), None);
+
+        // An id chosen in the UI is not overridden.
+        let s = DataStorage::new();
+        s.set_local_player_id(Some(303));
+        player_hit(&s, 101, 900);
+        scope(&s, 101, 200);
+        assert_eq!(s.local_player_id(), Some(303));
     }
 }
 

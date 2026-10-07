@@ -40,6 +40,9 @@ const MAX_PACKET_BYTES: usize = 65535;
 const MAX_FRAGMENT_WAIT_BYTES: usize = 16384;
 /// Refuse to allocate for a bundle claiming to decompress to more than this.
 const MAX_DECOMPRESSED_BYTES: usize = 1_000_000;
+/// Bundles nest. Four is far past anything observed and stops a crafted file
+/// from recursing us to death. The outermost bundle is depth 1.
+pub const MAX_BUNDLE_DEPTH: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameKind {
@@ -217,6 +220,29 @@ pub fn walk_inner(buffer: &[u8]) -> Framing {
     }
 
     out.consumed = offset;
+    out
+}
+
+/// The stretches of `buffer[..end]` a record can sit in: each packet, and each
+/// run of bytes between frames (padding, a walk resynchronising, the end of a
+/// bundle that does not frame). A record never runs on into the next frame.
+/// Bundles are left out: their records are read from the bundle opened, and
+/// LZ4 keeps the bytes of two packets side by side in its literals.
+pub fn regions(frames: &[Frame], end: usize) -> Vec<std::ops::Range<usize>> {
+    let mut out = Vec::with_capacity(frames.len() * 2 + 1);
+    let mut at = 0;
+    for frame in frames {
+        if frame.start > at {
+            out.push(at..frame.start);
+        }
+        if frame.kind == FrameKind::Packet {
+            out.push(frame.start..frame.end);
+        }
+        at = frame.end;
+    }
+    if end > at {
+        out.push(at..end);
+    }
     out
 }
 

@@ -10,6 +10,16 @@ pub const LIBRARIES: &[&str] = &["libpcap.so.1", "libpcap.so.0.8", "libpcap.so"]
 pub const MISSING_HELP: &str = "Install libpcap (e.g. `sudo apt install libpcap0.8`), then let the meter \
 capture without root: `sudo setcap cap_net_raw=ep <path to the meter>`";
 
+/// The capture library comes from the distribution's packages, not the meter.
+pub const OFFERS_INSTALL: bool = false;
+
+/// Nothing to set up before loading libpcap.
+pub fn prepare() {}
+
+pub fn run_installer(_installer: &std::path::Path) -> Result<(), String> {
+    Err("the meter does not install libpcap; the distribution's packages do".into())
+}
+
 pub fn library_available() -> bool {
     // SAFETY: loading libpcap runs no initialisation we depend on not running.
     LIBRARIES.iter().any(|name| unsafe { libloading::Library::new(name).is_ok() })

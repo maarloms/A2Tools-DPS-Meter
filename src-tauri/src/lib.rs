@@ -36,9 +36,18 @@ pub mod platform;
 mod presence;
 #[cfg(feature = "desktop")]
 pub mod share;
+#[cfg(feature = "desktop")]
+pub mod stream_overlay;
+#[cfg(feature = "desktop")]
+mod npcap_setup;
 
 #[cfg(feature = "desktop")]
 mod app;
+
+#[cfg(feature = "desktop")]
+mod atomic_file;
+#[cfg(feature = "desktop")]
+mod blocking;
 
 #[cfg(feature = "desktop")]
 pub use app::run;

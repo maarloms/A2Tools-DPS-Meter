@@ -1,3 +1,27 @@
+// Each DoT row goes under the direct row of its skill, matched by skill code
+// (a DoT row's code is the skill's code plus "-dot"), never by its name,
+// which each language words differently. A DoT with no direct row stays.
+const foldDotRows = (rows) => {
+  const dots = rows.filter((row) => row.isDot);
+  const attached = new Set();
+  const out = [];
+  for (const hit of rows) {
+    if (hit.isDot) continue;
+    const dot = dots.find((d) => !attached.has(d) && String(d.code ?? "").replace(/-dot$/, "") === String(hit.code ?? ""));
+    if (dot) attached.add(dot);
+    hit._dotChild = dot || null;
+    hit._combinedDmg = (Number(hit.dmg) || 0) + (dot ? Number(dot.dmg) || 0 : 0);
+    out.push(hit);
+  }
+  for (const dot of dots) {
+    if (attached.has(dot)) continue;
+    dot._dotChild = null;
+    dot._combinedDmg = Number(dot.dmg) || 0;
+    out.push(dot);
+  }
+  return out;
+};
+
 const createDetailsUI = ({
   detailsPanel,
   detailsClose,
@@ -165,7 +189,6 @@ const createDetailsUI = ({
     { key: "details.stats.backRate", fallback: "Back Attack Rate", getValue: (d) => pctText(d?.totalBackPct) }, // fork
     { key: "details.stats.frontalRate", fallback: "Frontal Attack Rate", getValue: (d) => pctText(d?.totalFrontalPct) }, // fork
     { key: "details.stats.parryRate", fallback: "Parry Rate", getValue: (d) => pctText(d?.totalParryPct) },
-    { key: "details.stats.powershardRate", fallback: "P.Shard Rate", getValue: (d) => pctText(d?.totalPowershardPct) },
     { key: "details.stats.regen", fallback: "Regen", getValue: (d) => formatDamageCompact(d?.totalRegen) },
   ];
 
@@ -349,10 +372,6 @@ const createDetailsUI = ({
         return pctText(data.totalFrontalPct);
       case "details.stats.parryRate":
         return pctText(data.totalParryPct);
-      case "details.stats.smiteRate":
-        return pctText(data.totalSmitePct);
-      case "details.stats.powershardRate":
-        return pctText(data.totalPowershardPct);
       case "details.stats.regen":
         return formatDamageCompact(data.totalRegen);
       case "details.stats.partyHeal":
@@ -617,6 +636,23 @@ const createDetailsUI = ({
     });
   };
 
+  // Hit results from the record's flags byte and hit type, after Front:
+  // [column, skill field, shown as]. Misses and resists are not hits, so
+  // they show as counts.
+  const HIT_RESULTS = [
+    ["block", "shieldBlock", "pct"],
+    ["perfectblock", "perfectBlock", "pct"],
+    ["ironwall", "ironWall", "pct"],
+    ["regeneration", "regeneration", "pct"],
+    ["miss", "miss", "count"],
+    ["resist", "resist", "count"],
+  ];
+  const hitResultText = (skill, field, kind, hits) => {
+    const n = Number(skill?.[field]) || 0;
+    if (kind === "count") return `${n}`;
+    return `${hits > 0 ? Math.round((n / hits) * 100) : 0}%`;
+  };
+
   const createSkillView = () => {
     const rowEl = document.createElement("div");
     rowEl.className = "skillRow";
@@ -689,8 +725,11 @@ const createDetailsUI = ({
     const doubleEl = document.createElement("div");
     doubleEl.className = "cell center double";
 
-    const powershardEl = document.createElement("div");
-    powershardEl.className = "cell center powershard";
+    const hitResultEls = HIT_RESULTS.map(([col]) => {
+      const el = document.createElement("div");
+      el.className = `cell center ${col}`;
+      return el;
+    });
 
     const regenEl = document.createElement("div");
     regenEl.className = "cell center regen";
@@ -716,7 +755,7 @@ const createDetailsUI = ({
     rowEl.appendChild(doubleEl);
     rowEl.appendChild(backEl);
     rowEl.appendChild(frontalEl);
-    rowEl.appendChild(powershardEl);
+    hitResultEls.forEach((el) => rowEl.appendChild(el));
     rowEl.appendChild(regenEl);
     rowEl.appendChild(minDmgEl);
     rowEl.appendChild(avgDmgEl);
@@ -741,7 +780,7 @@ const createDetailsUI = ({
       frontalEl,
       perfectEl,
       doubleEl,
-      powershardEl,
+      hitResultEls,
       regenEl,
       minDmgEl,
       avgDmgEl,
@@ -787,8 +826,17 @@ const createDetailsUI = ({
         return hits > 0 ? (Number(skill?.back) || 0) / hits : 0;
       case "frontal":
         return hits > 0 ? (Number(skill?.frontal) || 0) / hits : 0;
-      case "powershard":
-        return hits > 0 ? (Number(skill?.powershard) || 0) / hits : 0;
+      case "block":
+      case "perfectblock":
+      case "ironwall":
+      case "regeneration": {
+        const field = HIT_RESULTS.find(([col]) => col === key)[1];
+        return hits > 0 ? (Number(skill?.[field]) || 0) / hits : 0;
+      }
+      case "miss":
+        return Number(skill?.miss) || 0;
+      case "resist":
+        return Number(skill?.resist) || 0;
       case "regen":
         return Number(skill?.regen) || 0;
       case "mindmg":
@@ -847,13 +895,19 @@ const createDetailsUI = ({
     // "FRONT" is the widest header in the 0.6fr group and clips at the shared
     // share; it needs the extra room its neighbours don't.
     frontal: "minmax(20px, 0.72fr)",
-    powershard: "minmax(20px, 0.6fr)",
+    block: "minmax(20px, 0.6fr)",
+    perfectblock: "minmax(24px, 0.65fr)",
+    ironwall: "minmax(24px, 0.65fr)",
+    regeneration: "minmax(22px, 0.65fr)",
+    miss: "minmax(22px, 0.65fr)",
+    resist: "minmax(20px, 0.6fr)",
     regen: "minmax(28px, 0.8fr)",
     mindmg: "minmax(28px, 0.8fr)",
     avgdmg: "minmax(28px, 0.8fr)",
     maxdmg: "minmax(28px, 0.8fr)",
   };
-  const GRID_COL_ORDER = ["name", "hit", "dmg", "dmgpct", "mhit", "mdmg", "crit", "parry", "perfect", "double", "back", "frontal", "powershard", "regen", "mindmg", "avgdmg", "maxdmg"];
+  const GRID_COL_ORDER = ["name", "hit", "dmg", "dmgpct", "mhit", "mdmg", "crit", "parry", "perfect", "double", "back", "frontal",
+    ...HIT_RESULTS.map(([col]) => col), "regen", "mindmg", "avgdmg", "maxdmg"];
 
   let lastMeasuredNameWidth = 0;
   const updateGridColumns = () => {
@@ -946,8 +1000,7 @@ const createDetailsUI = ({
         frontal: (Number(existing.frontal) || 0) + (Number(skill.frontal) || 0),
         perfect: (Number(existing.perfect) || 0) + (Number(skill.perfect) || 0),
         double: (Number(existing.double) || 0) + (Number(skill.double) || 0),
-        smite: (Number(existing.smite) || 0) + (Number(skill.smite) || 0),
-        powershard: (Number(existing.powershard) || 0) + (Number(skill.powershard) || 0),
+        ...Object.fromEntries(HIT_RESULTS.map(([, field]) => [field, (Number(existing[field]) || 0) + (Number(skill[field]) || 0)])),
         regen: (Number(existing.regen) || 0) + (Number(skill.regen) || 0),
         multiHitCount: (Number(existing.multiHitCount) || 0) + (Number(skill.multiHitCount) || 0),
         multiHitDamage: (Number(existing.multiHitDamage) || 0) + (Number(skill.multiHitDamage) || 0),
@@ -957,45 +1010,7 @@ const createDetailsUI = ({
         specs: (existing.specs || [false,false,false,false,false]).map((v, i) => v || !!(skill.specs && skill.specs[i])),
       });
     });
-    // Pair DOTs with parent skills
-    // DOT names follow pattern: "BaseName - DOT" (or i18n equivalent)
-    const DOT_SUFFIX = / - DOT$/;
-    const hitSkills = new Map();  // name → skill
-    const dotSkills = [];         // { baseName, skill }
-    for (const skill of groupedSkills.values()) {
-      const name = String(skill.name ?? "");
-      if (skill.isDot) {
-        const baseName = name.replace(DOT_SUFFIX, "");
-        dotSkills.push({ baseName, skill });
-      } else {
-        hitSkills.set(name, skill);
-      }
-    }
-
-    // Build display list: attach DOTs to parents, or keep standalone
-    const displaySkills = [];
-    const attachedDotKeys = new Set();
-    for (const [name, hit] of hitSkills) {
-      // Find DOT whose baseName matches this parent's name
-      const dotEntry = dotSkills.find((d) => d.baseName === name);
-      if (dotEntry) {
-        hit._dotChild = dotEntry.skill;
-        hit._combinedDmg = (Number(hit.dmg) || 0) + (Number(dotEntry.skill.dmg) || 0);
-        attachedDotKeys.add(dotEntry.baseName);
-      } else {
-        hit._dotChild = null;
-        hit._combinedDmg = Number(hit.dmg) || 0;
-      }
-      displaySkills.push(hit);
-    }
-    // Add orphan DOTs (no parent hit skill)
-    for (const { baseName, skill: dot } of dotSkills) {
-      if (!attachedDotKeys.has(baseName)) {
-        dot._dotChild = null;
-        dot._combinedDmg = Number(dot.dmg) || 0;
-        displaySkills.push(dot);
-      }
-    }
+    const displaySkills = foldDotRows([...groupedSkills.values()]);
 
     displaySkills.sort(compareSkillSort);
     const topDisplay = compact ? displaySkills.slice(0, COMPACT_MAX_SKILLS) : displaySkills;
@@ -1090,7 +1105,6 @@ const createDetailsUI = ({
         const dotDouble = dotHits > 0 ? Math.round(((Number(dot.double) || 0) / dotHits) * 100) : 0;
         const dotBack = dotHits > 0 ? Math.round(((Number(dot.back) || 0) / dotHits) * 100) : 0;
         const dotFrontal = dotHits > 0 ? Math.round(((Number(dot.frontal) || 0) / dotHits) * 100) : 0;
-        const dotPowershard = dotHits > 0 ? Math.round(((Number(dot.powershard) || 0) / dotHits) * 100) : 0;
         const dotRegen = Number(dot.regen) || 0;
         const dotRawMin = Number(dot.minDmg) || 0;
         const dotMin = dotRawMin >= 2147483647 ? 0 : dotRawMin;
@@ -1139,7 +1153,7 @@ const createDetailsUI = ({
             { cls: "cell center double", text: `${dotDouble}%` },
             { cls: "cell center back", text: `${dotBack}%` },
             { cls: "cell center frontal", text: `${dotFrontal}%` },
-            { cls: "cell center powershard", text: `${dotPowershard}%` },
+            ...HIT_RESULTS.map(([col, field, kind]) => ({ cls: `cell center ${col}`, text: hitResultText(dot, field, kind, dotHits) })),
             { cls: "cell center regen", text: `${formatDamageCompact(dotRegen)}` },
             { cls: "cell center mindmg", text: `${formatDamageCompact(dotMin)}` },
             { cls: "cell center avgdmg", text: `${formatDamageCompact(dotAvg)}` },
@@ -1169,8 +1183,6 @@ const createDetailsUI = ({
       const double = skill.double || 0;
       const back = skill.back || 0;
       const frontal = skill.frontal || 0;
-      const smite = skill.smite || 0;
-      const powershard = skill.powershard || 0;
       const regen = skill.regen || 0;
       const multiHitHits = skill.multiHitHits || 0;
       const multiHitDamage = skill.multiHitDamage || 0;
@@ -1193,8 +1205,6 @@ const createDetailsUI = ({
       const frontalRate = pct(frontal, hits);
       const perfectRate = pct(perfect, hits);
       const doubleRate = pct(double, hits);
-      const smiteRate = pct(smite, hits);
-      const powershardRate = pct(powershard, hits);
       const multiHitRate = pct(multiHitHits, hits);
 
       // Show/hide DOT toggle arrow
@@ -1225,7 +1235,9 @@ const createDetailsUI = ({
       view.frontalEl.textContent = `${frontalRate}%`;
       view.perfectEl.textContent = `${perfectRate}%`;
       view.doubleEl.textContent = `${doubleRate}%`;
-      view.powershardEl.textContent = `${powershardRate}%`;
+      HIT_RESULTS.forEach(([, field, kind], i) => {
+        view.hitResultEls[i].textContent = hitResultText(skill, field, kind, hits);
+      });
       view.regenEl.textContent = `${formatDamageCompact(regen)}`;
       view.multiHitEl.textContent = `${multiHitRate}%`;
       view.multiHitDamageEl.textContent = `${formatDamageCompact(multiHitDamage)}`;
@@ -1926,8 +1938,6 @@ const createDetailsUI = ({
           totalPerfect: 0,
           totalDouble: 0,
           totalHits: 0,
-          totalSmite: 0,
-          totalPowershard: 0,
           totalRegen: 0,
           partyHeal: 0,
           damageReceived: 0,
@@ -1945,8 +1955,6 @@ const createDetailsUI = ({
         next.totalPerfect += Number(entry?.totalPerfect) || 0;
         next.totalDouble += Number(entry?.totalDouble) || 0;
         next.totalHits += Number(entry?.totalHits) || 0;
-        next.totalSmite += Number(entry?.totalSmite) || 0;
-        next.totalPowershard += Number(entry?.totalPowershard) || 0;
         next.totalRegen += Number(entry?.totalRegen) || 0;
         next.partyHeal += Number(entry?.partyHeal) || 0;
         next.damageReceived += Number(entry?.damageReceived) || 0;
@@ -1969,8 +1977,6 @@ const createDetailsUI = ({
     let totalFrontal = 0;
     let totalPerfect = 0;
     let totalDouble = 0;
-    let totalSmite = 0;
-    let totalPowershard = 0;
     let totalMultiHitCount = 0;
     let totalMultiHitDamage = 0;
     let totalMultiHitHits = 0;
@@ -1991,8 +1997,6 @@ const createDetailsUI = ({
         totalFrontal += Number(skill?.frontal) || 0;
         totalPerfect += Number(skill?.perfect) || 0;
         totalDouble += Number(skill?.double) || 0;
-        totalSmite += Number(skill?.smite) || 0;
-        totalPowershard += Number(skill?.powershard) || 0;
       }
     });
 
@@ -2010,8 +2014,6 @@ const createDetailsUI = ({
       totalFrontalPct: pct(totalFrontal, totalTimes),
       totalPerfectPct: pct(totalPerfect, totalTimes),
       totalDoublePct: pct(totalDouble, totalTimes),
-      totalSmitePct: pct(totalSmite, totalTimes),
-      totalPowershardPct: pct(totalPowershard, totalTimes),
       multiHitCount: totalMultiHitCount,
       multiHitDamage: totalMultiHitDamage,
       multiHitPct: pct(totalMultiHitHits, totalTimes),
@@ -2047,10 +2049,85 @@ const createDetailsUI = ({
   // A synthetic null row used when opening Details for all players via boss name click
   const NULL_ROW = { id: null, job: "", name: "" };
 
-  const refreshDetailsView = async (seq) => {
+  // A failed target used to drop out of the merged totals silently; now the
+  // view shows the error. Filtered and "All" loads share these slots.
+  const DETAILS_REQUEST_LIMIT = 4;
+  const DETAILS_LOAD_CANCELLED = Symbol("details load cancelled");
+  const detailsRequestQueue = [];
+  let detailsActiveRequests = 0;
+
+  const pumpDetailsRequests = () => {
+    while (detailsActiveRequests < DETAILS_REQUEST_LIMIT && detailsRequestQueue.length) {
+      const { task, resolve, reject } = detailsRequestQueue.shift();
+      detailsActiveRequests++;
+      Promise.resolve()
+        .then(task)
+        .then(resolve, reject)
+        .finally(() => {
+          detailsActiveRequests--;
+          pumpDetailsRequests();
+        });
+    }
+  };
+
+  const isDetailsLoadStale = (load) => load.failed || (typeof load.seq === "number" && load.seq !== openSeq);
+
+  const loadDetails = (load, row, options) => new Promise((resolve, reject) => {
+    detailsRequestQueue.push({
+      task: () => {
+        if (isDetailsLoadStale(load)) throw DETAILS_LOAD_CANCELLED;
+        return getDetails(row, options);
+      },
+      resolve,
+      reject,
+    });
+    pumpDetailsRequests();
+  });
+
+  const clearDetailsValues = () => {
+    for (let i = 0; i < statSlots.length; i++) statSlots[i].valueEl.textContent = "-";
+    for (let i = 0; i < skillSlots.length; i++) {
+      skillSlots[i].rowEl.style.display = "none";
+      skillSlots[i].rowFillEl.style.transform = "scaleX(0)";
+    }
+  };
+
+  let renderedSelectionKey = "";
+  let activeDetailsLoad = null;
+  const refreshDetailsView = (seq = ++openSeq) => {
+    const load = { seq, failed: false, refreshRequested: false, promise: null };
+    activeDetailsLoad = load;
+    const selectionKey = JSON.stringify([lastRow?.id ?? null, selectedTargetId, selectedAttackerIds, activeCompactMode]);
+    load.promise = (async () => {
+      try {
+        await loadDetailsView(load);
+        if (seq === openSeq) renderedSelectionKey = selectionKey;
+      } catch (error) {
+        load.failed = true;
+        if (error === DETAILS_LOAD_CANCELLED || seq !== openSeq) return;
+        window.javaBridge?.logToDebug?.(`Details load failed: ${error?.message || error}`);
+        // A failed live refresh keeps the complete totals already shown for this
+        // selection; only a new selection must not show another one's numbers.
+        if (lastDetails && renderedSelectionKey === selectionKey) return;
+        renderedSelectionKey = "";
+        lastDetails = null;
+        clearDetailsValues();
+      }
+    })().finally(() => {
+      // A selection change or reopening owns a new load. Its pending tick must
+      // never be cleared or started by the previous load's completion.
+      if (activeDetailsLoad !== load) return;
+      activeDetailsLoad = null;
+      if (load.refreshRequested && seq === openSeq) refresh();
+    });
+    return load.promise;
+  };
+
+  const loadDetailsView = async (load) => {
+    const { seq } = load;
     const row = lastRow ?? NULL_ROW;
     if (activeCompactMode) {
-      const details = await getDetails(row, {
+      const details = await loadDetails(load, row, {
         targetId: null,
         attackerIds: null,
         totalTargetDamage: null,
@@ -2063,7 +2140,7 @@ const createDetailsUI = ({
     }
 
     if (!detailsContext) {
-      const details = await getDetails(row);
+      const details = await loadDetails(load, row);
       if (typeof seq === "number" && seq !== openSeq) return;
       render(details, row);
       return;
@@ -2071,9 +2148,10 @@ const createDetailsUI = ({
 
     // When a player is selected, fetch unfiltered "All" details in parallel
     // so the split stats (player / total) render immediately without delay.
+    // A failed total fails the view too: a stale or partial total skews the split.
     const hasAttackerFilter = Array.isArray(selectedAttackerIds) && selectedAttackerIds.length > 0;
     const unfilteredPromise = hasAttackerFilter
-      ? fetchUnfilteredDetails(row).catch(() => null)
+      ? fetchUnfilteredDetails(row, load)
       : Promise.resolve(null);
 
     const showSkillIcons = !selectedAttackerIds || selectedAttackerIds.length === 0;
@@ -2081,7 +2159,7 @@ const createDetailsUI = ({
       const targetList = getSelectableTargets();
       if (!targetList.length) {
         const [details, unfilteredDetails] = await Promise.all([
-          getDetails(row, {
+          loadDetails(load, row, {
             targetId: null,
             attackerIds: selectedAttackerIds,
             totalTargetDamage: null,
@@ -2097,7 +2175,7 @@ const createDetailsUI = ({
 
       const allTargetDetails = await Promise.all([
         ...targetList.map((target) =>
-          getDetails(row, {
+          loadDetails(load, row, {
             targetId: target.targetId,
             attackerIds: selectedAttackerIds,
             totalTargetDamage: target.totalDamage,
@@ -2122,7 +2200,7 @@ const createDetailsUI = ({
     const target = getTargetById(selectedTargetId);
     const totalTargetDamage = target ? target.totalDamage : null;
     const [details, unfilteredDetails] = await Promise.all([
-      getDetails(row, {
+      loadDetails(load, row, {
         targetId: selectedTargetId,
         attackerIds: selectedAttackerIds,
         totalTargetDamage,
@@ -2139,14 +2217,14 @@ const createDetailsUI = ({
    * Fetch "All players" details using the same multi-target merge logic
    * as refreshDetailsView but with attackerIds: null.
    */
-  const fetchUnfilteredDetails = async (row) => {
+  const fetchUnfilteredDetails = async (row, load) => {
     if (!detailsContext) {
-      return await getDetails(row);
+      return await loadDetails(load, row);
     }
     if (selectedTargetId === null) {
       const targetList = detailsTargets.filter((t) => Number(t?.targetId) > 0);
       if (!targetList.length) {
-        return await getDetails(row, {
+        return await loadDetails(load, row, {
           targetId: null,
           attackerIds: null,
           totalTargetDamage: null,
@@ -2155,7 +2233,7 @@ const createDetailsUI = ({
       }
       const allTargetDetails = await Promise.all(
         targetList.map((target) =>
-          getDetails(row, {
+          loadDetails(load, row, {
             targetId: target.targetId,
             attackerIds: null,
             totalTargetDamage: target.totalDamage,
@@ -2170,7 +2248,7 @@ const createDetailsUI = ({
       return buildCombinedDetails(allTargetDetails, totalTargetDamage, true);
     }
     const target = getTargetById(selectedTargetId);
-    return await getDetails(row, {
+    return await loadDetails(load, row, {
       targetId: selectedTargetId,
       attackerIds: null,
       totalTargetDamage: target ? target.totalDamage : null,
@@ -2293,14 +2371,18 @@ const createDetailsUI = ({
       render(cachedDetails, row);
     } else {
       // 이전 값 비우기
-      for (let i = 0; i < statSlots.length; i++) statSlots[i].valueEl.textContent = "-";
-      for (let i = 0; i < skillSlots.length; i++) {
-        skillSlots[i].rowEl.style.display = "none";
-        skillSlots[i].rowFillEl.style.transform = "scaleX(0)";
-      }
+      clearDetailsValues();
     }
 
     const seq = ++openSeq;
+
+    // Start the live timer before loading: a selection made during that load
+    // still needs a timer, and slow loads can coalesce ticks from the start.
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+    if (!historyRecord) {
+      autoRefreshTimer = setInterval(() => { refresh(); }, 2000);
+    }
 
     try {
       await refreshDetailsView(seq);
@@ -2310,15 +2392,10 @@ const createDetailsUI = ({
       if (seq !== openSeq) return;
       // uiDebug?.log("getDetails:error", { id: rowId, message: e?.message });
     }
-
-    // Auto-refresh live details every 2 seconds (not for history views)
-    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-    if (!historyRecord) {
-      autoRefreshTimer = setInterval(() => { refresh(); }, 2000);
-    }
   };
   const close = ({ keepPinned = false } = {}) => {
     openSeq++;
+    activeDetailsLoad = null;
     if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
 
     // Reset the DMG/HEAL toggle (state + buttons) so it re-opens on DMG.
@@ -2413,11 +2490,7 @@ const createDetailsUI = ({
     updateGridColumns();
 
     // Clear stats/skills while loading
-    for (let i = 0; i < statSlots.length; i++) statSlots[i].valueEl.textContent = "-";
-    for (let i = 0; i < skillSlots.length; i++) {
-      skillSlots[i].rowEl.style.display = "none";
-      skillSlots[i].rowFillEl.style.transform = "scaleX(0)";
-    }
+    clearDetailsValues();
 
     if (seq !== openSeq) return;
     const fakeRow = { id: null, job: "", name: record.bossName };
@@ -2434,10 +2507,16 @@ const createDetailsUI = ({
   const refresh = async () => {
     if (!detailsPanel.classList.contains("open")) return;
     if (historyRecord) return; // history view doesn't refresh from backend
+    if (activeDetailsLoad?.seq === openSeq) {
+      // Keep a slow live result eligible to render. Any number of timer ticks
+      // asks for just one newer snapshot after the current load completes.
+      activeDetailsLoad.refreshRequested = true;
+      return activeDetailsLoad.promise;
+    }
     const previousTargetId = selectedTargetId;
     const previousAttackerIds = Array.isArray(selectedAttackerIds) ? [...selectedAttackerIds] : null;
     const wasCompact = activeCompactMode;
-    const seq = ++openSeq;
+    const seq = openSeq;
     if (!wasCompact) {
       loadDetailsContext();
     }

@@ -4,6 +4,15 @@ pub const LIBRARIES: &[&str] = &["libpcap.so.1"];
 
 pub const MISSING_HELP: &str = "Packet capture is not supported on this platform yet.";
 
+/// Capture is not supported here, so there is nothing to install.
+pub const OFFERS_INSTALL: bool = false;
+
+pub fn prepare() {}
+
+pub fn run_installer(_installer: &std::path::Path) -> Result<(), String> {
+    Err("packet capture is not supported on this platform yet".into())
+}
+
 pub fn library_available() -> bool {
     false
 }

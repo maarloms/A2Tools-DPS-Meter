@@ -63,8 +63,18 @@
       "backTooltip": "バックアタック %",
       "frontal": "正面",
       "frontalTooltip": "正面 %",
-      "powershard": "PS",
-      "powershardTooltip": "パワーシャード %",
+      "shieldBlock": "盾",
+      "shieldBlockTooltip": "盾ブロック %",
+      "perfectBlock": "完防",
+      "perfectBlockTooltip": "完璧ブロック %",
+      "ironWall": "鉄壁",
+      "ironWallTooltip": "鉄壁 %",
+      "regeneration": "再生",
+      "regenerationTooltip": "再生 %",
+      "miss": "ミス",
+      "missTooltip": "ミス",
+      "resist": "抵抗",
+      "resistTooltip": "抵抗",
       "regen": "回復",
       "regenTooltip": "ライフスティール回復",
       "multiHit": "多段%",
@@ -175,6 +185,7 @@
       "dps": "DPS"
     },
     "showPing": "pingを表示",
+    "showTtk": "撃破予測時間（TTK）を表示",
     "showTotalDps": "合計DPS/ダメージを表示",
     "roundDps": "DPSを丸める",
     "autoHideMeter": "メーターを自動的に隠す",
@@ -189,6 +200,25 @@
       "title": "Discord",
       "activity": "Discord にプレイ中の内容を表示",
       "activityHint": "AION2 の起動中、Discord のステータスにキャラクター名、クラス、レベル、サーバー、戦闘中のボスを表示します。このパソコンの Discord アプリ経由で表示され、アカウントは不要です。"
+    },
+    "streamOverlay": {
+      "title": "配信",
+      "enable": "配信オーバーレイ（別PCのOBS用）",
+      "enableHint": "メーターをローカルネットワークで公開し、別PCのOBSでブラウザソースとして表示できるようにします。",
+      "port": "ポート",
+      "url": "ブラウザソースのURL",
+      "copy": "コピー",
+      "copied": "コピーしました",
+      "newKey": "新しいキー",
+      "help": "別PCのOBSで、このURLのブラウザソースを追加してください。初回はWindowsファイアウォールが確認を求めるので、プライベートネットワークで許可してください。リンクを知っている同じネットワーク内の誰でもメーターを見られます。「新しいキー」で古いリンクは無効になります。",
+      "noAddress": "ネットワークアドレスが見つかりません。このPCはネットワークに接続されていますか？",
+      "portInvalid": "1024〜65535のポートを入力してください。",
+      "error": "オーバーレイを開始できませんでした: {error}",
+      "waiting": "戦闘を待っています…",
+      "reconnecting": "メーターに再接続中…",
+      "player": "プレイヤー",
+      "displayName": "配信での名前",
+      "displayNamePlaceholder": "キャラクター名"
     },
     "version": "バージョン",
     "theme": {
@@ -315,6 +345,7 @@
   },
   "battleTime": {
     "analysing": "データを監視中...",
+    "ttkTooltip": "ボスの残りHPとパーティの与ダメージから予測した戦闘全体の長さ",
     "idle": "待機中",
     "notRunning": "AION2が起動していません",
     "suspended": "アプリを一時停止中",
@@ -394,5 +425,10 @@
     "signIn": "ログイン",
     "later": "後で",
     "close": "閉じる"
+  },
+  "npcapPrompt": {
+    "ask": "A2Tools DPS Meter がゲームの通信を読み取るには Npcap が必要ですが、Npcap が見つからないか動作していません。\n\n今すぐインストールしますか？メーターが npcap.com から Npcap のインストーラーをダウンロードして開きます。Npcap がインストールされると、メーターは自動でキャプチャを始めます。\n\n自分でインストールする場合は「いいえ」を選び、https://npcap.com/#download からインストールしてください。",
+    "downloadFailed": "Npcap のインストーラーをダウンロードできませんでした（{error}）。\n\nhttps://npcap.com/#download から自分でインストールしてから、メーターを開き直してください。",
+    "stillMissing": "Npcap がまだ動作していません。インストーラーを最後まで進めずに閉じた場合は、https://npcap.com/#download から Npcap をインストールしてから、メーターを開き直してください。"
   }
 }

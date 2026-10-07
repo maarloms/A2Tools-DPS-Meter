@@ -7,6 +7,7 @@ const REMOTE_APPLIED_SETTING_CONTROLS = {
   "dpsMeter.mainPlayerNamesBold": ".playerNamesBoldCheckbox",
   "dpsMeter.mainPlayerDpsBold": ".playerDpsBoldCheckbox",
   "dpsMeter.showPing": ".showPingCheckbox",
+  "dpsMeter.showTtk": ".showTtkCheckbox",
   "dpsMeter.bossNameSize": ".bossNameSizeInput",
   "dpsMeter.showSupporterColors": ".showSupporterColorsCheckbox",
   "dpsMeter.showSuspendBtn": ".showSuspendBtnCheckbox",
@@ -57,6 +58,7 @@ class DpsApp {
       showSupporterColors: "dpsMeter.showSupporterColors",
       mainPlayerDpsBold: "dpsMeter.mainPlayerDpsBold",
       showPing: "dpsMeter.showPing",
+      showTtk: "dpsMeter.showTtk",
       showTotalDps: "dpsMeter.showTotalDps",
       roundDps: "dpsMeter.roundDps",
       playerLimit: "dpsMeter.playerLimit",
@@ -177,6 +179,11 @@ class DpsApp {
     this.hoverTooltipEl = null;
     this.hoverMousePos = { x: 0, y: 0 };
     this.hoverTooltipPendingRowIds = new Set();
+    this.hoverTooltipInFlight = false;
+    this.hoverTooltipQueued = null;
+    this.hoverTooltipPositionRaf = 0;
+    this.hoverTooltipGeometryKey = "";
+    this.hoverTooltipDismissed = true;
 
     DpsApp.instance = this;
   }
@@ -340,6 +347,7 @@ class DpsApp {
     this.battleTime = createBattleTimeUI({
       rootEl: document.querySelector(".battleTime"),
       tickSelector: ".tick",
+      ttkSelector: ".ttk",
       statusSelector: ".status",
       analysisSelector: ".analysisStatus",
       getAnalysisText: getBattleTimeStatusText,
@@ -353,6 +361,9 @@ class DpsApp {
 
     this.pingEl = document.querySelector(".pingDisplay");
     this.showPing = this.safeGetSetting(this.storageKeys.showPing) !== "false";
+    // Time to kill beside the battle timer, for bosses; on unless turned off.
+    this.showTtk = this.safeGetSetting(this.storageKeys.showTtk) !== "false";
+    this.ttk = typeof createTtkEstimator === "function" ? createTtkEstimator() : null;
     // Ping is pushed immediately from PingTracker via window._dpsApp.updatePing().
     // A slow fallback poll handles edge cases (e.g. push not wired yet on startup).
     this._pingTimer = setInterval(() => this.updatePing(), 30000);
@@ -685,6 +696,7 @@ class DpsApp {
 
   resetAll({ callBackend = true } = {}) {
     this.resetPending = !!callBackend;
+    this.invalidateHoverTooltip();
 
 
     this.lastSnapshot = null;
@@ -700,6 +712,7 @@ class DpsApp {
     this._lastBattleTimeMs = null;
     this.battleTime?.reset?.();
     this.battleTime?.setVisible?.(false);
+    this.ttk?.reset?.();
 
     this.pinnedDetailsRowId = null;
     this.hoveredDetailsRowId = null;
@@ -747,30 +760,78 @@ class DpsApp {
   }
 
   hideHoverTooltip() {
-    if (!this.hoverTooltipEl) return;
+    this.hoverTooltipDismissed = true;
+    if (this.hoverTooltipPositionRaf) {
+      cancelAnimationFrame(this.hoverTooltipPositionRaf);
+      this.hoverTooltipPositionRaf = 0;
+    }
+    this.hoverTooltipGeometryKey = "";
+    if (!this.hoverTooltipEl?.classList.contains("isVisible")) return;
     this.hoverTooltipEl.classList.remove("isVisible");
+    this.hoverTooltipEl.setAttribute("aria-hidden", "true");
     this.hoverTooltipEl.innerHTML = "";
+    window.javaBridge?.updateOverlaySize?.();
+  }
+
+  invalidateHoverTooltip() {
+    this.hoverTooltipCacheByRowId.clear();
+    this.hoverTooltipRequestSeqByRowId.clear();
+    this.hoverTooltipPendingRowIds.clear();
+    this.hoveredDetailsRowId = null;
+    this.hideHoverTooltip();
+  }
+
+  // A target change makes cached skills stale, but the cursor is still on its
+  // row: keep the shown skills until the new answer replaces them. Runs after
+  // the rows are rendered, so a row that left the list is really gone.
+  refreshHoverTooltipForTarget(rows) {
+    const rowId = this.hoveredDetailsRowId;
+    this.hoverTooltipCacheByRowId.clear();
+    this.hoverTooltipRequestSeqByRowId.clear();
+    this.hoverTooltipPendingRowIds.clear();
+    this.hoverTooltipQueued = null;
+    if (!rowId || this.hoverTooltipDismissed || !this.hoverTooltipEl?.classList.contains("isVisible")) return;
+    const row = rows.find((item) => Number(item?.id) === rowId);
+    if (!row || !this.elList?.querySelector?.(`.item[data-row-id="${rowId}"]`)) {
+      this.hoveredDetailsRowId = null;
+      this.hideHoverTooltip();
+      return;
+    }
+    this.applyHoverTooltip(row, { forceRefresh: true, keepContent: true });
+  }
+
+  scheduleHoverTooltipPosition() {
+    if (this.hoverTooltipPositionRaf) return;
+    this.hoverTooltipPositionRaf = requestAnimationFrame(() => {
+      this.hoverTooltipPositionRaf = 0;
+      if (this.hoverTooltipEl?.classList.contains("isVisible")) this.positionHoverTooltip();
+    });
   }
 
   openHoverDetailsRow(row, event = null) {
     if (!row || this.pinnedDetailsRowId !== null || this.shouldSuppressRowInteractions()) return;
     const rowId = Number(row?.id);
     if (!Number.isFinite(rowId) || rowId <= 0) return;
+    let pointerMoved = false;
     if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
-      this.hoverMousePos = { x: event.clientX, y: event.clientY };
+      this.hoverMousePos ||= { x: 0, y: 0 };
+      pointerMoved = this.hoverMousePos.x !== event.clientX || this.hoverMousePos.y !== event.clientY;
+      this.hoverMousePos.x = event.clientX;
+      this.hoverMousePos.y = event.clientY;
     }
     const isSameRow = this.hoveredDetailsRowId === rowId;
     this.hoveredDetailsRowId = rowId;
     if (this.detailsUI?.isOpen?.()) {
       return;
     }
+    this.hoverTooltipDismissed = false;
     // Skip redundant tooltip renders when still hovering the same row
     if (isSameRow && this.hoverTooltipEl?.classList.contains("isVisible")) {
-      this.positionHoverTooltip();
+      if (pointerMoved) this.scheduleHoverTooltipPosition();
       return;
     }
     this.detailsUI?.close?.({ keepPinned: false });
-    this.applyHoverTooltip(row, { forceRefresh: !isSameRow });
+    this.applyHoverTooltip(row);
   }
 
   getJobColor(job) {
@@ -799,7 +860,7 @@ class DpsApp {
         const theostoneNameColor = window.skillIcons?.getTheostoneNameColor?.(skill) || "";
         const skillColor = theostoneNameColor || this.getJobColor(skill?.job || row?.job);
         const skillStyle = skillColor ? ` style="color:${skillColor}"` : "";
-        const iconHtml = `<img class="skillIcon isPlaceholder" alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" onerror="window.skillIcons&&window.skillIcons.handleImgError&&window.skillIcons.handleImgError(this)">`;
+        const iconHtml = `<img class="skillIcon isPlaceholder" alt="" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onerror="window.skillIcons&&window.skillIcons.handleImgError&&window.skillIcons.handleImgError(this)">`;
         return `<div class="hoverDetailsTooltipSkill"><span class="idx">${index + 1}.</span><span class="name">${iconHtml}<span class="skillName"${skillStyle}>${name}</span></span><span class="dmg">${dmg}</span></div>`;
       })
       .join("");
@@ -826,7 +887,8 @@ class DpsApp {
       });
     }
     this.hoverTooltipEl.classList.add("isVisible");
-    this.positionHoverTooltip(rowEl);
+    this.hoverTooltipEl.setAttribute("aria-hidden", "false");
+    this.scheduleHoverTooltipPosition();
   }
 
   positionHoverTooltip(rowEl = null) {
@@ -841,9 +903,14 @@ class DpsApp {
       - (window.screenY || 0) - origin.top);
     const margin = 8;
     const gap = 12;
-    tooltip.style.maxWidth = `${Math.min(380, availableWidth - margin * 2)}px`;
-    tooltip.style.minWidth = `${Math.min(200, availableWidth - margin * 2)}px`;
-    tooltip.style.maxHeight = `${availableHeight - margin * 2}px`;
+    const limits = {
+      maxWidth: `${Math.min(380, availableWidth - margin * 2)}px`,
+      minWidth: `${Math.min(200, availableWidth - margin * 2)}px`,
+      maxHeight: `${availableHeight - margin * 2}px`,
+    };
+    for (const [property, value] of Object.entries(limits)) {
+      if (tooltip.style[property] !== value) tooltip.style[property] = value;
+    }
     const rowBounds = rowEl?.getBoundingClientRect?.();
     const x = (this.hoverMousePos?.x ?? rowBounds?.left ?? origin.left) - origin.left;
     const y = (this.hoverMousePos?.y ?? rowBounds?.bottom ?? origin.top) - origin.top;
@@ -853,12 +920,20 @@ class DpsApp {
     let top = y + gap;
     if (left + width + margin > availableWidth) left = x - width - gap;
     if (top + height + margin > availableHeight) top = y - height - gap;
-    tooltip.style.left = `${Math.max(margin, Math.min(availableWidth - width - margin, left))}px`;
-    tooltip.style.top = `${Math.max(margin, Math.min(availableHeight - height - margin, top))}px`;
-    window.javaBridge?.updateOverlaySize?.();
+    left = Math.max(margin, Math.min(availableWidth - width - margin, left));
+    top = Math.max(margin, Math.min(availableHeight - height - margin, top));
+    const transform = `translate3d(${left}px, ${top}px, 0)`;
+    if (tooltip.style.transform !== transform) tooltip.style.transform = transform;
+    // Pointer motion changes only the composited position. Native window
+    // sizing reserves the travel area and only needs content/geometry changes.
+    const geometryKey = `${width}:${height}:${availableWidth}:${availableHeight}:${origin.left}:${origin.top}`;
+    if (geometryKey !== this.hoverTooltipGeometryKey) {
+      this.hoverTooltipGeometryKey = geometryKey;
+      window.javaBridge?.updateOverlaySize?.();
+    }
   }
 
-  applyHoverTooltip(row, { forceRefresh = false } = {}) {
+  applyHoverTooltip(row, { forceRefresh = false, keepContent = false } = {}) {
     const rowId = Number(row?.id);
     if (!Number.isFinite(rowId) || rowId <= 0) return;
     const rowEl = this.elList?.querySelector?.(`.item[data-row-id="${rowId}"]`);
@@ -870,29 +945,45 @@ class DpsApp {
       if (!forceRefresh) return;
     }
 
-    this.renderHoverTooltip({ skills: [], state: "loading" }, row, rowEl);
-    if (!forceRefresh && this.hoverTooltipPendingRowIds.has(rowId)) {
+    if (!cached && !keepContent) this.renderHoverTooltip({ skills: [], state: "loading" }, row, rowEl);
+    if (this.hoverTooltipPendingRowIds.has(rowId)) {
       return;
     }
-    const requestSeq = (this.hoverTooltipRequestSeqByRowId.get(rowId) || 0) + 1;
+    // One summary at a time, latest row wins: rows swept past would otherwise
+    // keep fanning out into the shared native work queue.
+    if (this.hoverTooltipInFlight) {
+      this.hoverTooltipQueued = { row, forceRefresh };
+      return;
+    }
+    this.hoverTooltipInFlight = true;
+    // Identity tokens cannot collide with a new request after reset/target change.
+    const requestSeq = {};
     this.hoverTooltipRequestSeqByRowId.set(rowId, requestSeq);
     this.hoverTooltipPendingRowIds.add(rowId);
 
-    this.getDetails(row, { maxSkills: 5, showSkillIcons: false })
+    this.getDetails(row, { maxSkills: 5, showSkillIcons: false, summaryOnly: true })
       .then((details) => {
+        if (this.hoverTooltipRequestSeqByRowId.get(rowId) !== requestSeq) return;
         this.hoverTooltipPendingRowIds.delete(rowId);
-        const currentSeq = this.hoverTooltipRequestSeqByRowId.get(rowId);
-        if (currentSeq !== requestSeq || this.hoveredDetailsRowId !== rowId) return;
         const lightweightDetails = { skills: Array.isArray(details?.skills) ? details.skills.slice(0, 5) : [] };
         this.hoverTooltipCacheByRowId.set(rowId, lightweightDetails);
+        if (this.hoveredDetailsRowId !== rowId || this.hoverTooltipDismissed) return;
         this.renderHoverTooltip(lightweightDetails, row, rowEl);
       })
       .catch((error) => {
+        if (this.hoverTooltipRequestSeqByRowId.get(rowId) !== requestSeq) return;
         this.hoverTooltipPendingRowIds.delete(rowId);
-        const currentSeq = this.hoverTooltipRequestSeqByRowId.get(rowId);
-        if (currentSeq !== requestSeq || this.hoveredDetailsRowId !== rowId) return;
+        if (this.hoveredDetailsRowId !== rowId || this.hoverTooltipDismissed) return;
         window.javaBridge?.logToDebug?.(`Hover skill details failed: ${error?.message || error}`);
         this.renderHoverTooltip({ skills: [], state: "error" }, row, rowEl);
+      })
+      .finally(() => {
+        this.hoverTooltipInFlight = false;
+        const next = this.hoverTooltipQueued;
+        this.hoverTooltipQueued = null;
+        if (next && Number(next.row?.id) === this.hoveredDetailsRowId && !this.hoverTooltipDismissed) {
+          this.applyHoverTooltip(next.row, { forceRefresh: next.forceRefresh, keepContent: true });
+        }
       });
   }
 
@@ -979,6 +1070,7 @@ class DpsApp {
       targetMaxHp,
       targetTotalDamage,
       targetCurrentHp,
+      targetIsBoss,
       dungeonId,
     } = this.buildRowsFromPayload(raw);
     // Boss mode with no boss engaged: say what it is waiting for. The rows of
@@ -1015,6 +1107,7 @@ class DpsApp {
     this.applyLocalPlayerIdUpdate(localPlayerId, "backend local id update");
     this.updateLocalPlayerIdentity(rows);
     this._lastBattleTimeMs = battleTimeMs;
+    const targetChanged = targetId !== previousTargetId || targetMode !== previousTargetMode;
     this.lastTargetMode = targetMode;
     this.lastTargetName = targetName;
     this.lastTargetId = targetId;
@@ -1104,7 +1197,7 @@ class DpsApp {
 
     this.updateConnectionStatusUi();
     if (targetMode === "trainTargets" && this.isLocalUserIdentified()) {
-      rowsToRender = rowsToRender.filter((row) => row.name === this.USER_NAME);
+      rowsToRender = rowsToRender.filter((row) => row.isUser); // by id or name: an unnamed row is still yours
     }
     // render
     this.lastDungeonId = dungeonId;
@@ -1117,6 +1210,7 @@ class DpsApp {
       this.elBossName.classList.toggle("isAllTargets", targetMode === "allTargets");
     }
     this.updateBossHpBar(targetMaxHp, targetTotalDamage, targetCurrentHp);
+    this.updateTtk(targetIsBoss, targetId, battleTimeMs, targetMaxHp, targetTotalDamage, targetCurrentHp);
     window.ForkMeter?.payload?.(this, { battleTimeMs, targetMaxHp, targetTotalDamage, targetCurrentHp }); // fork
     if (
       nextTargetLabel !== this._lastRenderedTargetLabel ||
@@ -1153,6 +1247,7 @@ class DpsApp {
     this.hoverTooltipCacheByRowId.clear();
     this.updateMeterTotalBar(rowsToRender);
     this.meterUI.updateFromRows(rowsToRender);
+    if (targetChanged) this.refreshHoverTooltipForTarget(rowsToRender);
   }
 
   buildRowsFromPayload(raw) {
@@ -1167,7 +1262,7 @@ class DpsApp {
       : null;
 
     const mapObj = payload?.map && typeof payload.map === "object" ? payload.map : {};
-    const rows = this.buildRowsFromMapObject(mapObj);
+    const rows = this.buildRowsFromMapObject(mapObj, localPlayerId);
 
     const battleTimeMsRaw = payload?.battleTime;
     const battleTimeMs = Number.isFinite(Number(battleTimeMsRaw)) ? Number(battleTimeMsRaw) : null;
@@ -1180,6 +1275,7 @@ class DpsApp {
     const targetCurrentHp = Number.isFinite(Number(payload?.targetCurrentHp))
       ? Number(payload.targetCurrentHp)
       : -1;
+    const targetIsBoss = payload?.targetIsBoss === true;
 
     return {
       rows,
@@ -1191,12 +1287,19 @@ class DpsApp {
       targetMaxHp,
       targetTotalDamage,
       targetCurrentHp,
+      targetIsBoss,
       dungeonId,
     };
   }
 
-  buildRowsFromMapObject(mapObj) {
+  // `localPlayerId`: who the backend says you are. Your row is yours by that
+  // id even before it has a name: matching by name alone left an unnamed
+  // "#id" row of yours unmarked, so it was neither pinned nor kept past the
+  // player limit, and you dropped off a busy meter.
+  buildRowsFromMapObject(mapObj, localPlayerId = null) {
     const rows = [];
+    const localId = Number(localPlayerId);
+    const hasLocalId = Number.isFinite(localId) && localId > 0;
 
     for (const [id, value] of Object.entries(mapObj || {})) {
       const numericId = Number(id);
@@ -1238,7 +1341,7 @@ class DpsApp {
         totalDamage,
         damageContribution,
         combatPower,
-        isUser: name === this.USER_NAME,
+        isUser: (!!name && name === this.USER_NAME) || (hasLocalId && numericId === localId),
         isIdentifying,
         // Resolved in Rust against a downloaded roster; the frontend only
         // renders it. Cosmetic only — it must not reach sorting or bar colour.
@@ -1515,7 +1618,7 @@ class DpsApp {
 
   async getDetails(
     row,
-    { targetId = null, attackerIds = null, totalTargetDamage = null, showSkillIcons = false, maxSkills = null } = {}
+    { targetId = null, attackerIds = null, totalTargetDamage = null, showSkillIcons = false, maxSkills = null, summaryOnly = false } = {}
   ) {
     let raw = null;
     let backendFiltered = false;
@@ -1524,9 +1627,11 @@ class DpsApp {
     } else if (targetId && window.dpsData?.getTargetDetails) {
       const payload = Array.isArray(attackerIds) ? JSON.stringify(attackerIds) : "";
       raw = await window.dpsData.getTargetDetails(targetId, payload);
+      // null is the bridge's IPC failure; an empty fight still arrives as JSON.
+      if (raw === null) throw new Error(`skill details failed for target ${targetId}`);
       backendFiltered = true;
     } else {
-      raw = await window.dpsData?.getBattleDetail?.(row.id);
+      raw = await window.dpsData?.getBattleDetail?.(row.id, { summaryOnly });
     }
     let detailObj = raw;
     // globalThis.uiDebug?.log?.("getBattleDetail", detailObj);
@@ -1548,8 +1653,6 @@ class DpsApp {
     let totalMultiHitDamage = 0;
     let totalMultiHitHits = 0;
     let totalRegen = 0;
-    let totalSmite = 0;
-    let totalPowershard = 0;
 
     const pushSkill = ({
       codeKey,
@@ -1562,8 +1665,12 @@ class DpsApp {
       frontal = 0,
       perfect = 0,
       double = 0,
-      smite = 0,
-      powershard = 0,
+      shieldBlock = 0,
+      ironWall = 0,
+      regeneration = 0,
+      perfectBlock = 0,
+      miss = 0,
+      resist = 0,
       regen = 0,
       multiHitCount = 0,
       multiHitDamage = 0,
@@ -1578,7 +1685,8 @@ class DpsApp {
       specs = null,
     }) => {
       const dmgInt = Math.trunc(Number(String(dmg ?? "").replace(/,/g, ""))) || 0;
-      if (dmgInt <= 0) {
+      // A skill that only missed or was resisted still gets its row.
+      if (dmgInt <= 0 && !(Number(miss) > 0 || Number(resist) > 0)) {
         return;
       }
 
@@ -1594,8 +1702,6 @@ class DpsApp {
         totalFrontal += Number(frontal) || 0;
         totalPerfect += Number(perfect) || 0;
         totalDouble += Number(double) || 0;
-        totalSmite += Number(smite) || 0;
-        totalPowershard += Number(powershard) || 0;
         totalMultiHitCount += Number(multiHitCount) || 0;
         totalMultiHitDamage += Number(multiHitDamage) || 0;
         totalMultiHitHits += Number(multiHitHits) || 0;
@@ -1610,8 +1716,12 @@ class DpsApp {
         frontal: Number(frontal) || 0,
         perfect: Number(perfect) || 0,
         double: Number(double) || 0,
-        smite: Number(smite) || 0,
-        powershard: Number(powershard) || 0,
+        shieldBlock: Number(shieldBlock) || 0,
+        ironWall: Number(ironWall) || 0,
+        regeneration: Number(regeneration) || 0,
+        perfectBlock: Number(perfectBlock) || 0,
+        miss: Number(miss) || 0,
+        resist: Number(resist) || 0,
         regen: Number(regen) || 0,
         multiHitCount: Number(multiHitCount) || 0,
         multiHitDamage: Number(multiHitDamage) || 0,
@@ -1663,8 +1773,13 @@ class DpsApp {
           frontal: value.frontal,
           perfect: value.perfect,
           double: value.double,
-          smite: value.smite,
-          powershard: value.powershard,
+          shieldBlock: value.shieldBlock,
+          ironWall: value.ironWall,
+          // Saved before the rename.
+          regeneration: value.regeneration ?? value.smite,
+          perfectBlock: value.perfectBlock ?? value.powershard,
+          miss: value.miss,
+          resist: value.resist,
           regen: value.regen,
           multiHitCount: value.multiHitCount,
           multiHitDamage: value.multiHitDamage,
@@ -1722,6 +1837,11 @@ class DpsApp {
     }
 
 
+    if (summaryOnly) {
+      skills.sort((a, b) => b.dmg - a.dmg);
+      return { skills: skills.slice(0, 5) };
+    }
+
     if (Number.isFinite(Number(maxSkills)) && Number(maxSkills) > 0 && skills.length > Number(maxSkills)) {
       skills.sort((a, b) => (Number(b?.dmg) || 0) - (Number(a?.dmg) || 0));
       skills.length = Number(maxSkills);
@@ -1747,8 +1867,6 @@ class DpsApp {
           totalPerfect: 0,
           totalDouble: 0,
           totalHits: 0,
-          totalSmite: 0,
-          totalPowershard: 0,
           totalRegen: 0,
           multiHitCount: 0,
           multiHitDamage: 0,
@@ -1766,8 +1884,6 @@ class DpsApp {
         entry.totalFrontal += Number(skill.frontal) || 0;
         entry.totalPerfect += Number(skill.perfect) || 0;
         entry.totalDouble += Number(skill.double) || 0;
-        entry.totalSmite += Number(skill.smite) || 0;
-        entry.totalPowershard += Number(skill.powershard) || 0;
       }
       if (!entry.job && skill.job) {
         entry.job = skill.job;
@@ -1799,8 +1915,6 @@ class DpsApp {
         totalFrontal: entry.totalFrontal,
         totalPerfect: entry.totalPerfect,
         totalDouble: entry.totalDouble,
-        totalSmite: entry.totalSmite,
-        totalPowershard: entry.totalPowershard,
         totalHits: entry.totalHits,
         totalRegen: entry.totalRegen,
         multiHitCount: entry.multiHitCount,
@@ -1815,8 +1929,6 @@ class DpsApp {
         totalFrontalPct: pct(entry.totalFrontal, entry.totalTimes),
         totalPerfectPct: pct(entry.totalPerfect, entry.totalTimes),
         totalDoublePct: pct(entry.totalDouble, entry.totalTimes),
-        totalSmitePct: pct(entry.totalSmite, entry.totalTimes),
-        totalPowershardPct: pct(entry.totalPowershard, entry.totalTimes),
         combatTime,
       }))
       .sort((a, b) => b.totalDmg - a.totalDmg);
@@ -1851,7 +1963,7 @@ class DpsApp {
         dmg: amt,
         time: ticks,
         isDot: isHot,
-        crit: 0, parry: 0, back: 0, frontal: 0, perfect: 0, double: 0, smite: 0, powershard: 0,
+        crit: 0, parry: 0, back: 0, frontal: 0, perfect: 0, double: 0,
         regen: 0, multiHitCount: 0, multiHitDamage: 0, multiHitHits: 0,
         minDmg: 0, maxDmg: 0, job: v.job ?? "", specs: null, hitTimestamps: [],
       });
@@ -1875,8 +1987,6 @@ class DpsApp {
       totalFrontalPct: pct(totalFrontal, totalTimes),
       totalPerfectPct: pct(totalPerfect, totalTimes),
       totalDoublePct: pct(totalDouble, totalTimes),
-      totalSmitePct: pct(totalSmite, totalTimes),
-      totalPowershardPct: pct(totalPowershard, totalTimes),
       totalHits: totalTimes,
       multiHitCount: totalMultiHitCount,
       multiHitDamage: totalMultiHitDamage,
@@ -2313,6 +2423,15 @@ class DpsApp {
         this.safeSetSetting(this.storageKeys.showPing, String(this.showPing));
       });
     }
+    this.showTtkCheckbox = document.querySelector(".showTtkCheckbox");
+    if (this.showTtkCheckbox) {
+      this.showTtkCheckbox.checked = this.showTtk;
+      this.showTtkCheckbox.addEventListener("change", (event) => {
+        this.showTtk = !!event.target?.checked;
+        this.safeSetSetting(this.storageKeys.showTtk, String(this.showTtk));
+        if (!this.showTtk) this.battleTime?.setTtk?.(null);
+      });
+    }
     this.showTotalDpsCheckbox = document.querySelector(".showTotalDpsCheckbox");
     if (this.showTotalDpsCheckbox) {
       this.showTotalDpsCheckbox.checked = this.showTotalDps;
@@ -2428,6 +2547,8 @@ class DpsApp {
         if (window.A2_VIEW !== "main") return;
         // fork: no Discord or a2tools.app sign-in offers.
       });
+
+    this.initStreamOverlaySettings();
 
     if (this.autoUploadCheckbox) {
       // Off unless turned on: an upload publishes a fight.
@@ -3177,8 +3298,9 @@ class DpsApp {
     const storedHiddenColumns = this.safeGetSetting(this.storageKeys.detailsHiddenColumns);
     const storedSeenColumns = this.safeGetSetting(this.storageKeys.detailsSeenColumns);
     const hiddenColumns = new Set();
-    // Columns added in v2.0.4 — default hidden for both new and upgrading users
-    const NEW_COLUMNS_DEFAULT_HIDDEN = ["powershard", "regen"];
+    // Columns added after the first release: hidden until switched on, for new
+    // and upgrading users alike (a column is "seen" once its toggle is used).
+    const NEW_COLUMNS_DEFAULT_HIDDEN = ["regen", "block", "perfectblock", "ironwall", "regeneration", "miss", "resist"];
     if (typeof storedHiddenColumns === "string" && storedHiddenColumns.trim()) {
       const parsedHidden = this.safeParseJSON(storedHiddenColumns, []);
       if (Array.isArray(parsedHidden)) {
@@ -3203,7 +3325,7 @@ class DpsApp {
     });
     const applyDetailsColumnVisibility = () => {
       if (!this.detailsPanel) return;
-      const columns = ["hit", "dmg", "dmgpct", "mhit", "mdmg", "crit", "parry", "perfect", "double", "back", "powershard", "regen", "mindmg", "avgdmg", "maxdmg"];
+      const columns = ["hit", "dmg", "dmgpct", "mhit", "mdmg", "crit", "parry", "perfect", "double", "back", "block", "perfectblock", "ironwall", "regeneration", "miss", "resist", "regen", "mindmg", "avgdmg", "maxdmg"];
       columns.forEach((column) => {
         this.detailsPanel.classList.toggle(`hide-col-${column}`, hiddenColumns.has(column));
       });
@@ -4125,6 +4247,23 @@ class DpsApp {
     this.metricToggleBtn.setAttribute("aria-label", ariaLabel);
   }
 
+  // Time to kill beside the battle timer: bosses only, and only with their HP
+  // known. The remaining HP is read the way the HP bar reads it.
+  updateTtk(isBoss, targetId, battleTimeMs, maxHp, totalDamage, currentHp) {
+    if (!this.battleTime?.setTtk) return;
+    const max = Number(maxHp) || 0;
+    if (!this.showTtk || !isBoss || !this.ttk || max <= 0 || !Number.isFinite(battleTimeMs)) {
+      this.battleTime.setTtk(null);
+      return;
+    }
+    const live = Number(currentHp);
+    const remaining =
+      Number.isFinite(live) && live >= 0
+        ? Math.min(max, Math.max(0, live))
+        : Math.max(0, max - Math.max(0, Number(totalDamage) || 0));
+    this.battleTime.setTtk(this.ttk.update(targetId, battleTimeMs, remaining, max));
+  }
+
   // Boss remaining-HP bar. There is no live boss current-HP packet, so remaining
   // is derived from spawn-time max HP minus the damage the meter has tracked
   // against this target. Hidden unless a single boss target with known max HP.
@@ -4205,6 +4344,7 @@ class DpsApp {
   }
 
   refreshDamageData({ reason = "refresh" } = {}) {
+    this.invalidateHoverTooltip();
     this.refreshPending = true;
     this.refreshPendingStartedAt = this.nowMs();
     this.lastSnapshot = null;
@@ -4416,7 +4556,7 @@ class DpsApp {
     if (this.isCollapse) return;
     let rowsToRender = Array.isArray(this.lastSnapshot) ? this.lastSnapshot : [];
     if (this.lastTargetMode === "trainTargets" && this.isLocalUserIdentified()) {
-      rowsToRender = rowsToRender.filter((row) => row.name === this.USER_NAME);
+      rowsToRender = rowsToRender.filter((row) => row.isUser); // by id or name: an unnamed row is still yours
     }
     const rowsSummary = this.getRowsSummary(rowsToRender);
     if (rowsSummary.listSignature !== this._lastRenderedListSignature) {
@@ -5160,6 +5300,143 @@ class DpsApp {
   // Done keeps what the toggle says; closing it any other way (×, Escape, a
   // click outside) leaves it off. Not shown to anyone who has already chosen
   // either way in Settings, and never again once answered. True if it opens.
+  // Stream overlay: the meter's rows served on the local network for OBS on
+  // another PC. Off unless turned on. The backend owns the server and its key;
+  // this shows what it reports and passes the toggle and port through.
+  initStreamOverlaySettings() {
+    const group = document.querySelector(".streamOverlayGroup");
+    const bridge = window.javaBridge;
+    if (!group || typeof bridge?.streamOverlayStatus !== "function") return;
+    const checkbox = group.querySelector(".streamOverlayCheckbox");
+    const details = group.querySelector(".streamOverlayDetails");
+    const portInput = group.querySelector(".streamOverlayPortInput");
+    const newKeyBtn = group.querySelector(".streamOverlayNewKeyBtn");
+    const urlsEl = group.querySelector(".streamOverlayUrls");
+    const statusEl = group.querySelector(".streamOverlayStatus");
+    const nameInput = group.querySelector(".streamOverlayNameInput");
+    if (!checkbox || !details || !portInput || !newKeyBtn || !urlsEl || !statusEl) return;
+    const t = (key, fallback) => window.i18n?.t?.(key, fallback) ?? fallback;
+    let lastPort = 18731;
+
+    const copy = async (input, button) => {
+      let ok = false;
+      try {
+        await navigator.clipboard.writeText(input.value);
+        ok = true;
+      } catch {
+        input.focus();
+        input.select();
+        try {
+          ok = document.execCommand("copy");
+        } catch {
+          ok = false;
+        }
+      }
+      if (!ok) return;
+      button.textContent = t("settings.streamOverlay.copied", "Copied");
+      clearTimeout(button._copiedTimer);
+      button._copiedTimer = setTimeout(() => {
+        button.textContent = t("settings.streamOverlay.copy", "Copy");
+      }, 1500);
+    };
+
+    const show = (status) => {
+      if (!status) return;
+      const enabled = !!status.enabled;
+      const urls = Array.isArray(status.urls) ? status.urls : [];
+      checkbox.checked = enabled;
+      details.style.display = enabled ? "" : "none";
+      if (Number(status.port) > 0) lastPort = Number(status.port);
+      if (document.activeElement !== portInput) portInput.value = String(lastPort);
+      portInput.classList.remove("isInvalid");
+
+      urlsEl.replaceChildren();
+      for (const url of urls) {
+        const row = document.createElement("div");
+        row.className = "streamOverlayUrlRow";
+        const input = document.createElement("input");
+        input.className = "streamOverlayUrlInput";
+        input.readOnly = true;
+        input.spellcheck = false;
+        input.value = url;
+        input.addEventListener("mousedown", (event) => event.stopPropagation());
+        input.addEventListener("focus", () => input.select());
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "settingsAction";
+        button.dataset.i18n = "settings.streamOverlay.copy";
+        button.textContent = t("settings.streamOverlay.copy", "Copy");
+        button.addEventListener("click", () => copy(input, button));
+        row.append(input, button);
+        urlsEl.appendChild(row);
+      }
+
+      let message = "";
+      if (enabled && status.error) {
+        message =
+          window.i18n?.format?.(
+            "settings.streamOverlay.error",
+            { error: status.error },
+            `The overlay could not start: ${status.error}`
+          ) ?? `The overlay could not start: ${status.error}`;
+      } else if (enabled && urls.length === 0) {
+        message = t(
+          "settings.streamOverlay.noAddress",
+          "No network address found. Is this PC connected to your network?"
+        );
+      }
+      statusEl.textContent = message;
+    };
+    const fail = (err) => {
+      statusEl.textContent = typeof err === "string" ? err : err?.message || String(err);
+    };
+
+    const apply = () => {
+      let port = Number.parseInt(portInput.value, 10);
+      const valid = Number.isInteger(port) && port >= 1024 && port <= 65535;
+      if (!valid) {
+        if (checkbox.checked) {
+          portInput.classList.add("isInvalid");
+          statusEl.textContent = t(
+            "settings.streamOverlay.portInvalid",
+            "Enter a port between 1024 and 65535."
+          );
+          return;
+        }
+        port = lastPort;
+      }
+      Promise.resolve(bridge.streamOverlayConfigure(checkbox.checked, port)).then(show, fail);
+    };
+
+    checkbox.addEventListener("change", apply);
+    portInput.addEventListener("change", apply);
+    portInput.addEventListener("mousedown", (event) => event.stopPropagation());
+    portInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") portInput.blur();
+    });
+    // Your name on stream; the overlay reads it live. Blank means your
+    // character name. Other players are never sent by name.
+    if (nameInput) {
+      nameInput.value = this.safeGetSetting("dpsMeter.streamOverlayName") || "";
+      const saveName = () => this.safeSetSetting("dpsMeter.streamOverlayName", nameInput.value.trim());
+      nameInput.addEventListener("change", saveName);
+      nameInput.addEventListener("mousedown", (event) => event.stopPropagation());
+      nameInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") nameInput.blur();
+      });
+    }
+    newKeyBtn.addEventListener("click", () => {
+      Promise.resolve(bridge.streamOverlayNewKey()).then(show, fail);
+    });
+
+    Promise.resolve(bridge.streamOverlayStatus())
+      .then((status) => {
+        group.style.display = "";
+        show(status);
+      })
+      .catch(() => {});
+  }
+
   maybeShowDiscordPromo() {
     const promo = document.querySelector("#discordPromo");
     if (!promo) return false;

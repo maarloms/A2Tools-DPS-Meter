@@ -63,8 +63,18 @@
       "backTooltip": "백어택 %",
       "frontal": "정면",
       "frontalTooltip": "정면 공격 %",
-      "powershard": "샤드",
-      "powershardTooltip": "파워샤드 %",
+      "shieldBlock": "막기",
+      "shieldBlockTooltip": "방패 막기 %",
+      "perfectBlock": "완막",
+      "perfectBlockTooltip": "완벽 막기 %",
+      "ironWall": "철벽",
+      "ironWallTooltip": "철벽 %",
+      "regeneration": "재생",
+      "regenerationTooltip": "재생 %",
+      "miss": "빗나감",
+      "missTooltip": "빗나감",
+      "resist": "저항",
+      "resistTooltip": "저항",
       "regen": "회복",
       "regenTooltip": "흡혈 회복량",
       "multiHit": "MH%",
@@ -180,6 +190,7 @@
       "dps": "DPS"
     },
     "showPing": "핑 표시",
+    "showTtk": "처치 예상 시간(TTK) 표시",
     "showTotalDps": "총 DPS/DMG 표시",
     "roundDps": "DPS 반올림",
     "autoHideMeter": "미터 자동 숨기기",
@@ -194,6 +205,25 @@
       "title": "디스코드",
       "activity": "디스코드에 플레이 중인 정보 표시",
       "activityHint": "AION2가 실행 중일 때 디스코드 상태에 캐릭터 이름, 직업, 레벨, 서버와 싸우고 있는 보스를 표시합니다. 이 컴퓨터의 디스코드 앱을 통해 표시되며 계정은 필요하지 않습니다."
+    },
+    "streamOverlay": {
+      "title": "방송",
+      "enable": "방송 오버레이 (다른 PC의 OBS)",
+      "enableHint": "미터를 로컬 네트워크에 공유해서 두 번째 PC의 OBS에서 브라우저 소스로 띄울 수 있게 합니다.",
+      "port": "포트",
+      "url": "브라우저 소스 URL",
+      "copy": "복사",
+      "copied": "복사됨",
+      "newKey": "새 키",
+      "help": "다른 PC의 OBS에서 이 URL로 브라우저 소스를 추가하세요. 처음에는 Windows 방화벽이 미터를 허용할지 묻습니다. 개인 네트워크에서 허용해 주세요. 링크를 가진 같은 네트워크의 누구나 미터를 볼 수 있으며, '새 키'를 누르면 이전 링크는 더 이상 작동하지 않습니다.",
+      "noAddress": "네트워크 주소를 찾지 못했습니다. 이 PC가 네트워크에 연결되어 있나요?",
+      "portInvalid": "1024~65535 사이의 포트를 입력하세요.",
+      "error": "오버레이를 시작하지 못했습니다: {error}",
+      "waiting": "전투 대기 중…",
+      "reconnecting": "미터에 다시 연결하는 중…",
+      "player": "플레이어",
+      "displayName": "방송에 표시할 이름",
+      "displayNamePlaceholder": "캐릭터 이름"
     },
     "version": "버전",
     "theme": {
@@ -322,6 +352,7 @@
   },
   "battleTime": {
     "analysing": "데이터 모니터링 중...",
+    "ttkTooltip": "보스의 남은 생명력과 파티 피해량으로 예상한 전체 전투 시간",
     "idle": "대기 중",
     "notRunning": "AION2 not running",
     "suspended": "앱 일시정지됨",
@@ -401,5 +432,10 @@
     "signIn": "로그인",
     "later": "나중에",
     "close": "닫기"
+  },
+  "npcapPrompt": {
+    "ask": "A2Tools DPS 미터는 게임 네트워크 트래픽을 읽기 위해 Npcap이 필요한데, Npcap이 없거나 작동하지 않습니다.\n\n지금 설치할까요? 미터가 npcap.com에서 Npcap 설치 프로그램을 내려받아 실행합니다. Npcap이 설치되면 미터가 자동으로 캡처를 시작합니다.\n\n직접 설치하려면 아니요를 누르고 https://npcap.com/#download 에서 설치하세요.",
+    "downloadFailed": "Npcap 설치 프로그램을 내려받지 못했습니다 ({error}).\n\nhttps://npcap.com/#download 에서 직접 설치한 뒤 미터를 다시 여세요.",
+    "stillMissing": "Npcap이 아직 작동하지 않습니다. 설치 프로그램을 끝까지 진행하지 않고 닫았다면 https://npcap.com/#download 에서 Npcap을 설치한 뒤 미터를 다시 여세요."
   }
 }

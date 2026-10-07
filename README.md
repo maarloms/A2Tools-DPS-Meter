@@ -6,6 +6,8 @@
 
 Real-time DPS meter overlay for AION 2. Captures game network packets to display damage, skills, and combat statistics.
 
+The **[AION 2 DPS Meter website, a2tools.app](https://a2tools.app)** has the download, shared fight logs, leaderboards and class stats.
+
 **[Download Latest Release](https://github.com/taengu/A2Tools-DPS-Meter/releases)** | **[A2Tools.app](https://a2tools.app)**
 
 [한국어](README_KO.md) | [简体中文](README_ZH.md) | [繁體中文](README_ZH-TW.md)
@@ -13,25 +15,33 @@ Real-time DPS meter overlay for AION 2. Captures game network packets to display
 ## Features
 
 - Real-time DPS tracking with per-player breakdown
-- Skill-level damage analysis with crit, back attack, parry, double, and perfect rates
+- Skill-level damage analysis with crit, back attack, parry, double, and perfect rates, plus optional block, perfect block, endurance, regeneration, miss and resist columns
 - DOT (damage over time) tracking
 - Summon damage merged with owner
 - Multiple target selection modes (Boss, Last Hit, All Targets, Train)
 - DPS chart and timeline visualization
 - Battle history with auto-save for boss fights
 - Ping monitoring
-- Multi-language support (English, Korean, Chinese Traditional/Simplified)
+- Ten languages: English, Korean, Chinese (Traditional and Simplified), Japanese, German, French, Spanish, Portuguese and Russian
 - Always-on-top transparent overlay
 - Themes and customization
+- Stream overlay for OBS on another PC: add the meter as a Browser Source, and choose the name shown for you
+- Fight uploads to [a2tools.app](https://a2tools.app/logs): a link to share, leaderboards and class stats
+- Windows and Linux ([Linux guide](docs/linux.md))
 
 ## Requirements
+
+**Windows**
 
 - **Windows 10/11** (x86_64)
 - **[Npcap](https://npcap.com)** — required for packet capture
   - During Npcap installation, check **"Install Npcap in WinPcap API-compatible Mode"**
 - **Administrator privileges** — required for raw packet capture
 
-On **Linux** (playing through Proton), see the **[Linux guide](docs/linux.md)** instead.
+**Linux** (playing through Proton)
+
+- **64-bit (x86_64) with WebKitGTK 4.1:** Ubuntu 22.04 or newer, Debian 12, Fedora 39 or newer, openSUSE, current Arch, CachyOS, Manjaro or EndeavourOS, Bazzite and other image-based Fedoras, or Steam Deck (SteamOS, through distrobox)
+- Packages and setup for each: the **[Linux guide](docs/linux.md)**
 
 ## Installation
 
@@ -43,6 +53,17 @@ On **Linux** (playing through Proton), see the **[Linux guide](docs/linux.md)** 
 **Linux:** packages for Ubuntu/Debian (.deb), Fedora/openSUSE (.rpm), Bazzite, Arch/CachyOS/Manjaro and Steam Deck — see the **[Linux guide](docs/linux.md)**.
 
 [![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?logo=ubuntu&logoColor=white)](docs/linux.md#ubuntu-debian-linux-mint-pop_os) [![Debian](https://img.shields.io/badge/Debian-A81D33?logo=debian&logoColor=white)](docs/linux.md#ubuntu-debian-linux-mint-pop_os) [![Linux Mint](https://img.shields.io/badge/Linux_Mint-87CF3E?logo=linuxmint&logoColor=white)](docs/linux.md#ubuntu-debian-linux-mint-pop_os) [![Pop!_OS](https://img.shields.io/badge/Pop%21__OS-48B9C7?logo=popos&logoColor=white)](docs/linux.md#ubuntu-debian-linux-mint-pop_os) [![Fedora](https://img.shields.io/badge/Fedora-51A2DA?logo=fedora&logoColor=white)](docs/linux.md#fedora) [![Bazzite](https://img.shields.io/badge/Bazzite-8A3FFC?logo=fedora&logoColor=white)](docs/linux.md#bazzite-silverblue-kinoite-aurora-bluefin) [![Steam Deck](https://img.shields.io/badge/Steam_Deck-1A9FFF?logo=steamdeck&logoColor=white)](docs/linux.md#steam-deck-steamos) [![openSUSE](https://img.shields.io/badge/openSUSE-73BA25?logo=opensuse&logoColor=white)](docs/linux.md#opensuse) [![Arch](https://img.shields.io/badge/Arch-1793D1?logo=archlinux&logoColor=white)](docs/linux.md#cachyos-arch-manjaro-endeavouros) [![CachyOS](https://img.shields.io/badge/CachyOS-08A88A?logo=cachyos&logoColor=white)](docs/linux.md#cachyos-arch-manjaro-endeavouros) [![Manjaro](https://img.shields.io/badge/Manjaro-35BF5C?logo=manjaro&logoColor=white)](docs/linux.md#cachyos-arch-manjaro-endeavouros) [![EndeavourOS](https://img.shields.io/badge/EndeavourOS-7F3FBF?logo=endeavouros&logoColor=white)](docs/linux.md#cachyos-arch-manjaro-endeavouros)
+
+## Streaming from another PC (OBS)
+
+If OBS runs on a second PC, it cannot capture the meter's window on the game PC. The meter can serve its display over your home network instead:
+
+1. On the game PC, open **Settings → Streaming** and turn on **Stream overlay (OBS on another PC)**. The default port is 18731; change it if something else uses it.
+2. The first time, Windows Defender Firewall asks whether to allow the meter. Allow it on **Private networks** (your home network). The meter never adds a firewall rule by itself.
+3. Copy the URL shown (`http://<game PC's LAN IP>:18731/overlay?key=<key>`). If the PC has more than one network address, each is listed; use the one on the same network as the streaming PC.
+4. In OBS on the streaming PC, add a **Browser Source** with that URL. The background is transparent, and the rows scale with the source's width.
+
+The overlay shows the boss, the fight timer and the rows the meter shows (name, class, DPS, damage, share), and updates a few times a second. It is read-only and only reachable with the key; **New key** cuts off every link handed out before. Add `&lang=ko` (or `en`, `de`, `ja`, …) to the URL to change the language of its few labels. Add `&rows=5` to show at most five rows, so they always fit the height you gave the source (about 0.43 × its width for five rows, plus 0.07 × width for each more); you stay on it, in the last row if you are below the cut. **Your name on stream** sets the name the overlay shows for you; leave it blank to show your character name. Turn the setting off and the meter stops listening.
 
 ## Building from Source
 
@@ -103,6 +124,10 @@ Say thanks and fund new cool projects & features!
 ## License
 
 [GPL-3.0](LICENSE)
+
+### Fixes from Daevalog
+
+Some parser and storage fixes come from [Daevalog](https://github.com/Seralth/Daevalog), Seralth's GPL-3.0 fork of this meter. Each one is committed under Seralth's name, with a `Ported-from:` line naming the original commit.
 
 ### Fonts
 

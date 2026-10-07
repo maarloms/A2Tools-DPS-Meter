@@ -63,6 +63,9 @@ pub struct DpsCalculator {
     current_target: i32,
     last_dps_snapshot: Option<DpsData>,
     last_damage_gen: i64,
+    /// `DataStorage::names_generation` at the last computed snapshot: a name
+    /// that arrives after the last hit must still reach the meter.
+    last_names_gen: u64,
     target_selection_mode: TargetSelectionMode,
     last_known_local_id: Option<i64>,
     all_targets_window_ms: i64,
@@ -71,6 +74,8 @@ pub struct DpsCalculator {
     /// target hit again after that is saved again, so a fight with a long
     /// pause keeps its second half.
     saved_boss_targets: HashMap<i32, i64>,
+    /// Count every boss fight as ours (`set_every_fight`).
+    every_fight: bool,
 }
 
 impl DpsCalculator {
@@ -88,12 +93,23 @@ impl DpsCalculator {
             current_target: 0,
             last_dps_snapshot: None,
             last_damage_gen: -1,
+            last_names_gen: 0,
             target_selection_mode: TargetSelectionMode::BossTargets,
             last_known_local_id: None,
             all_targets_window_ms: 120_000,
             nickname_job_cache: HashMap::new(),
             saved_boss_targets: HashMap::new(),
+            every_fight: false,
         }
+    }
+
+    /// Snapshot every boss fight, whoever fought it, skipping `is_our_fight`.
+    /// For checking tools that replay a capture to hold another reading of
+    /// it (a slice, another meter's slice) to the same fights: an open-world
+    /// boss fought by others is a fight to compare all the same. The meter
+    /// itself never sets this.
+    pub fn set_every_fight(&mut self, on: bool) {
+        self.every_fight = on;
     }
 
     pub fn set_target_selection_mode(&mut self, id: &str) {
@@ -109,7 +125,11 @@ impl DpsCalculator {
     }
 
     pub fn set_all_targets_window_ms(&mut self, ms: i64) {
-        self.all_targets_window_ms = ms.clamp(10_000, 900_000);
+        let ms = ms.clamp(10_000, 900_000);
+        if ms != self.all_targets_window_ms {
+            self.last_damage_gen = -1;
+        }
+        self.all_targets_window_ms = ms;
     }
 
     pub fn mark_all_targets_saved(&mut self) {
@@ -152,11 +172,16 @@ impl DpsCalculator {
         }
 
         // If no new damage since last cycle, return cached result
+        // ...nor a name bound since. History saves a fight again after it ends
+        // and so picked up a name that arrived late; the meter kept the
+        // `#id` until someone hit something.
         let current_gen = self.data_storage.damage_generation();
-        if current_gen == self.last_damage_gen && self.last_dps_snapshot.is_some() {
+        let names_gen = self.data_storage.names_generation();
+        if current_gen == self.last_damage_gen && names_gen == self.last_names_gen && self.last_dps_snapshot.is_some() {
             return self.last_dps_snapshot.as_ref().unwrap().clone();
         }
         self.last_damage_gen = current_gen;
+        self.last_names_gen = names_gen;
 
         // Get pre-computed aggregates (cheap — small map, not 17K packets).
         // Light snapshot: skips per-hit timestamps (unused here, grows unbounded).
@@ -199,6 +224,11 @@ impl DpsCalculator {
             -1
         };
         dps_data.target_current_hp = target_current_hp;
+        let target_is_boss = self.current_target != 0
+            && self.data_storage.mob_code(self.current_target).is_some_and(|code| {
+                self.npc_lookup.is_boss(code) && !self.npc_lookup.is_training_dummy(code)
+            });
+        dps_data.target_is_boss = target_is_boss;
 
         // Collect actors from selected targets
         let mut combined_actors: HashMap<i32, i64> = HashMap::new();
@@ -246,6 +276,7 @@ impl DpsCalculator {
                 snapshot.target_max_hp = target_max_hp;
                 snapshot.target_total_damage = 0;
                 snapshot.target_current_hp = target_current_hp;
+                snapshot.target_is_boss = target_is_boss;
                 snapshot.dungeon_id = dps_data.dungeon_id;
                 let mut snap = snapshot.clone();
                 self.finalize_rows(&mut snap);
@@ -328,10 +359,19 @@ impl DpsCalculator {
         }
         let skill_counts: HashMap<i32, usize> =
             skill_counts.into_iter().map(|(k, v)| (k, v.len())).collect();
+        let local_ids = self.resolve_local_ids(&summon_data);
         let mut orphan_merges: Vec<(i32, i32)> = Vec::new();
         for (&uid, data) in &dps_data.map {
             if summon_data.contains_key(&uid) { continue; }
             if nickname_data.contains_key(&uid) { continue; }
+            // You are nobody's summon. Unnamed, you looked like one to the
+            // power-scalar rule below whenever another player of your class
+            // with a longer rotation shared a scalar with you: your row was
+            // folded into theirs, your damage with it (2026-10-07, an
+            // Assassin among other Assassins at the training dummies).
+            // Details and history never merge a known player, so they were
+            // right while the meter was not.
+            if local_ids.as_ref().is_some_and(|ids| ids.contains(&uid)) { continue; }
             let job = &data.job;
             // A classless entity was dropped here, and with it its damage. Some
             // spirits only use skills that name no class (16110004, 100044…), so
@@ -404,7 +444,7 @@ impl DpsCalculator {
         if let Some(owners) = self.instance_class_owners(self.target_dungeon(self.current_target), &rows) {
             let merged: HashSet<i32> = orphan_merges.iter().map(|(o, _)| *o).collect();
             for (id, job, _, _) in &rows {
-                if merged.contains(id) {
+                if merged.contains(id) || local_ids.as_ref().is_some_and(|ids| ids.contains(id)) {
                     continue;
                 }
                 if let Some(&owner) = owners.get(job) {
@@ -423,7 +463,6 @@ impl DpsCalculator {
         }
 
         // Filter and compute DPS
-        let local_ids = self.resolve_local_ids(&summon_data);
         let party_members = self.data_storage.get_party_members();
         if group_mode {
             // fork: strangers hitting the same mobs stay off the meter. Runs
@@ -649,13 +688,25 @@ impl DpsCalculator {
                 }
             }
             TargetSelectionMode::AllTargets => {
-                let all: HashSet<i32> = combat_data.keys().cloned().collect();
+                // The targets hit within the time range the settings offer
+                // ("All Targets time range"), counted back from the latest
+                // hit. The setting was never applied: every target since the
+                // last zone change stayed in, so a dungeon's first sub-boss
+                // went on being added to the second (2026-10-07).
+                let latest = combat_data.values().map(|td| td.last_damage_time).max().unwrap_or(0);
+                let all: HashSet<i32> = combat_data.iter()
+                    .filter(|(_, td)| td.last_damage_time >= latest - self.all_targets_window_ms)
+                    .map(|(&id, _)| id)
+                    .collect();
                 (all, "All Targets".to_string(), 0)
             }
             TargetSelectionMode::TrainTargets => {
+                // A dummy whose spawn the meter missed (it started next to
+                // it) has no NPC code; it is known by its HP instead.
                 let trains: HashSet<i32> = combat_data.keys()
-                    .filter(|&&tid| {
-                        mob_data.get(&tid).is_some_and(|&code| self.npc_lookup.is_training_dummy(code))
+                    .filter(|&&tid| match mob_data.get(&tid) {
+                        Some(&code) => self.npc_lookup.is_training_dummy(code),
+                        None => self.data_storage.is_hp_reset_dummy(tid),
                     })
                     .cloned()
                     .collect();
@@ -827,6 +878,9 @@ impl DpsCalculator {
     /// auto-uploaded under the local player's account (issue #19). Without
     /// either a local id or a party to go on, every fight counts, as before.
     fn is_our_fight(&self, target: &TargetCombatData) -> bool {
+        if self.every_fight {
+            return true;
+        }
         // An instance holds only the party: every fight in it is ours. Slices
         // from older meters often lack the self record and tie the party's
         // names to stale ids, and the checks below refused the uploader's
@@ -1180,15 +1234,27 @@ impl DpsCalculator {
             .collect();
 
         DetailsContext {
-            current_target_id: self.current_target,
+            current_target_id: self.data_storage.current_target(),
             targets,
             actors,
         }
     }
 
     pub fn get_target_details(&self, target_id: i32, actor_ids: Option<&[i32]>) -> TargetDetailsResponse {
-        let combat_data = self.data_storage.get_combat_snapshot();
-        let target_data = match combat_data.get(&target_id) {
+        self.target_details(target_id, actor_ids, false)
+    }
+
+    pub fn get_hover_details(&self, target_id: i32, actor_ids: Option<&[i32]>) -> TargetDetailsResponse {
+        self.target_details(target_id, actor_ids, true)
+    }
+
+    fn target_details(&self, target_id: i32, actor_ids: Option<&[i32]>, summary_only: bool) -> TargetDetailsResponse {
+        let target = if summary_only {
+            self.data_storage.get_target_snapshot_light(target_id)
+        } else {
+            self.data_storage.get_target_snapshot(target_id)
+        };
+        let target_data = match target.as_ref() {
             Some(td) => td,
             None => return TargetDetailsResponse {
                 target_id,
@@ -1204,8 +1270,6 @@ impl DpsCalculator {
 
         let summon_data = self.data_storage.get_summon_data();
         let nickname_data = self.data_storage.get_nicknames();
-        let mob_hp_data = self.data_storage.get_mob_hp_data();
-
         let actor_damage_map: HashMap<i32, i64> = target_data.actors.iter()
             .map(|(&id, ad)| (id, ad.total_damage))
             .collect();
@@ -1385,13 +1449,17 @@ impl DpsCalculator {
                     min_dmg: i32::MAX,
                     max_dmg: 0,
                     crit: 0,
+                    shield_block: 0,
                     parry: 0,
                     back: 0,
                     frontal: 0,
                     perfect: 0,
                     double: 0,
-                    smite: 0,
-                    powershard: 0,
+                    iron_wall: 0,
+                    regeneration: 0,
+                    perfect_block: 0,
+                    miss: 0,
+                    resist: 0,
                     regen: 0,
                     job,
                     is_dot,
@@ -1412,11 +1480,15 @@ impl DpsCalculator {
                 entry.crit += skill_data.crit_count;
                 entry.back += skill_data.back_count;
                 entry.frontal += skill_data.frontal_count;
+                entry.shield_block += skill_data.shield_block_count;
                 entry.parry += skill_data.parry_count;
                 entry.perfect += skill_data.perfect_count;
                 entry.double += skill_data.double_count;
-                entry.smite += skill_data.smite_count;
-                entry.powershard += skill_data.powershard_count;
+                entry.iron_wall += skill_data.iron_wall_count;
+                entry.regeneration += skill_data.regeneration_count;
+                entry.perfect_block += skill_data.perfect_block_count;
+                entry.miss += skill_data.miss_count;
+                entry.resist += skill_data.resist_count;
                 entry.regen = entry.regen.saturating_add(skill_data.heal_amount);
                 // Add timestamps relative to fight start
                 for &ts in &skill_data.hit_timestamps {
@@ -1432,6 +1504,19 @@ impl DpsCalculator {
         // Fix min_dmg sentinel
         for entry in skill_map.values_mut() {
             if entry.min_dmg == i32::MAX { entry.min_dmg = 0; }
+        }
+
+        if summary_only {
+            return TargetDetailsResponse {
+                target_id,
+                max_hp: 0,
+                total_target_damage: target_data.total_damage as i32,
+                battle_time: (target_data.last_damage_time - target_data.first_damage_time).max(0),
+                start_time: fight_start,
+                skills: skill_map.into_values().collect(),
+                ping_history: Vec::new(),
+                heal_skills: Vec::new(),
+            };
         }
 
         // Healing done this segment, per healer/skill. Keyed by the canonical actor
@@ -1468,13 +1553,17 @@ impl DpsCalculator {
                     min_dmg: 0,
                     max_dmg: 0,
                     crit: 0,
+                    shield_block: 0,
                     parry: 0,
                     back: 0,
                     frontal: 0,
                     perfect: 0,
                     double: 0,
-                    smite: 0,
-                    powershard: 0,
+                    iron_wall: 0,
+                    regeneration: 0,
+                    perfect_block: 0,
+                    miss: 0,
+                    resist: 0,
                     regen: 0,
                     job,
                     is_dot: is_hot,
@@ -1496,7 +1585,7 @@ impl DpsCalculator {
 
         TargetDetailsResponse {
             target_id,
-            max_hp: mob_hp_data.get(&target_id).copied().unwrap_or(0),
+            max_hp: self.data_storage.get_mob_hp_data().get(&target_id).copied().unwrap_or(0),
             total_target_damage: target_data.total_damage as i32,
             battle_time,
             start_time: target_data.first_damage_time,
@@ -1594,6 +1683,105 @@ mod tests {
             Arc::new(NpcLookup::new()), Arc::new(PingTracker::new()))
     }
 
+    fn assert_hover_matches_full(calc: &DpsCalculator, target: i32, actors: Option<&[i32]>) {
+        let mut full = calc.get_target_details(target, actors);
+        let mut summary = calc.get_hover_details(target, actors);
+        assert!(summary.skills.iter().all(|s| s.hit_timestamps.is_empty()));
+        assert!(summary.heal_skills.is_empty());
+        assert!(summary.ping_history.is_empty());
+        full.max_hp = 0;
+        full.heal_skills.clear();
+        full.ping_history.clear();
+        for skill in &mut full.skills { skill.hit_timestamps.clear(); }
+        full.skills.sort_by_key(|s| (s.actor_id, s.code, s.is_dot));
+        summary.skills.sort_by_key(|s| (s.actor_id, s.code, s.is_dot));
+        assert_eq!(serde_json::to_value(full).unwrap(), serde_json::to_value(summary).unwrap());
+    }
+
+    #[test]
+    fn hover_omits_timelines_without_changing_damage_or_actor_filtering() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2259));
+        storage.append_damage(hit(2259, 50_000, 1_000));
+        storage.append_damage(hit(2259, 50_000, 1_100));
+        storage.append_damage(hit(2260, 50_000, 1_200));
+        storage.append_damage(hit(2259, 50_001, 1_300));
+        let mut dot = hit(2259, 50_000, 1_400);
+        dot.set_dot(true);
+        storage.append_damage(dot);
+        let calc = meter(&storage);
+        assert!(calc.get_hover_details(50_000, Some(&[2259])).skills.iter().any(|s| s.is_dot));
+        assert!(!calc.get_target_details(50_000, Some(&[2259])).skills[0].hit_timestamps.is_empty());
+        for actors in [None, Some(&[2259][..]), Some(&[2260][..]), Some(&[999][..])] {
+            assert_hover_matches_full(&calc, 50_000, actors);
+        }
+        assert_hover_matches_full(&calc, 99999, None);
+        // Reading the summary must not strip the stored timeline.
+        assert_eq!(calc.get_target_details(50_000, Some(&[2259])).skills.iter()
+            .find(|s| !s.is_dot).unwrap().hit_timestamps.len(), 2);
+    }
+
+    #[test]
+    fn independent_details_reader_matches_live_calculator_and_ignores_unrelated_hits() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2259));
+        storage.append_damage(hit(2259, 50_000, 1_000));
+        let mut live = meter(&storage);
+        live.get_dps();
+        let reader = meter(&storage);
+        assert_eq!(serde_json::to_value(reader.get_details_context()).unwrap(),
+            serde_json::to_value(live.get_details_context()).unwrap());
+        let before = serde_json::to_value(reader.get_target_details(50_000, Some(&[2259]))).unwrap();
+        for target in 50_001..50_065 {
+            for i in 0..100 { storage.append_damage(hit(2259, target, 2_000 + i)); }
+        }
+        assert_eq!(serde_json::to_value(reader.get_target_details(50_000, Some(&[2259]))).unwrap(), before);
+        let snapshot = storage.get_target_snapshot(50_000).unwrap();
+        assert_eq!(snapshot.actors.values().flat_map(|a| a.skills.values())
+            .map(|s| s.hit_timestamps.len()).sum::<usize>(), 1);
+        assert!(storage.get_target_snapshot(99999).is_none());
+        live.restart_target_selection(true);
+        assert_eq!(reader.get_details_context().current_target_id, live.get_details_context().current_target_id);
+    }
+
+    #[test]
+    #[ignore = "manual synthetic hover resource benchmark"]
+    fn hover_resource_benchmark() {
+        use std::hint::black_box;
+        use std::time::Instant;
+        for hits_per_target in [1_000, 10_000] {
+            let storage = Arc::new(DataStorage::new());
+            storage.set_local_player_id(Some(2259));
+            for target in 50_000..50_064 {
+                for i in 0..hits_per_target {
+                    let mut packet = hit(2259, target, 1_000 + i);
+                    packet.set_skill_code(11_010_000 + (i as i32 % 20) * 10_000);
+                    storage.append_damage(packet);
+                }
+            }
+            let snapshot = storage.get_combat_snapshot();
+            assert_eq!(snapshot.len(), 64);
+            let timestamps: usize = snapshot.values().flat_map(|t| t.actors.values())
+                .flat_map(|a| a.skills.values()).map(|s| s.hit_timestamps.len()).sum();
+            assert_eq!(timestamps, 64 * hits_per_target as usize);
+            drop(snapshot);
+            let calc = meter(&storage);
+            assert_hover_matches_full(&calc, 50_000, Some(&[2259]));
+            for summary in [false, true] {
+                let start = Instant::now();
+                let mut bytes = 0;
+                for _ in 0..200 {
+                    let details = if summary { calc.get_hover_details(50_000, Some(&[2259])) }
+                        else { calc.get_target_details(50_000, Some(&[2259])) };
+                    let json = serde_json::to_vec(&details).unwrap();
+                    bytes = json.len();
+                    black_box(json);
+                }
+                eprintln!("hits_per_target={hits_per_target} summary={summary} requests=200 elapsed_us={} response_bytes={bytes}", start.elapsed().as_micros());
+            }
+        }
+    }
+
     #[test]
     fn displayed_rows_keep_their_detail_targets_until_reset() {
         let storage = Arc::new(DataStorage::new());
@@ -1673,7 +1861,11 @@ mod tests {
         stray.set_skill_code(11_390_000);
         storage.append_damage(stray);
 
-        let details = meter(&storage).get_target_details(50_000, None);
+        let calc = meter(&storage);
+        assert_hover_matches_full(&calc, 50_000, None);
+        assert_hover_matches_full(&calc, 50_000, Some(&[1490]));
+        assert_hover_matches_full(&calc, 50_000, Some(&[5886]));
+        let details = calc.get_target_details(50_000, None);
         let rows: HashSet<i32> = details.skills.iter().map(|s| s.actor_id).collect();
         assert_eq!(rows, HashSet::from([1490, 5886, 7001, 7002, 119]),
             "spirit to the Spiritmaster; the old id and the aura to the Cleric; two Gladiators: unknown");
@@ -1755,6 +1947,50 @@ mod tests {
         assert!(shown.map.is_empty());
     }
 
+    /// Two Assassins at a training dummy, both unnamed (2026-10-07, after the
+    /// reset button had cleared every name): you, with two skills so far, and
+    /// a stranger with a full rotation and the same power scalar. The scalar
+    /// rule took you for the stranger's summon and folded your row into theirs.
+    #[test]
+    fn your_row_is_never_folded_into_another_player_of_your_class() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2737));
+        rotation(&storage, 2737, 25_839, 13, 2);
+        rotation(&storage, 8260, 25_839, 13, 9);
+        storage.note_power_scalar(2737, 4_000);
+        storage.note_power_scalar(8260, 4_000);
+        let mut calc = meter(&storage);
+        calc.set_target_selection_mode("allTargets");
+        let rows = calc.get_dps();
+        assert!(rows.map.contains_key(&2737), "your row: {:?}", rows.map.keys().collect::<Vec<_>>());
+        assert!(rows.map.contains_key(&8260));
+
+        // Anyone else is still folded into their owner by that rule.
+        let stranger = Arc::new(DataStorage::new());
+        rotation(&stranger, 3001, 25_839, 13, 2);
+        rotation(&stranger, 8260, 25_839, 13, 9);
+        stranger.note_power_scalar(3001, 4_000);
+        stranger.note_power_scalar(8260, 4_000);
+        let mut calc = meter(&stranger);
+        calc.set_target_selection_mode("allTargets");
+        assert!(!calc.get_dps().map.contains_key(&3001));
+    }
+
+    /// History saves a fight again once it is over, and so has a name that
+    /// arrived after the last hit; the meter has to show it too.
+    #[test]
+    fn a_name_that_arrives_after_the_last_hit_reaches_the_meter() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2259));
+        storage.append_damage(hit(2259, 50_000, 1_000));
+        storage.append_damage(hit(4227, 50_000, 1_100));
+        let mut calc = meter(&storage);
+        calc.set_target_selection_mode("allTargets");
+        assert_eq!(calc.get_dps().map[&4227].nickname, "4227");
+        storage.append_nickname_authoritative(4227, "Ab");
+        assert_eq!(calc.get_dps().map[&4227].nickname, "Ab");
+    }
+
     #[test]
     fn a_fight_takes_its_dungeon_from_the_boss_when_the_table_names_it() {
         let npcs = NpcLookup::new();
@@ -1777,5 +2013,61 @@ mod tests {
         assert_eq!(fight_dungeon(&npcs, 2701090, 0), 0);
         // Trash keeps the roster's.
         assert_eq!(fight_dungeon(&npcs, 2310219, 600011), 600011);
+    }
+
+    /// Train mode follows the dummies the NPC table names, and, for a dummy
+    /// whose spawn the meter never saw, the one its HP gave away. Before
+    /// that, a meter started next to the scarecrows showed nothing however
+    /// long the player hit them (2026-10-07).
+    #[test]
+    fn train_mode_shows_a_dummy_known_by_its_hp() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2259));
+        let npcs = Arc::new(NpcLookup::new());
+        npcs.load_from_json(r#"{"2400032": {"name": "Training Scarecrow", "isBoss": true, "isDummy": true},
+                                "2310401": {"name": "Phantasmal Lakshmi", "isBoss": true}}"#);
+        let mut calc = DpsCalculator::new(storage.clone(), Arc::new(SkillLookup::new()), npcs, Arc::new(PingTracker::new()));
+        calc.set_target_selection_mode("trainTargets");
+        // 600: a scarecrow spawned in view. 601: one spawned before the meter
+        // started. 602: a mob nobody named. 603: a boss whose HP behaved so.
+        storage.append_mob(600, 2400032);
+        storage.append_mob(603, 2310401);
+        for (target, at) in [(600, 1_000), (601, 1_100), (602, 1_200), (603, 1_300)] {
+            storage.append_damage(hit(2259, target, at));
+        }
+        for target in [601, 602, 603] {
+            storage.set_mob_current_hp(target, 1);
+        }
+        assert_eq!(calc.get_dps().detail_target_ids, vec![600]);
+
+        for target in [601, 603] {
+            storage.set_mob_current_hp(target, 119_700);
+        }
+        storage.append_damage(hit(2259, 601, 1_400));
+        let shown = calc.get_dps();
+        assert_eq!(shown.detail_target_ids, vec![600, 601]);
+        assert_eq!(shown.map[&2259].amount, 1_500.0);
+    }
+
+    /// All Targets keeps the targets hit within its time range (Settings),
+    /// counted back from the latest hit. The setting was never applied, so a
+    /// dungeon's first sub-boss went on being added to the second.
+    #[test]
+    fn all_targets_keeps_its_time_range() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2259));
+        let mut calc = meter(&storage);
+        calc.set_target_selection_mode("allTargets");
+        storage.append_damage(hit(2259, 50_000, 1_000));
+        storage.append_damage(hit(2259, 50_000, 64_000));
+        storage.append_damage(hit(2259, 60_000, 138_000));
+        // The default two minutes: the first boss's last hit is 74 s back.
+        assert_eq!(calc.get_dps().detail_target_ids, vec![50_000, 60_000]);
+        calc.set_all_targets_window_ms(30_000);
+        let shown = calc.get_dps();
+        assert_eq!(shown.detail_target_ids, vec![60_000]);
+        assert_eq!(shown.map[&2259].amount, 500.0);
+        storage.append_damage(hit(2259, 50_000, 140_000));
+        assert_eq!(calc.get_dps().detail_target_ids, vec![50_000, 60_000]);
     }
 }

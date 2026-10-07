@@ -150,8 +150,7 @@ const createMeterUI = ({
 
 
     rowEl.addEventListener("mousemove", (event) => {
-      if (view._lastMoveMs && nowMs() - view._lastMoveMs < 100) return;
-      view._lastMoveMs = nowMs();
+      // The tooltip coalesces pointer events into one update per display frame.
       onHoverUserRow?.(view.currentRow, event);
     });
     rowEl.addEventListener("mouseleave", () => {
@@ -301,6 +300,7 @@ const createMeterUI = ({
       const isSupporter = !!row.isSupporter;
       if (view.lastIsSupporter !== isSupporter) {
         view.nameEl.classList.toggle("isSupporter", isSupporter);
+        view.rowEl.classList.toggle("isSupporterRow", isSupporter);
         view.supporterBadgeEl.style.display = isSupporter ? "inline-flex" : "none";
         view.lastIsSupporter = isSupporter;
       }
