@@ -15,16 +15,19 @@ The **[AION 2 DPS Meter website, a2tools.app](https://a2tools.app)** has the dow
 ## Features
 
 - Real-time DPS tracking with per-player breakdown
-- Skill-level damage analysis with crit, back attack, parry, double, and perfect rates
+- Skill-level damage analysis with crit, back attack, parry, double, and perfect rates, plus optional block, perfect block, endurance, regeneration, miss and resist columns
 - DOT (damage over time) tracking
 - Summon damage merged with owner
 - Multiple target selection modes (Boss, Last Hit, All Targets, Train)
 - DPS chart and timeline visualization
 - Battle history with auto-save for boss fights
 - Ping monitoring
-- Multi-language support (English, Korean, Chinese Traditional/Simplified)
+- Ten languages: English, Korean, Chinese (Traditional and Simplified), Japanese, German, French, Spanish, Portuguese and Russian
 - Always-on-top transparent overlay
 - Themes and customization
+- Stream overlay for OBS on another PC: add the meter as a Browser Source; other players show by class only, never by name
+- Fight uploads to [a2tools.app](https://a2tools.app/logs): a link to share, leaderboards and class stats
+- Windows and Linux ([Linux guide](docs/linux.md))
 
 ## Requirements
 
