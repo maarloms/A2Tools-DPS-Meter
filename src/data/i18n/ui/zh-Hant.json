@@ -208,7 +208,11 @@
       "portInvalid": "請輸入 1024 到 65535 之間的連接埠。",
       "error": "疊加層無法啟動：{error}",
       "waiting": "等待戰鬥…",
-      "reconnecting": "正在重新連線面板…"
+      "reconnecting": "正在重新連線面板…",
+      "player": "玩家",
+      "displayName": "直播中顯示的名字",
+      "displayNamePlaceholder": "你的角色名稱",
+      "displayNameHint": "其他玩家在直播中只顯示職業，不顯示名字。"
     },
     "version": "版本",
     "theme": {

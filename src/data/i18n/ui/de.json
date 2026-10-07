@@ -203,7 +203,11 @@
       "portInvalid": "Gib einen Port zwischen 1024 und 65535 ein.",
       "error": "Das Overlay konnte nicht starten: {error}",
       "waiting": "Warte auf Kampf…",
-      "reconnecting": "Verbinde erneut mit dem Meter…"
+      "reconnecting": "Verbinde erneut mit dem Meter…",
+      "player": "Spieler",
+      "displayName": "Dein Name im Stream",
+      "displayNamePlaceholder": "Dein Charaktername",
+      "displayNameHint": "Andere Spieler erscheinen im Stream nur mit ihrer Klasse, nie mit Namen."
     },
     "version": "Version",
     "theme": {

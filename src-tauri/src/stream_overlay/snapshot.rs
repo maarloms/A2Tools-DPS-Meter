@@ -5,7 +5,10 @@
 //! and shaped the way `core.js` / `meter.js` shape it: rows without an id are
 //! dropped, duplicate names collapse to the best-known row, the list is the
 //! top N by DPS plus the local player, and a row's share is of the damage the
-//! displayed rows did. Nothing else from `DpsData` leaves the machine.
+//! displayed rows did. Nothing else from `DpsData` leaves the machine, and
+//! other players' names do not either: a stream shows them by class only.
+//! Yours shows as the streamer chose (`dpsMeter.streamOverlayName`), else as
+//! your character name.
 
 use serde::Serialize;
 
@@ -31,6 +34,8 @@ pub struct OverlaySnapshot {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct OverlayRow {
+    /// Your name on stream; empty for everyone else, whom the page shows by
+    /// class.
     pub name: String,
     /// Class key (`gladiator`, `cleric`, …) for the colour and icon; `None`
     /// while the class is not known yet.
@@ -45,17 +50,22 @@ pub struct OverlayRow {
 }
 
 /// The meter settings the overlay follows, so it lists who the meter lists.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ViewOptions {
     /// `dpsMeter.playerLimit`.
     pub limit: usize,
     /// `dpsMeter.pinMeToTop`.
     pub pin_you: bool,
+    /// `dpsMeter.streamOverlayName`: the name to show for you on stream.
+    pub your_name: Option<String>,
 }
+
+/// The longest custom name kept, in characters.
+const NAME_CHARS: usize = 24;
 
 impl Default for ViewOptions {
     fn default() -> Self {
-        Self { limit: 6, pin_you: false }
+        Self { limit: 6, pin_you: false, your_name: None }
     }
 }
 
@@ -66,7 +76,10 @@ impl ViewOptions {
             .filter(|&n| n >= 1)
             .unwrap_or(6);
         let pin_you = get("dpsMeter.pinMeToTop").as_deref() == Some("true");
-        Self { limit, pin_you }
+        let your_name = get("dpsMeter.streamOverlayName")
+            .map(|n| n.trim().chars().filter(|c| !c.is_control()).take(NAME_CHARS).collect::<String>())
+            .filter(|n| !n.is_empty());
+        Self { limit, pin_you, your_name }
     }
 }
 
@@ -191,7 +204,7 @@ pub fn build(dps: &DpsData, opts: ViewOptions) -> OverlaySnapshot {
     let rows = shown
         .into_iter()
         .map(|c| OverlayRow {
-            name: c.name.clone(),
+            name: if is_you(c) { opts.your_name.clone().unwrap_or_else(|| c.name.clone()) } else { String::new() },
             cls: c.class.map(class_key),
             dps: c.dps,
             dmg: c.dmg,
@@ -274,9 +287,11 @@ mod tests {
     #[test]
     fn rows_are_ranked_named_and_shared_like_the_meter() {
         let snap = build(&sample(), ViewOptions::default());
+        let classes: Vec<_> = snap.rows.iter().map(|r| r.cls).collect();
+        // The negative id is dropped.
+        assert_eq!(classes, [Some("gladiator"), None, Some("cleric"), None]);
         let names: Vec<_> = snap.rows.iter().map(|r| r.name.as_str()).collect();
-        // The negative id is dropped; an unnamed row shows its id.
-        assert_eq!(names, ["Alpha", "Me", "Bravo", "#7"]);
+        assert_eq!(names, ["", "Me", "", ""], "only your name goes on stream");
         assert_eq!(snap.rows[0].cls, Some("gladiator"));
         assert_eq!(snap.rows[1].cls, None);
         assert_eq!(snap.rows[2].cls, Some("cleric"));
@@ -288,13 +303,30 @@ mod tests {
 
     #[test]
     fn the_player_limit_keeps_the_local_player_and_can_pin_them() {
-        let snap = build(&sample(), ViewOptions { limit: 1, pin_you: false });
+        let snap = build(&sample(), ViewOptions { limit: 1, ..Default::default() });
         let names: Vec<_> = snap.rows.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["Alpha", "Me"]);
+        assert_eq!(names, ["", "Me"]);
         assert_eq!(snap.rows[0].pct, 60.0);
 
-        let snap = build(&sample(), ViewOptions { limit: 6, pin_you: true });
+        let snap = build(&sample(), ViewOptions { pin_you: true, ..Default::default() });
         assert_eq!(snap.rows[0].name, "Me");
+    }
+
+    #[test]
+    fn other_names_never_leave_and_yours_can_be_your_own_choice() {
+        let get = |name: &'static str| move |k: &str| (k == "dpsMeter.streamOverlayName").then(|| name.to_string());
+        let snap = build(&sample(), ViewOptions::from_settings(get("  Twitch\u{7}Tear\n ")));
+        let text = serde_json::to_string(&snap).unwrap();
+        for other in ["Alpha", "Bravo", "Ghost", "#7"] {
+            assert!(!text.contains(other), "{other} went out");
+        }
+        assert_eq!(snap.rows[1].name, "TwitchTear");
+        assert!(!text.contains("\"Me\""), "the character name is replaced");
+
+        let blank = build(&sample(), ViewOptions::from_settings(get("   ")));
+        assert_eq!(blank.rows[1].name, "Me", "a blank choice keeps your name");
+        let long = ViewOptions::from_settings(get("abcdefghijklmnopqrstuvwxyz0123"));
+        assert_eq!(long.your_name.as_deref(), Some("abcdefghijklmnopqrstuvwx"));
     }
 
     #[test]

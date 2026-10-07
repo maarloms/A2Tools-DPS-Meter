@@ -253,7 +253,20 @@ fn hooks(app: tauri::AppHandle) -> Hooks {
     }
 }
 
-/// The page's two labels, from the UI text for `lang` (one of `LANGUAGES`).
+/// Overlay class key, its `classes.*` key in the UI text, and English.
+const CLASS_LABELS: [(&str, &str, &str); 9] = [
+    ("gladiator", "GLADIATOR", "Gladiator"),
+    ("templar", "TEMPLAR", "Templar"),
+    ("ranger", "RANGER", "Ranger"),
+    ("assassin", "ASSASSIN", "Assassin"),
+    ("sorcerer", "SORCERER", "Sorcerer"),
+    ("cleric", "CLERIC", "Cleric"),
+    ("spiritmaster", "ELEMENTALIST", "Spiritmaster"),
+    ("chanter", "CHANTER", "Chanter"),
+    ("brawler", "FIGHTER", "Brawler"),
+];
+
+/// The page's labels, from the UI text for `lang` (one of `LANGUAGES`).
 fn page_labels(data_dir: Option<&std::path::Path>, lang: &str) -> PageLabels {
     let load = |lang: &str| -> Option<serde_json::Value> {
         let path = data_dir?.join("i18n").join("ui").join(format!("{lang}.json"));
@@ -274,6 +287,11 @@ fn page_labels(data_dir: Option<&std::path::Path>, lang: &str) -> PageLabels {
         waiting: text("waiting", "Waiting for combat…"),
         reconnecting: text("reconnecting", "Reconnecting to the meter…"),
         dps_suffix: text_at(&["meter"], "dpsSuffix", "/s"),
+        classes: CLASS_LABELS
+            .iter()
+            .map(|(key, ui_key, en)| (key.to_string(), text_at(&["classes"], ui_key, en)))
+            .collect(),
+        player: text("player", "Player"),
     }
 }
 
@@ -381,6 +399,9 @@ mod tests {
         assert!(!de.waiting.is_empty() && !en.waiting.is_empty());
         assert_ne!(de.waiting, en.waiting);
         assert_eq!(en.dps_suffix, "/s", "after DPS, as the meter window shows it");
+        assert_eq!(en.classes["spiritmaster"], "Spiritmaster");
+        assert_eq!(en.classes.len(), 9);
+        assert_ne!(de.classes["gladiator"], "", "class names in the page's language");
         let none = page_labels(None, "en");
         assert_eq!(none.waiting, "Waiting for combat…");
     }

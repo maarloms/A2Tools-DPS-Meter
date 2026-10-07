@@ -203,7 +203,11 @@
       "portInvalid": "Introduce un puerto entre 1024 y 65535.",
       "error": "No se pudo iniciar el overlay: {error}",
       "waiting": "Esperando combate…",
-      "reconnecting": "Reconectando con el medidor…"
+      "reconnecting": "Reconectando con el medidor…",
+      "player": "Jugador",
+      "displayName": "Tu nombre en el directo",
+      "displayNamePlaceholder": "Nombre de tu personaje",
+      "displayNameHint": "Los demás jugadores aparecen en el directo por su clase, nunca por su nombre."
     },
     "version": "Versión",
     "theme": {

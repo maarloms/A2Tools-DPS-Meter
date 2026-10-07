@@ -203,7 +203,11 @@
       "portInvalid": "1024〜65535のポートを入力してください。",
       "error": "オーバーレイを開始できませんでした: {error}",
       "waiting": "戦闘を待っています…",
-      "reconnecting": "メーターに再接続中…"
+      "reconnecting": "メーターに再接続中…",
+      "player": "プレイヤー",
+      "displayName": "配信での名前",
+      "displayNamePlaceholder": "キャラクター名",
+      "displayNameHint": "他のプレイヤーは配信では名前ではなくクラスで表示されます。"
     },
     "version": "バージョン",
     "theme": {

@@ -203,7 +203,11 @@
       "portInvalid": "Digite uma porta entre 1024 e 65535.",
       "error": "Não foi possível iniciar o overlay: {error}",
       "waiting": "Aguardando combate…",
-      "reconnecting": "Reconectando ao medidor…"
+      "reconnecting": "Reconectando ao medidor…",
+      "player": "Jogador",
+      "displayName": "Seu nome na live",
+      "displayNamePlaceholder": "Nome do seu personagem",
+      "displayNameHint": "Os outros jogadores aparecem na live pela classe, nunca pelo nome."
     },
     "version": "Versão",
     "theme": {

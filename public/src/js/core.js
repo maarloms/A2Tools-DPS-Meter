@@ -5149,6 +5149,7 @@ class DpsApp {
     const newKeyBtn = group.querySelector(".streamOverlayNewKeyBtn");
     const urlsEl = group.querySelector(".streamOverlayUrls");
     const statusEl = group.querySelector(".streamOverlayStatus");
+    const nameInput = group.querySelector(".streamOverlayNameInput");
     if (!checkbox || !details || !portInput || !newKeyBtn || !urlsEl || !statusEl) return;
     const t = (key, fallback) => window.i18n?.t?.(key, fallback) ?? fallback;
     let lastPort = 18731;
@@ -5249,6 +5250,17 @@ class DpsApp {
     portInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") portInput.blur();
     });
+    // Your name on stream; the overlay reads it live. Blank means your
+    // character name. Other players are never sent by name.
+    if (nameInput) {
+      nameInput.value = this.safeGetSetting("dpsMeter.streamOverlayName") || "";
+      const saveName = () => this.safeSetSetting("dpsMeter.streamOverlayName", nameInput.value.trim());
+      nameInput.addEventListener("change", saveName);
+      nameInput.addEventListener("mousedown", (event) => event.stopPropagation());
+      nameInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") nameInput.blur();
+      });
+    }
     newKeyBtn.addEventListener("click", () => {
       Promise.resolve(bridge.streamOverlayNewKey()).then(show, fail);
     });

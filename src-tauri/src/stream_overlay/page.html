@@ -203,7 +203,9 @@
       const v = views[i];
       v.row.classList.toggle("you", !!r.you);
       setText(v.rank, String(rankOf.get(r)));
-      setText(v.name, String(r.name || ""));
+      // Only your name is sent; everyone else shows as their class.
+      const name = r.you && r.name ? String(r.name) : (CONFIG.classes || {})[r.cls] || CONFIG.player || "";
+      setText(v.name, name);
       setText(v.dps, whole.format(Number(r.dps) || 0) + (CONFIG.dpsSuffix || ""));
       setText(v.dmg, compact.format(Number(r.dmg) || 0));
       setText(v.pct, `${(Number(r.pct) || 0).toFixed(1)}%`);

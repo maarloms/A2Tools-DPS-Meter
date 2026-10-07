@@ -1449,6 +1449,7 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 /* ---------- stream overlay ---------- */
 
 .settingsPanel .streamOverlayPortInput,
+.settingsPanel .streamOverlayNameInput,
 .settingsPanel .streamOverlayUrlInput {
   height: var(--set-field-h);
   box-sizing: border-box;
@@ -1464,7 +1465,11 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 .settingsPanel .streamOverlayPortInput {
   width: 76px;
 }
+.settingsPanel .streamOverlayNameInput {
+  width: 160px;
+}
 .settingsPanel .streamOverlayPortInput:focus,
+.settingsPanel .streamOverlayNameInput:focus,
 .settingsPanel .streamOverlayUrlInput:focus {
   outline: none;
   border-color: var(--isUser-fill);

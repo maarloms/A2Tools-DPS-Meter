@@ -208,7 +208,11 @@
       "portInvalid": "请输入 1024 到 65535 之间的端口。",
       "error": "叠加层无法启动：{error}",
       "waiting": "等待战斗…",
-      "reconnecting": "正在重新连接面板…"
+      "reconnecting": "正在重新连接面板…",
+      "player": "玩家",
+      "displayName": "直播中显示的名字",
+      "displayNamePlaceholder": "你的角色名",
+      "displayNameHint": "其他玩家在直播中只显示职业，不显示名字。"
     },
     "version": "版本",
     "theme": {

@@ -726,6 +726,21 @@
                       <button class="settingsAction streamOverlayNewKeyBtn" type="button" data-i18n="settings.streamOverlay.newKey">New key</button>
                     </div>
                   </div>
+                  <div class="settingsRow">
+                    <label class="settingsLabel" for="streamOverlayNameInput" data-i18n="settings.streamOverlay.displayName">Your name on stream</label>
+                    <div class="settingsRowEnd">
+                      <input
+                        id="streamOverlayNameInput"
+                        class="streamOverlayNameInput"
+                        type="text"
+                        maxlength="24"
+                        spellcheck="false"
+                        autocomplete="off"
+                        placeholder="Your character name"
+                        data-i18n-placeholder="settings.streamOverlay.displayNamePlaceholder" />
+                    </div>
+                  </div>
+                  <div class="streamOverlayHelp" data-i18n="settings.streamOverlay.displayNameHint">Other players show on stream as their class, never by name.</div>
                   <div class="streamOverlayUrlBlock">
                     <div class="settingsLabel" data-i18n="settings.streamOverlay.url">Browser Source URL</div>
                     <div class="streamOverlayUrls"></div>
