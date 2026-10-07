@@ -3677,8 +3677,12 @@ body.legacyUi .meter .item .content .name.isSupporter,
     minmax(34px, 0.9fr)  /* perfect */
     minmax(28px, 0.7fr)  /* double */
     minmax(24px, 0.7fr)  /* back */
-    minmax(28px, 0.7fr)  /* smite */
-    minmax(28px, 0.7fr)  /* powershard */
+    minmax(28px, 0.7fr)  /* block */
+    minmax(28px, 0.7fr)  /* perfectblock */
+    minmax(28px, 0.7fr)  /* ironwall */
+    minmax(28px, 0.7fr)  /* regeneration */
+    minmax(28px, 0.7fr)  /* miss */
+    minmax(28px, 0.7fr)  /* resist */
     minmax(50px, 0.8fr)  /* regen */
     minmax(50px, 0.8fr)  /* mindmg */
     minmax(50px, 0.8fr)  /* avgdmg */
@@ -3695,8 +3699,12 @@ body.legacyUi .meter .item .content .name.isSupporter,
 .detailsPanel.hide-col-perfect .detailsSkills .cell.perfect,
 .detailsPanel.hide-col-double .detailsSkills .cell.double,
 .detailsPanel.hide-col-back .detailsSkills .cell.back,
-.detailsPanel.hide-col-smite .detailsSkills .cell.smite,
-.detailsPanel.hide-col-powershard .detailsSkills .cell.powershard,
+.detailsPanel.hide-col-block .detailsSkills .cell.block,
+.detailsPanel.hide-col-perfectblock .detailsSkills .cell.perfectblock,
+.detailsPanel.hide-col-ironwall .detailsSkills .cell.ironwall,
+.detailsPanel.hide-col-regeneration .detailsSkills .cell.regeneration,
+.detailsPanel.hide-col-miss .detailsSkills .cell.miss,
+.detailsPanel.hide-col-resist .detailsSkills .cell.resist,
 .detailsPanel.hide-col-regen .detailsSkills .cell.regen,
 .detailsPanel.hide-col-mindmg .detailsSkills .cell.mindmg,
 .detailsPanel.hide-col-avgdmg .detailsSkills .cell.avgdmg,

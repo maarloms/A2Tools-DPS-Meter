@@ -286,7 +286,8 @@
         const mergeSkills = (field) => {
           const merged = new Map();
           const sumFields = ["time", "dmg", "multiHitCount", "multiHitDamage", "multiHitHits",
-            "crit", "parry", "back", "frontal", "perfect", "double", "smite", "powershard", "regen"];
+            "crit", "parry", "back", "frontal", "perfect", "double", "shieldBlock", "ironWall",
+            "regeneration", "perfectBlock", "miss", "resist", "regen"];
           for (const item of results) {
             const offset = (Number(item.startTime) || 0) - startTime;
             for (const skill of item[field] || []) {
