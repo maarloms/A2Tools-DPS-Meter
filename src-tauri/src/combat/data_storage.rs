@@ -1278,7 +1278,13 @@ impl DataStorage {
     }
 
     pub fn get_heal_snapshot(&self) -> HashMap<i32, HashMap<(i32, bool), HealSkillData>> {
-        self.inner.read().heal_storage.clone()
+        let inner = self.inner.read();
+        inner
+            .heal_storage
+            .iter()
+            .filter(|(id, _)| !is_mob(&inner, **id))
+            .map(|(&id, skills)| (id, skills.clone()))
+            .collect()
     }
 
     /// The NPC code entity `id` spawned as, if it is a known mob.
@@ -1864,6 +1870,17 @@ pub fn is_player_skill(skill_code: i32) -> bool {
         || (100_000..=199_999).contains(&skill_code)
 }
 
+/// A mob is no healer. Protection Circle HoT ticks on a player carry a mob
+/// in the healer field (the boss, 2026-10-05), and saved boss fights listed
+/// the boss as a healer. A summon spawns like a mob, so a linked one is kept;
+/// so is an id the game named as a player since.
+fn is_mob(inner: &Inner, id: i32) -> bool {
+    inner.mob_storage.contains_key(&id)
+        && !inner.summon_storage.contains_key(&id)
+        && !inner.known_player_ids.contains(&id)
+        && !inner.nickname_storage.contains_key(&id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2207,6 +2224,21 @@ mod tests {
 
     fn dealt(s: &DataStorage, target: i32, actor: i32) -> i64 {
         s.get_combat_snapshot().get(&target).and_then(|t| t.actors.get(&actor)).map_or(0, |a| a.total_damage)
+    }
+
+    #[test]
+    fn only_players_and_their_summons_heal() {
+        let s = DataStorage::new();
+        s.append_mob(22809, 2310171);
+        s.append_mob(500, 1);
+        s.append_summon(14409, 500);
+        s.append_nickname_authoritative(14274, "Templar");
+        for (actor, skill) in [(22809, 18_730_003), (500, 16_770_000), (14274, 18_730_003), (14409, 2_011_101)] {
+            s.append_heal(actor, skill, 100, true);
+        }
+        let mut healers: Vec<i32> = s.get_heal_snapshot().into_keys().collect();
+        healers.sort();
+        assert_eq!(healers, vec![500, 14274, 14409], "the boss is not one");
     }
 
     #[test]
