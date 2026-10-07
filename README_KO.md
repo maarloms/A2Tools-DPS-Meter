@@ -6,6 +6,8 @@
 
 AION 2 실시간 DPS 미터 오버레이. 게임 네트워크 패킷을 캡처하여 데미지, 스킬, 전투 통계를 표시합니다.
 
+**[아이온2 DPS 미터 웹사이트, a2tools.app](https://a2tools.app)** 에서 다운로드, 공유된 전투 로그, 순위표, 직업 통계를 볼 수 있습니다.
+
 **[최신 버전 다운로드](https://github.com/taengu/A2Tools-DPS-Meter/releases)** | **[A2Tools.app](https://a2tools.app)**
 
 [English](README.md) | [简体中文](README_ZH.md) | [繁體中文](README_ZH-TW.md)

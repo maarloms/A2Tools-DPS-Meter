@@ -6,6 +6,8 @@
 
 Real-time DPS meter overlay for AION 2. Captures game network packets to display damage, skills, and combat statistics.
 
+The **[AION 2 DPS Meter website, a2tools.app](https://a2tools.app)** has the download, shared fight logs, leaderboards and class stats.
+
 **[Download Latest Release](https://github.com/taengu/A2Tools-DPS-Meter/releases)** | **[A2Tools.app](https://a2tools.app)**
 
 [한국어](README_KO.md) | [简体中文](README_ZH.md) | [繁體中文](README_ZH-TW.md)

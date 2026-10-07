@@ -6,6 +6,8 @@
 
 一款适用于 **AION 2**（永恒之塔2）的实时 DPS 统计工具。通过捕获游戏网络数据包来显示伤害、技能和战斗统计数据。
 
+**[AION 2 DPS 计量器网站 a2tools.app](https://a2tools.app)** 提供下载、分享的战斗日志、排行榜和职业统计。
+
 **[下载最新版本](https://github.com/taengu/A2Tools-DPS-Meter/releases)** | **[A2Tools.app](https://a2tools.app)**
 
 [English](README.md) | [한국어](README_KO.md) | [繁體中文](README_ZH-TW.md)
