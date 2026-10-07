@@ -143,17 +143,28 @@
   let settingsReadId = 0;
   let settingsReadPromise = null;
   let settingsRevision = 0;
+  let pendingSettingsAccountResult = null;
   const settingsKeyRevisions = new Map();
   const cacheSetting = (key, value) => {
     settingsKeyRevisions.set(key, ++settingsRevision);
     settingsCache[key] = String(value);
     try { localStorage.setItem(key, String(value)); } catch {}
   };
+  const applyPendingSettingsAccountResult = () => {
+    if (pendingSettingsAccountResult === null || !window._dpsApp?.accountStateEl
+      || !window._dpsApp?.refreshAccountPanel) return false;
+    const result = pendingSettingsAccountResult;
+    pendingSettingsAccountResult = null;
+    window._dpsApp.refreshAccountPanel(result);
+    window._dpsApp.onAccountPromoResult?.(result);
+    return true;
+  };
   // Linux keeps Settings when it is closed. Shown again, it resumes; not every
   // change is broadcast as setting-changed, so the backend is read again.
   const resumeSettings = ({ resync = true } = {}) => {
     if (viewMode !== "settings" || settingsActive) return;
     settingsActive = true;
+    applyPendingSettingsAccountResult();
     startStatusPolling();
     if (resync && reusesSettings) loadSettings().then((applied) => {
       if (applied && settingsActive) window._dpsApp?.syncSettingsForm?.();
@@ -259,7 +270,12 @@
   });
 
   listen("account-changed", (event) => {
-    if (viewMode === "settings" && !settingsActive) return;
+    if (viewMode === "settings" && (!settingsActive || !window._dpsApp?.accountStateEl)) {
+      // A device grant finishes once. Keep its outcome while the form is
+      // hidden: account_status alone cannot distinguish pending from expired.
+      pendingSettingsAccountResult = event?.payload || null;
+      return;
+    }
     window._dpsApp?.refreshAccountPanel?.(event?.payload);
     window._dpsApp?.onAccountPromoResult?.(event?.payload);
   });
@@ -268,7 +284,7 @@
   // behind what it shows.
   const settingsShownSubscription = listen("settings-shown", () => {
     if (viewMode === "settings") ++settingsLifecycleGeneration;
-    window._dpsApp?.refreshAccountPanel?.();
+    if (!applyPendingSettingsAccountResult()) window._dpsApp?.refreshAccountPanel?.();
     resumeSettings();
   });
   const settingsHiddenSubscription = viewMode === "settings" ? listen("settings-hidden", () => {
@@ -458,6 +474,8 @@
       return invoke("tool_window_ready", { label: String(label) }).catch(() => {});
     },
     async notifyUiReady() {
+      // A visible startup or native fallback can precede core installation.
+      if (viewMode === "settings" && settingsActive) applyPendingSettingsAccountResult();
       if (!loadsHidden) return;
       if (viewMode === "settings") {
         await settingsLifecycleReady;
@@ -473,8 +491,15 @@
         return;
       }
       if (viewMode !== "main") return;
-      await updateWindowSize();
-      await invoke("main_window_ready").catch(() => {});
+      // Startup setters may already have requested this same size. Await the
+      // actual native requests, including a newer size queued while waiting.
+      for (let attempt = 0; attempt < 2; ++attempt) {
+        let applied = await updateWindowSize();
+        while (pendingWindowSize) applied = await pendingWindowSize.promise;
+        if (!applied) continue;
+        await invoke("main_window_ready").catch(() => {});
+        return;
+      }
     },
 
     // --- Settings ---
@@ -912,6 +937,7 @@
   const PROMO_WIDTH = 400;
   const PROMO_HEIGHT = 480;
   let lastSizeKey = "";
+  let pendingWindowSize = null;
   let resizeActive = false;
   let nativeResize = null;
   let primaryHeld = false;
@@ -1068,7 +1094,7 @@
   };
 
   const updateWindowSize = () => {
-    if (resizeActive) return; // Don't fight the user while they're resizing
+    if (resizeActive) return Promise.resolve(false); // Don't fight the user while they're resizing
     // Tool windows own their own geometry (and remember it). The overlay's
     // auto-sizing would otherwise shrink them to meter dimensions.
     if (window.A2_VIEW !== "main") return;
@@ -1122,12 +1148,34 @@
         : tooltip
           ? Math.max(contentH, Math.min(tooltipH, room.h))
           : contentH;
-    const sizeKey = `${w}x${h}@${window.devicePixelRatio || 1}`;
-    if (sizeKey === lastSizeKey) return;
+    const scale = window.devicePixelRatio || 1;
+    const sizeKey = `${w}x${h}@${scale}`;
+    if (sizeKey === lastSizeKey) return pendingWindowSize?.promise || Promise.resolve(true);
     lastSizeKey = sizeKey;
     // The page's devicePixelRatio, so the backend sizes the window in the
     // pixels the page is actually drawn at (Windows text size included).
-    invoke("resize_window", { width: w, height: h, scale: window.devicePixelRatio || 1 }).catch(() => {});
+    const operation = { promise: null };
+    // Separate IPC fetches can arrive out of order. Queue size changes so the
+    // latest dimensions reach the native window last, and share an in-flight
+    // same-size request with notifyUiReady instead of treating it as applied.
+    operation.promise = Promise.resolve(pendingWindowSize?.promise)
+      .then(() => {
+        // A queued auto-size must not interrupt a resize the player began.
+        if (resizeActive) return false;
+        return invoke("resize_window", { width: w, height: h, scale }).then(() => true);
+      })
+      .then((applied) => {
+        if (!applied && pendingWindowSize === operation) lastSizeKey = "";
+        return applied;
+      }, () => {
+        if (pendingWindowSize === operation) lastSizeKey = "";
+        return false;
+      })
+      .finally(() => {
+        if (pendingWindowSize === operation) pendingWindowSize = null;
+      });
+    pendingWindowSize = operation;
+    return operation.promise;
   };
 
   window.javaBridge.updateOverlaySize = updateWindowSize;

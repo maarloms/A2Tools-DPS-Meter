@@ -2018,6 +2018,8 @@ class DpsApp {
   // player approves or declines in the browser.
   async refreshAccountPanel(result) {
     if (!this.accountStateEl) return;
+    const request = this._accountPanelRequest = (this._accountPanelRequest || 0) + 1;
+    const current = () => request === this._accountPanelRequest;
     if (result && result.connected === false && result.error) {
       const msg = String(result.error);
       this.setAccountState(
@@ -2033,20 +2035,23 @@ class DpsApp {
     if (!result) {
       try {
         const seen = await window.javaBridge?.accountStatusCached?.();
+        if (!current()) return;
         if (seen) this.paintAccount(seen.who);
       } catch {}
     }
+    if (!current()) return;
 
     let who = null;
     try {
       who = await window.javaBridge?.accountStatus?.();
     } catch (err) {
+      if (!current()) return;
       // A token is stored but could not be checked (keyring locked, server
       // down): say why, and do not ask for a new sign-in.
       this.paintAccountUnavailable(typeof err === "string" ? err : err?.message || String(err));
       return;
     }
-    this.paintAccount(who);
+    if (current()) this.paintAccount(who);
   }
 
   paintAccountUnavailable(message) {
@@ -3564,6 +3569,11 @@ class DpsApp {
       activeRecording.btn.classList.remove("recording");
       activeRecording = null;
     };
+    if (window.A2_VIEW === "settings") window.addEventListener("settings-hidden", () => {
+      if (!activeRecording) return;
+      stopRecording();
+      this.refreshKeybindLabels();
+    });
 
     const startRecording = (btn, type) => {
       stopRecording();

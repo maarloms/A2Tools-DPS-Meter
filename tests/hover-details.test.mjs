@@ -158,12 +158,13 @@ test("moving over the same row repositions the tooltip without fetching skills a
 });
 
 const sizingSource = bridgeSource.slice(bridgeSource.indexOf("  const updateWindowSize = () => {"), bridgeSource.indexOf("  // Watch all class changes"));
-test("overlay reserves the tooltip's actual width and height and shrinks on close", () => {
+test("overlay reserves the tooltip's actual width and height and shrinks on close", async () => {
   let tooltip = { getBoundingClientRect: () => ({ right: 610, bottom: 360 }) };
   let fullPanel = false;
   const sizes = [];
   const context = vm.createContext({
-    resizeActive: false, lastSizeKey: "", PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
+    resizeActive: false, lastSizeKey: "", pendingWindowSize: null,
+    PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
     spaceRightBelow: () => ({ w: 900, h: 700 }),
     window: { A2_VIEW: "main", devicePixelRatio: 1.5, javaBridge: {} },
     document: {
@@ -175,16 +176,16 @@ test("overlay reserves the tooltip's actual width and height and shrinks on clos
     invoke: (command, args) => { sizes.push(args); return Promise.resolve(); },
   });
   vm.runInContext(sizingSource, context);
-  vm.runInContext("updateWindowSize()", context);
+  await vm.runInContext("updateWindowSize()", context);
   assert.equal(sizes[0].width, 618);
   assert.equal(sizes[0].height, 368);
   assert.equal(sizes[0].scale, 1.5);
   tooltip = null;
-  vm.runInContext("updateWindowSize()", context);
+  await vm.runInContext("updateWindowSize()", context);
   assert.equal(sizes[1].width, 396);
   assert.equal(sizes[1].height, 210);
   fullPanel = true;
-  vm.runInContext("updateWindowSize()", context);
+  await vm.runInContext("updateWindowSize()", context);
   assert.equal(sizes[2].width, 1200);
   assert.equal(sizes[2].height, 800);
 });

@@ -82,34 +82,6 @@ test('settings initializes saved controls without constructing any combat UI', (
 const bridge = readFileSync(new URL('../public/src/js/tauriBridge.js', import.meta.url), 'utf8');
 const readyMethod = bridge.slice(bridge.indexOf('    async notifyUiReady()'), bridge.indexOf('\n    // --- Settings ---'));
 
-test('the Linux meter reveals itself only after its native size has been applied', async () => {
-  let sized;
-  const calls = [];
-  const pendingSize = new Promise(resolve => { sized = resolve; });
-  const ready = vm.runInNewContext(`({${readyMethod}}).notifyUiReady`, {
-    viewMode: 'main', loadsHidden: true,
-    updateWindowSize: () => pendingSize,
-    invoke: async command => calls.push(command),
-  });
-  const pending = ready();
-  await Promise.resolve();
-  assert.equal(calls.length, 0);
-  sized();
-  await pending;
-  assert.deepEqual(calls, ['main_window_ready']);
-});
-
-test('tool windows and other platforms keep their existing native reveal behavior', async () => {
-  for (const [viewMode, loadsHidden] of [['details', true], ['history', true], ['settings', false], ['main', false]]) {
-    const ready = vm.runInNewContext(`({${readyMethod}}).notifyUiReady`, {
-      viewMode, loadsHidden,
-      updateWindowSize: () => { throw new Error('unexpected resize'); },
-      invoke: () => { throw new Error('unexpected reveal'); },
-    });
-    await ready();
-  }
-});
-
 test('Linux settings lays out its form and reveals without waiting for hidden animation frames', async () => {
   for (const shown of [true, false]) {
     const calls = [];
@@ -130,17 +102,19 @@ function setupBridge({
   view = 'settings', linux = true, discover, title = null, shown = true,
   loadsHidden = linux, reusesSettings = linux,
   now = () => 0, setItem = () => {}, getSettings = () => ({}), nativeListen,
-  storage = {},
+  storage = {}, nativeInvoke,
 } = {}) {
   const calls = [];
   const listeners = new Map();
   const events = new Map();
+  const domHandlers = new Map();
   const timers = new Map();
   const stored = new Map(Object.entries(storage));
   let timerId = 0;
   const window = {
     __A2_VIEW__: view, location: { search: '' },
     __A2_WINDOW_STARTUP__: { loadsHidden, reusesSettings },
+    screen: { availWidth: 1920, availHeight: 1080 },
     addEventListener(name, handler) {
       const handlers = events.get(name) || [];
       handlers.push(handler);
@@ -150,6 +124,10 @@ function setupBridge({
     __TAURI__: {
       core: { invoke: (command, args) => {
         calls.push({ command, args });
+        if (nativeInvoke) {
+          const result = nativeInvoke(command, args);
+          if (result !== undefined) return Promise.resolve(result);
+        }
         if (command === 'get_available_devices' && discover) return discover();
         if (command === 'get_aion2_window_title') return Promise.resolve(title);
         if (command === 'tool_window_ready') return Promise.resolve(typeof shown === 'function' ? shown() : shown);
@@ -166,13 +144,18 @@ function setupBridge({
   };
   const document = {
     readyState: 'loading', activeElement: null,
-    addEventListener() {}, querySelectorAll: () => [],
+    addEventListener(name, callback, options) {
+      const handlers = domHandlers.get(name) || [];
+      handlers.push({ callback, capture: options === true || options?.capture === true });
+      domHandlers.set(name, handlers);
+    }, querySelectorAll: () => [],
+    body: { classList: { contains: () => false, toggle() {} } },
     documentElement: { classList: { add() {}, contains: name => name === 'linux' && linux } },
     head: { appendChild() {} }, createElement: () => ({}),
     querySelector: () => null,
   };
   class ClockDate extends Date { static now() { return now(); } }
-  vm.runInNewContext(bridge, {
+  const context = vm.createContext({
     window, document, navigator: { userAgent: '' }, URLSearchParams, Event, Date: ClockDate,
     localStorage: {
       setItem: (key, value) => { setItem(key, value); stored.set(key, String(value)); },
@@ -183,7 +166,8 @@ function setupBridge({
     setInterval: callback => { timers.set(++timerId, callback); return timerId; },
     clearInterval: id => timers.delete(id),
   });
-  return { window, document, calls, timers, listeners, stored };
+  vm.runInContext(bridge, context);
+  return { window, document, calls, timers, listeners, stored, context, domHandlers };
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -192,6 +176,327 @@ function deferred() {
   let resolve, reject;
   const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
   return { promise, resolve, reject };
+}
+
+test('the full Linux bridge waits for resize_window before revealing the meter', async () => {
+  const size = deferred();
+  const app = setupBridge({ view: 'main', loadsHidden: true,
+    nativeInvoke: command => command === 'resize_window' ? size.promise : undefined });
+  const ready = app.window.javaBridge.notifyUiReady();
+  await settle();
+  assert.equal(app.calls.filter(call => call.command === 'resize_window').length, 1);
+  assert.ok(!app.calls.some(call => call.command === 'main_window_ready'));
+  size.resolve();
+  await ready;
+  assert.equal(app.calls.filter(call => call.command === 'main_window_ready').length, 1);
+});
+
+test('readiness shares the same-size request that startup has already sent', async () => {
+  const size = deferred();
+  const app = setupBridge({ view: 'main', loadsHidden: true,
+    nativeInvoke: command => command === 'resize_window' ? size.promise : undefined });
+  const first = app.window.javaBridge.updateOverlaySize();
+  assert.equal(app.window.javaBridge.updateOverlaySize(), first);
+  const ready = app.window.javaBridge.notifyUiReady();
+  await settle();
+  assert.equal(app.calls.filter(call => call.command === 'resize_window').length, 1);
+  assert.ok(!app.calls.some(call => call.command === 'main_window_ready'));
+  size.resolve();
+  assert.equal(await first, true);
+  await ready;
+  assert.equal(await app.window.javaBridge.updateOverlaySize(), true);
+  assert.equal(app.calls.filter(call => call.command === 'resize_window').length, 1);
+});
+
+test('new dimensions are queued in order and readiness waits for the latest native size', async () => {
+  const first = deferred(), second = deferred();
+  let resizes = 0, width = 380;
+  const app = setupBridge({ view: 'main', loadsHidden: true,
+    nativeInvoke: command => command === 'resize_window' ? [first, second][resizes++].promise : undefined });
+  app.document.querySelector = selector => selector === '.meter'
+    ? { get offsetWidth() { return width; }, offsetHeight: 240, scrollHeight: 240 } : null;
+  const ready = app.window.javaBridge.notifyUiReady();
+  await settle();
+  width = 420;
+  const next = app.window.javaBridge.updateOverlaySize();
+  await settle();
+  assert.equal(resizes, 1);
+  first.resolve();
+  await settle();
+  assert.equal(resizes, 2);
+  assert.deepEqual(app.calls.filter(call => call.command === 'resize_window').map(call => call.args.width), [396, 436]);
+  assert.ok(!app.calls.some(call => call.command === 'main_window_ready'));
+  second.resolve();
+  assert.equal(await next, true);
+  await ready;
+  assert.equal(app.calls.filter(call => call.command === 'main_window_ready').length, 1);
+});
+
+test('a queued size keeps the display scale that belongs to its measured dimensions', async () => {
+  const first = deferred();
+  let resizes = 0;
+  const app = setupBridge({ view: 'main', nativeInvoke: command => {
+    if (command === 'resize_window') return ++resizes === 1 ? first.promise : null;
+  } });
+  app.window.devicePixelRatio = 1;
+  app.window.javaBridge.updateOverlaySize();
+  await settle();
+  app.window.devicePixelRatio = 2;
+  const second = app.window.javaBridge.updateOverlaySize();
+  app.window.devicePixelRatio = 3;
+  first.resolve();
+  assert.equal(await second, true);
+  assert.deepEqual(app.calls.filter(call => call.command === 'resize_window').map(call => call.args.scale), [1, 2]);
+});
+
+test('a queued automatic size does not interrupt the actual Windows resize press', async () => {
+  const first = deferred();
+  let resizes = 0, width = 380;
+  const app = setupBridge({ view: 'main', linux: false, nativeInvoke: command => {
+    if (command === 'resize_window') return ++resizes === 1 ? first.promise : null;
+  } });
+  app.context.Node = { TEXT_NODE: 3 };
+  app.document.querySelector = selector => selector === '.meter'
+    ? { get offsetWidth() { return width; }, offsetHeight: 240, scrollHeight: 240 } : null;
+  app.window.javaBridge.updateOverlaySize();
+  await settle();
+  width = 420;
+  const second = app.window.javaBridge.updateOverlaySize();
+  const target = { nodeType: 1, closest: selector => selector === '.resizeHandle' ? target : null };
+  app.domHandlers.get('mousedown').forEach(handler => handler.callback({ button: 0, target }));
+  assert.deepEqual(app.calls.filter(call => call.command === 'resize_window').map(call => call.args.width), [396, 1920]);
+  first.resolve();
+  assert.equal(await second, false);
+  assert.equal(resizes, 2);
+});
+
+test('a failed resize is retried before readiness without an unhandled rejection', async () => {
+  const retry = deferred();
+  let resizes = 0;
+  const app = setupBridge({ view: 'main', loadsHidden: true, nativeInvoke: command => {
+    if (command !== 'resize_window') return;
+    return ++resizes === 1 ? Promise.reject(new Error('resize failed')) : retry.promise;
+  } });
+  const ready = app.window.javaBridge.notifyUiReady();
+  await settle();
+  assert.equal(resizes, 2);
+  assert.ok(!app.calls.some(call => call.command === 'main_window_ready'));
+  retry.resolve();
+  await ready;
+  assert.equal(app.calls.filter(call => call.command === 'main_window_ready').length, 1);
+});
+
+test('failed background and readiness resizes release deduplication for a later same-size retry', async () => {
+  let fail = true, resizes = 0;
+  const app = setupBridge({ view: 'main', loadsHidden: true, nativeInvoke: command => {
+    if (command !== 'resize_window') return;
+    ++resizes;
+    if (fail) throw new Error('native resize unavailable');
+    return null;
+  } });
+  assert.equal(await app.window.javaBridge.updateOverlaySize(), false);
+  await app.window.javaBridge.notifyUiReady();
+  assert.equal(resizes, 3);
+  assert.ok(!app.calls.some(call => call.command === 'main_window_ready'));
+  fail = false;
+  await app.window.javaBridge.notifyUiReady();
+  assert.equal(resizes, 4);
+  assert.equal(app.calls.filter(call => call.command === 'main_window_ready').length, 1);
+});
+
+test('the full bridge preserves visible startup and never resizes a tool window', async () => {
+  for (const [view, loadsHidden] of [['main', false], ['settings', false], ['settings', true], ['details', true], ['history', true]]) {
+    const app = setupBridge({ view, loadsHidden });
+    await app.window.javaBridge.notifyUiReady();
+    assert.ok(!app.calls.some(call => call.command === 'resize_window' || call.command === 'main_window_ready'));
+    if (view !== 'main') {
+      await app.window.javaBridge.updateOverlaySize();
+      assert.ok(!app.calls.some(call => call.command === 'resize_window'));
+    }
+  }
+});
+
+function attachAccountPanel(fixture) {
+  fixture.window.i18n = { t: (key, fallback) => fallback, format: (key, values, fallback) => fallback };
+  if (!fixture.window.dpsApp) vm.runInContext(core, fixture.context);
+  const app = fixture.window.dpsApp;
+  app.accountStateEl = { textContent: 'Waiting for approval', classList: { toggle() {} } };
+  app.accountCodeBox = { style: { display: 'block' } };
+  app.accountConnectBtn = { disabled: true, style: { display: '' } };
+  app.accountSignOutBtn = { style: { display: 'none' } };
+  app.syncSettingsForm = app.refreshSettingsStatus = () => {};
+  fixture.window._dpsApp = app;
+  return app;
+}
+
+for (const error of ['the code expired before it was approved', 'the request was declined',
+  'signed in, but the token could not be stored securely: keyring is locked']) {
+  test(`a hidden account outcome is retained and allows retry: ${error}`, async () => {
+    const fixture = setupBridge();
+    const app = attachAccountPanel(fixture);
+    await fixture.window.javaBridge.notifyUiReady();
+    fixture.listeners.get('settings-hidden')();
+    fixture.listeners.get('account-changed')({ payload: { connected: false, error } });
+    await settle();
+    assert.equal(app.accountConnectBtn.disabled, true);
+    assert.equal(app.accountCodeBox.style.display, 'block');
+    assert.ok(!fixture.calls.some(call => call.command === 'account_status'));
+    fixture.listeners.get('settings-shown')();
+    await settle();
+    assert.equal(app.accountConnectBtn.disabled, false);
+    assert.equal(app.accountCodeBox.style.display, 'none');
+    assert.equal(app.accountStateEl.textContent, `Sign-in failed: ${error}`);
+  });
+}
+
+test('a successful hidden account outcome refreshes the actual signed-in controls on reopen', async () => {
+  const fixture = setupBridge({ nativeInvoke: command => command === 'account_status' ? { displayName: 'Player' } : undefined });
+  const app = attachAccountPanel(fixture);
+  await fixture.window.javaBridge.notifyUiReady();
+  fixture.listeners.get('settings-hidden')();
+  fixture.listeners.get('account-changed')({ payload: { connected: true } });
+  await settle();
+  assert.equal(app.accountCodeBox.style.display, 'block');
+  assert.ok(!fixture.calls.some(call => call.command === 'account_status'));
+  fixture.listeners.get('settings-shown')();
+  await settle();
+  assert.equal(app.accountCodeBox.style.display, 'none');
+  assert.equal(app.accountConnectBtn.disabled, false);
+  assert.equal(app.accountConnectBtn.style.display, 'none');
+  assert.equal(app.accountSignOutBtn.style.display, '');
+  assert.equal(app.accountStateEl.textContent, 'Signed in as Player');
+});
+
+test('a terminal result received before core installation is replayed by initial readiness', async () => {
+  const fixture = setupBridge();
+  const error = 'the request was declined';
+  fixture.listeners.get('account-changed')({ payload: { connected: false, error } });
+  const app = attachAccountPanel(fixture);
+  await fixture.window.javaBridge.notifyUiReady();
+  assert.equal(app.accountConnectBtn.disabled, false);
+  assert.equal(app.accountCodeBox.style.display, 'none');
+  assert.equal(app.accountStateEl.textContent, `Sign-in failed: ${error}`);
+});
+
+for (const startup of ['visible Windows startup', 'native Linux fallback']) {
+  test(`early account outcomes are replayed after ${startup}`, async () => {
+    const fixture = setupBridge({ linux: startup !== 'visible Windows startup' });
+    if (startup === 'native Linux fallback') fixture.listeners.get('settings-shown')();
+    fixture.listeners.get('account-changed')({ payload: { connected: false, error: 'the request was declined' } });
+    const app = attachAccountPanel(fixture);
+    await fixture.window.javaBridge.notifyUiReady();
+    assert.equal(app.accountConnectBtn.disabled, false);
+    assert.equal(app.accountCodeBox.style.display, 'none');
+    assert.equal(app.accountStateEl.textContent, 'Sign-in failed: the request was declined');
+  });
+}
+
+test('a native fallback retains an outcome until the installed core has created the account form', async () => {
+  const fixture = setupBridge();
+  vm.runInContext(core, fixture.context);
+  fixture.window._dpsApp = fixture.window.dpsApp;
+  fixture.listeners.get('settings-shown')();
+  fixture.listeners.get('account-changed')({ payload: { connected: false, error: 'the request was declined' } });
+  fixture.listeners.get('settings-shown')();
+  const app = attachAccountPanel(fixture);
+  await fixture.window.javaBridge.notifyUiReady();
+  assert.equal(app.accountStateEl.textContent, 'Sign-in failed: the request was declined');
+  assert.equal(app.accountConnectBtn.disabled, false);
+  assert.equal(app.accountCodeBox.style.display, 'none');
+});
+
+test('the latest hidden account outcome replaces an earlier one and is consumed once', async () => {
+  const fixture = setupBridge({ nativeInvoke: command => command === 'account_status' ? { displayName: 'Player' } : undefined });
+  const app = attachAccountPanel(fixture);
+  await fixture.window.javaBridge.notifyUiReady();
+  fixture.listeners.get('settings-hidden')();
+  fixture.listeners.get('account-changed')({ payload: { connected: false, error: 'the request was declined' } });
+  fixture.listeners.get('account-changed')({ payload: { connected: true } });
+  fixture.listeners.get('settings-shown')();
+  await settle();
+  assert.equal(app.accountStateEl.textContent, 'Signed in as Player');
+  assert.equal(fixture.calls.filter(call => call.command === 'account_status').length, 1);
+  fixture.listeners.get('settings-hidden')();
+  fixture.listeners.get('settings-shown')();
+  await settle();
+  assert.ok(fixture.calls.some(call => call.command === 'account_status_cached'));
+  assert.equal(fixture.calls.filter(call => call.command === 'account_status').length, 2);
+});
+
+test('an older account status reply cannot replace a retained terminal error after reopen', async () => {
+  const status = deferred();
+  const fixture = setupBridge({ nativeInvoke: command => command === 'account_status' ? status.promise : undefined });
+  const app = attachAccountPanel(fixture);
+  await fixture.window.javaBridge.notifyUiReady();
+  const old = app.refreshAccountPanel();
+  await settle();
+  fixture.listeners.get('settings-hidden')();
+  fixture.listeners.get('account-changed')({ payload: { connected: false, error: 'the code expired before it was approved' } });
+  fixture.listeners.get('settings-shown')();
+  status.resolve(null);
+  await old;
+  await settle();
+  assert.equal(app.accountStateEl.textContent, 'Sign-in failed: the code expired before it was approved');
+  assert.equal(app.accountConnectBtn.disabled, false);
+  assert.equal(app.accountCodeBox.style.display, 'none');
+});
+
+const nativeApp = readFileSync(new URL('../src-tauri/src/app.rs', import.meta.url), 'utf8');
+const nativeSettingsScript = nativeApp.match(/const SETTINGS_WINDOW_SCRIPT: &str = r#"([\s\S]*?)"#;/)[1];
+
+for (const closing of ['native Close', 'button Close']) {
+  test(`hotkey recording is cancelled by ${closing} and keyboard navigation works after reopen`, async () => {
+    const fixture = setupBridge();
+    class Element {
+      constructor(selector) {
+        this.selector = selector;
+        this.handlers = new Map();
+        this.classes = new Set();
+        this.text = { textContent: '' };
+        this.classList = { add: name => this.classes.add(name), remove: name => this.classes.delete(name),
+          contains: name => this.classes.has(name) };
+      }
+      closest(selector) { return selector === this.selector ? this : null; }
+      querySelector() { return this.text; }
+      addEventListener(name, callback) { this.handlers.set(name, callback); }
+    }
+    const button = new Element('.keybindBtn');
+    fixture.document.querySelector = selector => selector === '.reloadKeybindBtn' ? button : null;
+    fixture.context.Element = Element;
+    fixture.window.__TAURI_INTERNALS__ = fixture.window.__TAURI__.core;
+    vm.runInContext(nativeSettingsScript, fixture.context);
+    vm.runInContext(core, fixture.context);
+    const app = fixture.window.dpsApp;
+    app.syncSettingsForm = app.refreshSettingsStatus = () => {};
+    fixture.window._dpsApp = app;
+    app.setupKeybindButtons();
+    await fixture.window.javaBridge.notifyUiReady();
+    const original = button.text.textContent;
+    button.handlers.get('click')();
+    assert.ok(button.classList.contains('recording'));
+    if (closing === 'native Close') {
+      fixture.listeners.get('settings-hidden')();
+    } else {
+      let stopped = false;
+      const event = { target: new Element('.settingsClose'), stopPropagation: () => { stopped = true; } };
+      const handlers = fixture.domHandlers.get('click');
+      handlers.filter(handler => handler.capture).forEach(handler => handler.callback(event));
+      if (!stopped) handlers.filter(handler => !handler.capture).forEach(handler => handler.callback(event));
+      assert.ok(stopped);
+      assert.ok(fixture.calls.some(call => call.command === 'close_settings_window'));
+    }
+    assert.ok(!button.classList.contains('recording'));
+    assert.equal(button.text.textContent, original);
+    fixture.listeners.get('settings-shown')();
+    await settle();
+    for (const keys of [{ key: 'Tab', keyCode: 9 }, { key: 'a', keyCode: 65, ctrlKey: true }]) {
+      let prevented = false;
+      const event = { ...keys, preventDefault: () => { prevented = true; }, stopPropagation() {} };
+      fixture.domHandlers.get('keydown').forEach(handler => handler.callback(event));
+      assert.equal(prevented, false);
+    }
+    assert.ok(!fixture.calls.some(call => call.command === 'update_settings'));
+  });
 }
 
 test('native startup policy controls lifecycle even when the browser platform differs', async () => {
