@@ -664,6 +664,19 @@
       return invoke("discord_activity_available");
     },
 
+    // The stream overlay for OBS on another PC, as
+    // { enabled, running, port, urls, error }. Configure and New key resolve
+    // with the status after the change; configure rejects a bad port.
+    streamOverlayStatus() {
+      return invoke("stream_overlay_status");
+    },
+    streamOverlayConfigure(enabled, port) {
+      return invoke("stream_overlay_configure", { enabled: !!enabled, port: Number(port) });
+    },
+    streamOverlayNewKey() {
+      return invoke("stream_overlay_new_key");
+    },
+
     // The last check's answer, at once: null if none has run yet, else
     // { who } with who null when signed out.
     accountStatusCached() {

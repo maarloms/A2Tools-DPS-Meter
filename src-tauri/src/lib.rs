@@ -36,6 +36,8 @@ pub mod platform;
 mod presence;
 #[cfg(feature = "desktop")]
 pub mod share;
+#[cfg(feature = "desktop")]
+pub mod stream_overlay;
 
 #[cfg(feature = "desktop")]
 mod app;

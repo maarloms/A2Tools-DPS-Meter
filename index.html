@@ -742,6 +742,54 @@
                 </div>
               </div>
             </section>
+            <section class="settingsGroup streamOverlayGroup" style="display:none">
+              <div class="settingsMiniTitle" data-i18n="settings.streamOverlay.title">Streaming</div>
+              <div class="settingsGroupBody">
+                <label class="settingsToggle" title="Serves the meter on your home network so OBS on a second PC can show it as a Browser Source." data-i18n-title="settings.streamOverlay.enableHint">
+                  <span class="settingsToggleLabel settingsLabel" data-i18n="settings.streamOverlay.enable">Stream overlay (OBS on another PC)</span>
+                  <span class="settingsToggleControl">
+                    <input type="checkbox" class="streamOverlayCheckbox" />
+                    <span class="settingsToggleTrack" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <div class="streamOverlayDetails" style="display:none">
+                  <div class="settingsRow">
+                    <label class="settingsLabel" for="streamOverlayPortInput" data-i18n="settings.streamOverlay.port">Port</label>
+                    <div class="settingsRowEnd">
+                      <input
+                        id="streamOverlayPortInput"
+                        class="streamOverlayPortInput"
+                        type="number"
+                        min="1024"
+                        max="65535"
+                        autocomplete="off" />
+                      <button class="settingsAction streamOverlayNewKeyBtn" type="button" data-i18n="settings.streamOverlay.newKey">New key</button>
+                    </div>
+                  </div>
+                  <div class="settingsRow">
+                    <label class="settingsLabel" for="streamOverlayNameInput" data-i18n="settings.streamOverlay.displayName">Your name on stream</label>
+                    <div class="settingsRowEnd">
+                      <input
+                        id="streamOverlayNameInput"
+                        class="streamOverlayNameInput"
+                        type="text"
+                        maxlength="24"
+                        spellcheck="false"
+                        autocomplete="off"
+                        placeholder="Your character name"
+                        data-i18n-placeholder="settings.streamOverlay.displayNamePlaceholder" />
+                    </div>
+                  </div>
+                  <div class="streamOverlayHelp" data-i18n="settings.streamOverlay.displayNameHint">Other players show on stream as their class, never by name.</div>
+                  <div class="streamOverlayUrlBlock">
+                    <div class="settingsLabel" data-i18n="settings.streamOverlay.url">Browser Source URL</div>
+                    <div class="streamOverlayUrls"></div>
+                    <div class="streamOverlayStatus"></div>
+                    <div class="streamOverlayHelp" data-i18n="settings.streamOverlay.help">In OBS on the other PC, add a Browser Source with this URL. The first time, Windows Firewall asks about the meter: allow it on private networks. Anyone on your network with the link can see the meter; New key cuts off old links.</div>
+                  </div>
+                </div>
+              </div>
+            </section>
             <section class="settingsGroup">
               <div class="settingsMiniTitle" data-i18n="settings.keybinds">Keybinds</div>
               <div class="settingsGroupBody settingsGroupSplit">

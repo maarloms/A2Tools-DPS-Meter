@@ -199,6 +199,26 @@
       "activity": "Mostrar no Discord o que estou jogando",
       "activityHint": "Enquanto o AION2 estiver aberto, seu status do Discord mostra o nome do seu personagem, classe, nível e servidor, e o chefe que você está enfrentando. Isso passa pelo aplicativo do Discord neste computador; não é preciso conta."
     },
+    "streamOverlay": {
+      "title": "Transmissão",
+      "enable": "Overlay de stream (OBS em outro PC)",
+      "enableHint": "Disponibiliza o medidor na sua rede local para que o OBS em um segundo PC o mostre como fonte de navegador.",
+      "port": "Porta",
+      "url": "URL da fonte de navegador",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "newKey": "Nova chave",
+      "help": "No OBS do outro PC, adicione uma fonte de navegador com esta URL. Na primeira vez, o Firewall do Windows pergunta sobre o medidor: permita em redes privadas. Qualquer pessoa na sua rede com o link pode ver o medidor; “Nova chave” invalida os links antigos.",
+      "noAddress": "Nenhum endereço de rede encontrado. Este PC está conectado à sua rede?",
+      "portInvalid": "Digite uma porta entre 1024 e 65535.",
+      "error": "Não foi possível iniciar o overlay: {error}",
+      "waiting": "Aguardando combate…",
+      "reconnecting": "Reconectando ao medidor…",
+      "player": "Jogador",
+      "displayName": "Seu nome na live",
+      "displayNamePlaceholder": "Nome do seu personagem",
+      "displayNameHint": "Os outros jogadores aparecem na live pela classe, nunca pelo nome."
+    },
     "version": "Versão",
     "theme": {
       "label": "Tema",
