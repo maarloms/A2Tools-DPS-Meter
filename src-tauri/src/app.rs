@@ -59,6 +59,9 @@ pub struct AppState {
     pub ping_tracker: Arc<PingTracker>,
     pub port_detector: Arc<CombatPortDetector>,
     pub fight_history: FightHistoryManager,
+    /// Order fight snapshots and their writes together. Settings never take
+    /// this lock; the calculator guard is released before disk work.
+    pub fight_save: Mutex<()>,
     pub settings: Settings,
     pub skill_lookup: Arc<SkillLookup>,
     pub npc_lookup: Arc<NpcLookup>,
@@ -161,19 +164,37 @@ fn get_app_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-#[tauri::command]
-fn get_dps_snapshot(state: tauri::State<'_, AppState>) -> DpsData {
-    state.dps_calculator.lock().get_dps()
+// Details read shared immutable lookups and storage snapshots, without taking
+// the mutable DPS calculator's mutex or copying its caches/target-selection state.
+fn details_reader(state: &AppState) -> DpsCalculator {
+    DpsCalculator::new(state.data_storage.clone(), state.skill_lookup.clone(),
+        state.npc_lookup.clone(), state.ping_tracker.clone())
 }
 
 #[tauri::command]
-fn get_skill_details(state: tauri::State<'_, AppState>, target_id: i32, actor_ids: Option<Vec<i32>>) -> TargetDetailsResponse {
-    state.dps_calculator.lock().get_target_details(target_id, actor_ids.as_deref())
+async fn get_dps_snapshot(app: tauri::AppHandle) -> Result<DpsData, String> {
+    crate::blocking::CALCULATIONS.run(move || {
+        app.state::<AppState>().dps_calculator.lock().get_dps()
+    }).await
 }
 
 #[tauri::command]
-fn get_details_context(state: tauri::State<'_, AppState>) -> DetailsContext {
-    state.dps_calculator.lock().get_details_context()
+async fn get_skill_details(app: tauri::AppHandle, target_id: i32, actor_ids: Option<Vec<i32>>, summary_only: Option<bool>) -> Result<TargetDetailsResponse, String> {
+    crate::blocking::CALCULATIONS.run(move || {
+        let calculator = details_reader(&app.state::<AppState>());
+        if summary_only.unwrap_or(false) {
+            calculator.get_hover_details(target_id, actor_ids.as_deref())
+        } else {
+            calculator.get_target_details(target_id, actor_ids.as_deref())
+        }
+    }).await
+}
+
+#[tauri::command]
+async fn get_details_context(app: tauri::AppHandle) -> Result<DetailsContext, String> {
+    crate::blocking::CALCULATIONS.run(move || {
+        details_reader(&app.state::<AppState>()).get_details_context()
+    }).await
 }
 
 #[tauri::command]
@@ -182,41 +203,54 @@ fn get_details_context(state: tauri::State<'_, AppState>) -> DetailsContext {
 /// ~350ms, during which no other IPC and no window painting can proceed. Each
 /// window calls this at startup and again every 10s, which is what made opening
 /// History feel like it hung.
-async fn get_fight_history(state: tauri::State<'_, AppState>) -> Result<Vec<FightSummary>, String> {
-    Ok(state.fight_history.list_fights())
+async fn get_fight_history(app: tauri::AppHandle) -> Result<Vec<FightSummary>, String> {
+    crate::blocking::HISTORY.run(move || {
+        app.state::<AppState>().fight_history.list_fights()
+    }).await
 }
 
 #[tauri::command]
-fn save_fight(state: tauri::State<'_, AppState>, record: FightRecord) -> Result<(), String> {
-    state.fight_history.save_fight(&record)
+async fn save_fight(app: tauri::AppHandle, record: FightRecord) -> Result<(), String> {
+    crate::blocking::HISTORY.run(move || {
+        let state = app.state::<AppState>();
+        let _saving = state.fight_save.lock();
+        state.fight_history.save_fight(&record)
+    }).await?
 }
 
 #[tauri::command]
-fn load_fight(state: tauri::State<'_, AppState>, id: String) -> Result<FightRecord, String> {
-    let mut record = state.fight_history.load_fight(&id)?;
+async fn load_fight(app: tauri::AppHandle, id: String) -> Result<FightRecord, String> {
+    crate::blocking::HISTORY.run(move || {
+        let state = app.state::<AppState>();
+        let mut record = state.fight_history.load_fight(&id)?;
 
-    // Re-resolve supporter status against the roster as it is *now*, rather
-    // than trusting the flag written when the fight was saved. Supporter status
-    // changes; a fight from last month opened today should show who is a
-    // supporter today, and every record saved before this feature existed has
-    // no flag at all.
-    //
-    // Party members are the honest limitation here. `obscure_nickname` masks
-    // their names before the record is written, so a name-keyed roster can only
-    // ever match the local player, whose name is stored intact. `dbid` is kept
-    // on each actor precisely so a dbid-keyed roster resolves everyone — see
-    // `crate::supporters::KeyKind`.
-    crate::supporters::apply_to_record(&mut record, &state.data_storage.supporters());
-    Ok(record)
+        // Re-resolve supporter status against the roster as it is *now*, rather
+        // than trusting the flag written when the fight was saved. Supporter status
+        // changes; a fight from last month opened today should show who is a
+        // supporter today, and every record saved before this feature existed has
+        // no flag at all.
+        //
+        // Party members are the honest limitation here. `obscure_nickname` masks
+        // their names before the record is written, so a name-keyed roster can only
+        // ever match the local player, whose name is stored intact. `dbid` is kept
+        // on each actor precisely so a dbid-keyed roster resolves everyone — see
+        // `crate::supporters::KeyKind`.
+        crate::supporters::apply_to_record(&mut record, &state.data_storage.supporters());
+        Ok(record)
+    }).await?
 }
 
 #[tauri::command]
-fn delete_fight(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+async fn delete_fight(app: tauri::AppHandle, id: String) -> Result<(), String> {
     if !crate::history::fight_history::is_plain_name(&id) {
         return Err(format!("Invalid fight id: {id:?}"));
     }
-    share::forget_slice(&state.app_data_dir, &id);
-    state.fight_history.delete_fight(&id)
+    crate::blocking::HISTORY.run(move || {
+        let state = app.state::<AppState>();
+        let _saving = state.fight_save.lock();
+        share::forget_slice(&state.app_data_dir, &id);
+        state.fight_history.delete_fight(&id)
+    }).await?
 }
 
 /// Upload a saved fight to a2tools.app as a log, and return its link.
@@ -299,6 +333,7 @@ fn save_fight_records(app: &tauri::AppHandle, state: &AppState, records: Vec<Fig
 /// kill lost everything since the last 30-second save (issue #19).
 fn save_fights_before_reset(app: &tauri::AppHandle) {
     let Some(state) = app.try_state::<AppState>() else { return };
+    let _saving = state.fight_save.lock();
     if state.data_storage.damage_generation() <= 0 {
         return;
     }
@@ -679,12 +714,11 @@ fn reset_auto_detection(state: tauri::State<'_, AppState>) {
 }
 
 #[tauri::command]
-fn get_available_devices() -> Vec<String> {
-    // Load the OS's pcap library and enumerate devices
-    match crate::capture::pcap_capturer::list_device_labels() {
-        Ok(labels) => labels,
-        Err(_) => Vec::new(),
-    }
+async fn get_available_devices() -> Vec<String> {
+    // Device discovery can block in the OS/pcap library. Keep it off the UI loop.
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::capture::pcap_capturer::list_device_labels().unwrap_or_default()
+    }).await.unwrap_or_default()
 }
 
 #[tauri::command]
@@ -2005,8 +2039,8 @@ async fn replay_file(state: tauri::State<'_, AppState>, file_path: String) -> Re
 
     // Force snapshot boss fights from the replay
     {
-        let mut calc = state.dps_calculator.lock();
-        let records = calc.snapshot_boss_fights_force();
+        let _saving = state.fight_save.lock();
+        let records = state.dps_calculator.lock().snapshot_boss_fights_force();
         let mut sorted = records;
         sorted.sort_by(|a, b| b.total_damage.cmp(&a.total_damage));
         for record in sorted.iter().take(10) {
@@ -2017,7 +2051,7 @@ async fn replay_file(state: tauri::State<'_, AppState>, file_path: String) -> Re
             }
         }
         // Mark all targets as saved so the periodic auto-save loop doesn't re-process them
-        calc.mark_all_targets_saved();
+        state.dps_calculator.lock().mark_all_targets_saved();
     }
 
     count
@@ -2221,6 +2255,7 @@ pub fn run() {
                 ping_tracker: ping_tracker.clone(),
                 port_detector: port_detector.clone(),
                 fight_history: FightHistoryManager::new(app_data_dir.clone()),
+                fight_save: Mutex::new(()),
                 settings,
                 skill_lookup: skill_lookup.clone(),
                 npc_lookup: npc_lookup.clone(),
@@ -2392,6 +2427,7 @@ pub fn run() {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(500));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 let mut tick_count: u64 = 0;
                 let mut hide_delay: u64 = 0; // ticks to wait before hiding
                 loop {
@@ -2400,19 +2436,29 @@ pub fn run() {
 
                     if let Some(state) = handle.try_state::<AppState>() {
                         let t0 = std::time::Instant::now();
-                        let lock_guard = state.dps_calculator.lock();
-                        let lock_ms = t0.elapsed().as_millis();
-                        let dps = {
-                            let mut calc = lock_guard;
-                            calc.get_dps()
-                        };
-                        let calc_ms = t0.elapsed().as_millis();
-                        let _ = handle.emit("dps-update", &dps);
-                        let total_ms = t0.elapsed().as_millis();
-                        if total_ms > 200 {
-                            tracing::warn!("Slow: lock={}ms calc={}ms emit={}ms total={}ms gen={}",
-                                lock_ms, calc_ms - lock_ms, total_ms - calc_ms, total_ms,
-                                state.data_storage.damage_generation());
+                        let calculation_handle = handle.clone();
+                        let result = crate::blocking::DPS_TICK.run(move || {
+                            let state = calculation_handle.state::<AppState>();
+                            let started = std::time::Instant::now();
+                            let mut calc = state.dps_calculator.lock();
+                            let lock_ms = started.elapsed().as_millis();
+                            let calculating = std::time::Instant::now();
+                            let dps = calc.get_dps();
+                            (dps, lock_ms, calculating.elapsed().as_millis())
+                        }).await;
+                        match result {
+                            Ok((dps, lock_ms, calc_ms)) => {
+                                let emitting = std::time::Instant::now();
+                                let _ = handle.emit("dps-update", &dps);
+                                let emit_ms = emitting.elapsed().as_millis();
+                                let total_ms = t0.elapsed().as_millis();
+                                if total_ms > 200 {
+                                    tracing::warn!("Slow: lock={}ms calc={}ms emit={}ms total={}ms gen={}",
+                                        lock_ms, calc_ms, emit_ms, total_ms,
+                                        state.data_storage.damage_generation());
+                                }
+                            }
+                            Err(error) => tracing::warn!("DPS update failed: {error}"),
                         }
 
                         if let Some(ping) = state.ping_tracker.current_ping_ms() {
@@ -2522,20 +2568,22 @@ pub fn run() {
                 }
             });
 
-            // Separate task for boss fight auto-save (every 30s, on blocking thread)
+            // One blocking history job at a time; disk/JSON work never runs
+            // on Tokio's cooperative workers. The next tick waits for completion.
             let handle_save = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
                     tokio::time::sleep(Duration::from_secs(30)).await;
-                    if let Some(state) = handle_save.try_state::<AppState>() {
+                    let handle = handle_save.clone();
+                    if let Err(error) = crate::blocking::HISTORY.run(move || {
+                        let Some(state) = handle.try_state::<AppState>() else { return };
+                        let _saving = state.fight_save.lock();
                         if state.data_storage.damage_generation() > 0 {
-                            // Run on blocking thread to avoid starving the async runtime
-                            // snapshot_boss_fights acquires the dps_calculator lock
-                            // Run synchronously but only if lock is available
-                            if let Some(mut calc) = state.dps_calculator.try_lock() {
-                                let records = calc.snapshot_boss_fights();
-                                drop(calc);
-                                save_fight_records(&handle_save, &state, records);
+                            let records = state.dps_calculator.try_lock()
+                                .map(|mut calc| calc.snapshot_boss_fights());
+                            if let Some(records) = records {
+                                // The calculator guard is gone before any disk I/O.
+                                save_fight_records(&handle, &state, records);
                             }
                         }
                         // Automatic uploads that failed and are due again,
@@ -2545,10 +2593,12 @@ pub fn run() {
                             let now = crate::clock::now_ms();
                             for id in share::auto_upload_retries_due(&state.app_data_dir, now) {
                                 if let Ok(record) = state.fight_history.load_fight(&id) {
-                                    auto_upload(handle_save.clone(), record);
+                                    auto_upload(handle.clone(), record);
                                 }
                             }
                         }
+                    }).await {
+                        tracing::warn!("History maintenance failed: {error}");
                     }
                 }
             });

@@ -315,6 +315,29 @@ pub struct TargetCombatData {
 }
 
 impl TargetCombatData {
+    fn clone_light(&self) -> Self {
+        let actors = self.actors.iter().map(|(&id, actor)| {
+            (id, ActorCombatData {
+                total_damage: actor.total_damage,
+                party_heal: actor.party_heal,
+                regen: actor.regen,
+                damage_received: actor.damage_received,
+                hits_received: actor.hits_received,
+                last_damage_time: actor.last_damage_time,
+                job: actor.job,
+                skills: actor.skills.iter().map(|(&key, skill)| (key, skill.clone_light())).collect(),
+            })
+        }).collect();
+        Self {
+            target_id: self.target_id,
+            total_damage: self.total_damage,
+            first_damage_time: self.first_damage_time,
+            last_damage_time: self.last_damage_time,
+            last_packet_id: self.last_packet_id,
+            actors,
+        }
+    }
+
     fn new(target_id: i32, timestamp: i64) -> Self {
         Self {
             target_id,
@@ -1363,6 +1386,11 @@ impl DataStorage {
         self.inner.read().target_combat.clone()
     }
 
+    /// Full details need this target's timeline, never other targets' hits.
+    pub fn get_target_snapshot(&self, target_id: i32) -> Option<TargetCombatData> {
+        self.inner.read().target_combat.get(&target_id).cloned()
+    }
+
     /// Like `get_combat_snapshot` but without per-skill `hit_timestamps`.
     /// `hit_timestamps` grows unbounded over a fight and is only needed by
     /// `get_target_details`. The 500ms hot paths (`get_dps`,
@@ -1370,48 +1398,15 @@ impl DataStorage {
     /// their per-tick clone cost flat over fight duration instead of growing
     /// linearly — the root cause of the long-fight FPS drops.
     pub fn get_combat_snapshot_light(&self) -> HashMap<i32, TargetCombatData> {
-        let inner = self.inner.read();
-        inner
-            .target_combat
-            .iter()
-            .map(|(&tid, td)| {
-                let actors = td
-                    .actors
-                    .iter()
-                    .map(|(&aid, ad)| {
-                        let skills = ad
-                            .skills
-                            .iter()
-                            .map(|(&k, sd)| (k, sd.clone_light()))
-                            .collect();
-                        (
-                            aid,
-                            ActorCombatData {
-                                total_damage: ad.total_damage,
-                                party_heal: ad.party_heal,
-                                regen: ad.regen,
-                                damage_received: ad.damage_received,
-                                hits_received: ad.hits_received,
-                                last_damage_time: ad.last_damage_time,
-                                job: ad.job,
-                                skills,
-                            },
-                        )
-                    })
-                    .collect();
-                (
-                    tid,
-                    TargetCombatData {
-                        target_id: td.target_id,
-                        total_damage: td.total_damage,
-                        first_damage_time: td.first_damage_time,
-                        last_damage_time: td.last_damage_time,
-                        last_packet_id: td.last_packet_id,
-                        actors,
-                    },
-                )
-            })
+        self.inner.read().target_combat.iter()
+            .map(|(&tid, td)| (tid, td.clone_light()))
             .collect()
+    }
+
+    /// Hover needs one target's aggregates, never the per-hit timeline or
+    /// unrelated targets. Release the capture lock before resolving actors.
+    pub fn get_target_snapshot_light(&self, target_id: i32) -> Option<TargetCombatData> {
+        self.inner.read().target_combat.get(&target_id).map(TargetCombatData::clone_light)
     }
 
     /// Clear combat. Who owns which summon is kept: a summon is linked when it

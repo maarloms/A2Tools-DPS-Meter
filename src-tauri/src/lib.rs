@@ -45,4 +45,9 @@ mod npcap_setup;
 mod app;
 
 #[cfg(feature = "desktop")]
+mod atomic_file;
+#[cfg(feature = "desktop")]
+mod blocking;
+
+#[cfg(feature = "desktop")]
 pub use app::run;
