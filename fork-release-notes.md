@@ -1,6 +1,6 @@
 **Neu**
 - Battle-Timer zeigt bei Bossen die geschätzte Zeit bis zum Kill (TTK).
-- Details zeigen jetzt auch Block, Parry, Perfect Block, Ausweichen und Verfehlt.
+- Details zeigen jetzt auch Block, Parry, Perfect Block, Ausdauer, Regeneration, Verfehlt und Widerstanden.
 - Stream-Overlay für OBS auf einem anderen PC im Heimnetz (Einstellungen → Streaming).
 - Trainingspuppen werden auch dann erkannt, wenn ihr Spawn verpasst wurde.
 
