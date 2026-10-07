@@ -91,7 +91,7 @@ fn from_history(dir: &Path, wanted: &[String], t: &Tables) -> (usize, usize) {
         if packets.is_empty() {
             continue;
         }
-        let (storage, whole) = replay(&packets, t);
+        let (storage, whole) = replay(&packets, t, false);
         let Some(w) = whole
             .into_iter()
             .filter(|r| r.mob_code == saved.mob_code)
@@ -150,7 +150,11 @@ fn ring_check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord
 /// Every boss fight in one capture file.
 fn from_capture(path: &Path, t: &Tables, partner: Option<&[(String, DerivedFight, i64)]>) -> (usize, usize) {
     let packets = read_capture(path).expect("capture");
-    let (storage, mut whole) = replay(&packets, t);
+    // Every boss fight in the capture, whoever fought it: the meter keeps
+    // only fights of yours or your party's (`is_our_fight`), which left out
+    // an open-world boss with no party and you not among its actors
+    // (Blooming Korin). A slice of it can still be compared.
+    let (storage, mut whole) = replay(&packets, t, true);
     whole.sort_by_key(|r| r.start_time_ms);
     let (mut tried, mut same) = (0, 0);
     for w in &whole {
@@ -253,7 +257,8 @@ fn lookups(t: &Tables) -> (Arc<NpcLookup>, Arc<SkillLookup>) {
 }
 
 /// The whole capture, reassembled and replayed the way the live meter reads it.
-fn replay(packets: &[CapturedPacket], t: &Tables) -> (Arc<DataStorage>, Vec<FightRecord>) {
+/// `every_fight` keeps boss fights the meter would leave as someone else's.
+fn replay(packets: &[CapturedPacket], t: &Tables, every_fight: bool) -> (Arc<DataStorage>, Vec<FightRecord>) {
     let (npc, sk) = lookups(t);
     let storage = Arc::new(DataStorage::new());
     let mut proc = StreamProcessor::new(storage.clone(), sk.clone(), npc.clone());
@@ -266,7 +271,9 @@ fn replay(packets: &[CapturedPacket], t: &Tables) -> (Arc<DataStorage>, Vec<Figh
     // taken only at the end of the capture is not what anyone saw: by then a
     // player who changed entity id has had their damage moved off the old id,
     // and a dummy hit again has been reset, which made correct slices look wrong.
-    let calc = Arc::new(Mutex::new(DpsCalculator::new(storage.clone(), sk, npc, Arc::new(PingTracker::new()))));
+    let mut calc = DpsCalculator::new(storage.clone(), sk, npc, Arc::new(PingTracker::new()));
+    calc.set_every_fight(every_fight);
+    let calc = Arc::new(Mutex::new(calc));
     let saved: Arc<Mutex<HashMap<String, FightRecord>>> = Arc::new(Mutex::new(HashMap::new()));
     // And before combat is cleared (a zone change, the end of a party), as
     // the meter does since #19: a fight followed by a teleport before the
