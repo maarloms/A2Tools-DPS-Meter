@@ -161,6 +161,18 @@ fn from_capture(path: &Path, t: &Tables, partner: Option<&[(String, DerivedFight
             same += 1;
         }
     }
+    // A partner slice for a fight the whole capture does not show is a fight
+    // one of the two readings lost: say so rather than skip it.
+    for (name, d) in partner.unwrap_or(&[]) {
+        if whole.iter().any(|w| w.target_id == d.record.target_id) {
+            continue;
+        }
+        tried += 1;
+        println!("
+== partner {name}: {} (target {}, mob {}, {} ms, total {}) matches no fight in the whole capture -> DOES NOT CONFORM",
+                 d.record.boss_name, d.record.target_id, d.record.mob_code, d.record.duration_ms,
+                 d.record.details.total_target_damage);
+    }
     (tried, same)
 }
 
