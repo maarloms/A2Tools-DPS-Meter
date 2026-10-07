@@ -71,6 +71,10 @@ pub struct StreamProcessor {
     override_timestamp: Option<i64>,
 }
 
+/// The `42 36` flag of an entity leaving the world, a spirit unsummoned among
+/// others (197 of the 370 in a 2026-10-06 capture were linked spirits).
+const DESPAWN_FLAG: i32 = 7;
+
 impl StreamProcessor {
     pub fn new(data_storage: Arc<DataStorage>, skill_lookup: Arc<SkillLookup>, npc_lookup: Arc<NpcLookup>) -> Self {
         Self {
@@ -377,7 +381,8 @@ impl StreamProcessor {
         }
         pos += skip_info.length as usize;
 
-        // Death flag: 1 = zone-init (entity loaded dead), 3 = combat death
+        // Death flag: 1 = zone-init (entity loaded dead), 3 = combat death,
+        // 7 = gone from the world.
         let flag_info = read_varint(packet, pos);
         if flag_info.length <= 0 {
             return;
@@ -386,6 +391,11 @@ impl StreamProcessor {
         if flag_info.value == 3 {
             tracing::trace!("Death event: entity {} killed in combat", entity_id);
             self.data_storage.mark_entity_dead(entity_id);
+        }
+        // Only under the current opcode: under the old one (`41 36`, now the
+        // spawn) a summon's spawn mask can read as flag 7.
+        if flag_info.value == DESPAWN_FLAG && packet[offset] == 0x42 {
+            self.data_storage.note_despawn(entity_id);
         }
     }
 
@@ -3358,6 +3368,34 @@ mod tests {
         packet.extend(hex(record));
         packet[0] = packet.len() as u8;
         p.parsing_damage(&packet, false, false)
+    }
+
+    /// A Wind Spirit's Malicious Whirlwind ticks on after the spirit is
+    /// unsummoned (2026-10-06 21:16, spirit 25676 of player 15740 on target
+    /// 48776). The game's Damage Analyzer counted the two ticks before the
+    /// spirit's `42 36` flag 7 and neither after it; so does the meter.
+    #[test]
+    fn a_spirit_s_ticks_stop_counting_when_it_leaves() {
+        let (storage, mut p) = processor();
+        p.set_dot_skill_ids(HashSet::from([16_001_109]));
+        let tick = hex("19053888fd020accc801881241c15f5ff7025828f400");
+        // The owner's link record to the spirit (16770001).
+        let link = "ccc8010400fc7ad1e3ff000102affdf46301000000e65bf4010100";
+        feed(&mut p, link);
+        assert_eq!(storage.get_summon_data().get(&25676), Some(&15740));
+        p.parse_dot_packet(&tick);
+        p.parse_dot_packet(&tick);
+        p.parse_death_packet(&hex("0b4236ccc8010007"));
+        p.parse_dot_packet(&tick);
+        p.parse_dot_packet(&tick);
+        let ticks = &storage.get_combat_snapshot()[&48776].actors[&25676].skills[&(16_001_109, true)];
+        assert_eq!((ticks.hit_count, ticks.total_damage), (2, 750));
+
+        // A spirit back under the same id (its link records resume) counts again.
+        feed(&mut p, link);
+        p.parse_dot_packet(&tick);
+        let ticks = &storage.get_combat_snapshot()[&48776].actors[&25676].skills[&(16_001_109, true)];
+        assert_eq!(ticks.hit_count, 3);
     }
 
     fn processor() -> (Arc<DataStorage>, StreamProcessor) {
