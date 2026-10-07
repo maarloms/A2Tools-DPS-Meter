@@ -270,7 +270,13 @@ fn save_fight_records(app: &tauri::AppHandle, state: &AppState, records: Vec<Fig
         let _ = state.fight_history.save_fight(record);
         if !record.is_train {
             if let Err(e) = share::save_slice(&state.app_data_dir, record, &state.data_storage) {
-                tracing::debug!("No slice for {}: {e}", record.id);
+                // A fight that began before the meter did is normal; anything
+                // else is why an upload will later say no packets were saved.
+                if e.starts_with("no packets in memory") {
+                    tracing::debug!("No slice for {}: {e}", record.id);
+                } else {
+                    tracing::warn!("No slice for {}: {e}", record.id);
+                }
             }
         }
     }

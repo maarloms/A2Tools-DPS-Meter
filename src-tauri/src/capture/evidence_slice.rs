@@ -255,7 +255,8 @@ pub const ALLOWED_OPCODES: &[(&[u8; 2], &str)] = &[
 #[derive(Debug, Clone)]
 pub struct CapturedPacket {
     pub captured_at_ms: i64,
-    /// The TCP stream this arrived on — the packet logger writes `Client:<port>`.
+    /// The TCP stream this arrived on — the packet logger writes
+    /// `Client:<client port>:<server port>` (older logs `Client:<server port>`).
     ///
     /// Required, and it is not bookkeeping: a captured buffer is a TCP segment,
     /// not a packet. Packets straddle segments, so framing a segment on its own
@@ -619,8 +620,26 @@ pub fn leaked_names(records: &[(i32, Vec<u8>)], names: &[String]) -> usize {
         .iter()
         .map(|n| n.as_bytes())
         .filter(|n| n.len() >= MIN_NAME_BYTES)
-        .filter(|n| plaintext.iter().any(|buf| buf.windows(n.len()).any(|w| w == *n)))
+        .filter(|n| plaintext.iter().any(|buf| name_in(buf, n)))
         .count()
+}
+
+/// Names this short are only looked for as the game sends a name, after its
+/// length byte. Two bytes match ordinary data by chance: "Jo" or "Mo" turns up
+/// 8-23 times in 3.8 MB of a party's traffic, so one player named that, even
+/// a bystander, failed every slice after as a leak (2026-10-07).
+const SHORT_NAME_BYTES: usize = 4;
+
+/// Whether `name` is in `buf`: anywhere, or for a short name, length-prefixed.
+fn name_in(buf: &[u8], name: &[u8]) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    if name.len() >= SHORT_NAME_BYTES {
+        return buf.len() >= name.len() && buf.windows(name.len()).any(|w| w == name);
+    }
+    let needle: Vec<u8> = std::iter::once(name.len() as u8).chain(name.iter().copied()).collect();
+    buf.len() >= needle.len() && buf.windows(needle.len()).any(|w| w == needle.as_slice())
 }
 
 /// Is this packet one the parser reads (and, in the prelude, a state packet)?
@@ -841,14 +860,11 @@ pub fn build(
     // no verifier, because it is believed.
     let plaintext: Vec<Vec<u8>> = records.iter().map(|(_, p)| expand(p)).collect();
     for (name, _) in &ordered {
-        let needle = name.as_bytes();
-        if needle.is_empty() {
+        if name.is_empty() {
             continue;
         }
-        for buf in &plaintext {
-            if buf.len() >= needle.len() && buf.windows(needle.len()).any(|w| w == needle) {
-                return Err(SliceError::NameLeaked(needle.len()));
-            }
+        if plaintext.iter().any(|buf| name_in(buf, name.as_bytes())) {
+            return Err(SliceError::NameLeaked(name.len()));
         }
     }
 
@@ -1188,6 +1204,41 @@ mod tests {
 
     fn hex(s: &str) -> Vec<u8> {
         (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    }
+
+    /// A reconnect from the same server port. The old connection's last
+    /// packet never finished; the new connection's bytes, appended to it in one
+    /// stream, were read as its tail, and every slice after came out as lifted
+    /// fragments or not at all (2026-10-07: 98 % lifted from 08:05, then no
+    /// slices). One stream per connection keeps the new one whole.
+    #[test]
+    fn a_short_name_is_only_a_leak_where_the_game_puts_a_name() {
+        // "Jo" by chance inside other data is not a leak; after its length byte it is.
+        assert!(!name_in(&[0x10, b'J', b'o', 0x22, 0x01], b"Jo"));
+        assert!(name_in(&[0x10, 0x02, b'J', b'o', 0x22], b"Jo"));
+        // A longer name counts anywhere.
+        assert!(name_in(&[0x00, b'M', b'i', b's', b't', b'i', 0x00], b"Misti"));
+        assert!(!name_in(&[0x00, b'M', b'i', b's', b't', 0x00], b"Misti"));
+        let records = vec![(0, vec![0x05, 0x10, b'J', b'o', 0x22, 0x01])];
+        assert_eq!(leaked_names(&records, &["Jo".to_string()]), 0);
+    }
+
+    #[test]
+    fn a_reconnect_on_the_same_server_port_starts_a_clean_stream() {
+        use crate::capture::captured_payload::stream_key;
+        let world = hex("34213601000000f2030000dd7f3c00000000006868d047d0c62c470098da46fa63284300000000000000000000004f0000");
+        let at = |ms, stream: String, bytes: Vec<u8>| CapturedPacket { captured_at_ms: ms, stream, bytes };
+        let cut = |old: String, new: String| {
+            let packets = vec![
+                at(100_000, old.clone(), world.clone()),
+                at(100_000, old, world[..10].to_vec()),
+                at(101_000, new.clone(), world.clone()),
+                at(101_000, new, world.clone()),
+            ];
+            build(&packets, 100_000, 110_000, &HashMap::new()).map(|s| s.records.len()).unwrap_or(0)
+        };
+        assert_eq!(cut(stream_key(7777, 50000), stream_key(7777, 50001)), 3, "every whole packet kept");
+        assert!(cut("Client:7777".into(), "Client:7777".into()) < 3, "one stream per server port loses the new connection");
     }
 
     #[test]
