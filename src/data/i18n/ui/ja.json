@@ -184,6 +184,7 @@
       "dps": "DPS"
     },
     "showPing": "pingを表示",
+    "showTtk": "撃破予測時間（TTK）を表示",
     "showTotalDps": "合計DPS/ダメージを表示",
     "roundDps": "DPSを丸める",
     "autoHideMeter": "メーターを自動的に隠す",
@@ -343,6 +344,7 @@
   },
   "battleTime": {
     "analysing": "データを監視中...",
+    "ttkTooltip": "ボスの残りHPとパーティの与ダメージから予測した戦闘全体の長さ",
     "idle": "待機中",
     "notRunning": "AION2が起動していません",
     "suspended": "アプリを一時停止中",

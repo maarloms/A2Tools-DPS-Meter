@@ -7,6 +7,7 @@ const REMOTE_APPLIED_SETTING_CONTROLS = {
   "dpsMeter.mainPlayerNamesBold": ".playerNamesBoldCheckbox",
   "dpsMeter.mainPlayerDpsBold": ".playerDpsBoldCheckbox",
   "dpsMeter.showPing": ".showPingCheckbox",
+  "dpsMeter.showTtk": ".showTtkCheckbox",
   "dpsMeter.bossNameSize": ".bossNameSizeInput",
   "dpsMeter.showSupporterColors": ".showSupporterColorsCheckbox",
   "dpsMeter.showSuspendBtn": ".showSuspendBtnCheckbox",
@@ -57,6 +58,7 @@ class DpsApp {
       showSupporterColors: "dpsMeter.showSupporterColors",
       mainPlayerDpsBold: "dpsMeter.mainPlayerDpsBold",
       showPing: "dpsMeter.showPing",
+      showTtk: "dpsMeter.showTtk",
       showTotalDps: "dpsMeter.showTotalDps",
       roundDps: "dpsMeter.roundDps",
       playerLimit: "dpsMeter.playerLimit",
@@ -344,6 +346,7 @@ class DpsApp {
     this.battleTime = createBattleTimeUI({
       rootEl: document.querySelector(".battleTime"),
       tickSelector: ".tick",
+      ttkSelector: ".ttk",
       statusSelector: ".status",
       analysisSelector: ".analysisStatus",
       getAnalysisText: getBattleTimeStatusText,
@@ -357,6 +360,9 @@ class DpsApp {
 
     this.pingEl = document.querySelector(".pingDisplay");
     this.showPing = this.safeGetSetting(this.storageKeys.showPing) !== "false";
+    // Time to kill beside the battle timer, for bosses; on unless turned off.
+    this.showTtk = this.safeGetSetting(this.storageKeys.showTtk) !== "false";
+    this.ttk = typeof createTtkEstimator === "function" ? createTtkEstimator() : null;
     // Ping is pushed immediately from PingTracker via window._dpsApp.updatePing().
     // A slow fallback poll handles edge cases (e.g. push not wired yet on startup).
     this._pingTimer = setInterval(() => this.updatePing(), 30000);
@@ -704,6 +710,7 @@ class DpsApp {
     this._lastBattleTimeMs = null;
     this.battleTime?.reset?.();
     this.battleTime?.setVisible?.(false);
+    this.ttk?.reset?.();
 
     this.pinnedDetailsRowId = null;
     this.hoveredDetailsRowId = null;
@@ -1061,6 +1068,7 @@ class DpsApp {
       targetMaxHp,
       targetTotalDamage,
       targetCurrentHp,
+      targetIsBoss,
       dungeonId,
     } = this.buildRowsFromPayload(raw);
     // Boss mode with no boss engaged: say what it is waiting for. The rows of
@@ -1200,6 +1208,7 @@ class DpsApp {
       this.elBossName.classList.toggle("isAllTargets", targetMode === "allTargets");
     }
     this.updateBossHpBar(targetMaxHp, targetTotalDamage, targetCurrentHp);
+    this.updateTtk(targetIsBoss, targetId, battleTimeMs, targetMaxHp, targetTotalDamage, targetCurrentHp);
     if (
       nextTargetLabel !== this._lastRenderedTargetLabel ||
       previousTargetName !== targetName ||
@@ -1263,6 +1272,7 @@ class DpsApp {
     const targetCurrentHp = Number.isFinite(Number(payload?.targetCurrentHp))
       ? Number(payload.targetCurrentHp)
       : -1;
+    const targetIsBoss = payload?.targetIsBoss === true;
 
     return {
       rows,
@@ -1274,6 +1284,7 @@ class DpsApp {
       targetMaxHp,
       targetTotalDamage,
       targetCurrentHp,
+      targetIsBoss,
       dungeonId,
     };
   }
@@ -2394,6 +2405,15 @@ class DpsApp {
       this.showPingCheckbox.addEventListener("change", (event) => {
         this.showPing = !!event.target?.checked;
         this.safeSetSetting(this.storageKeys.showPing, String(this.showPing));
+      });
+    }
+    this.showTtkCheckbox = document.querySelector(".showTtkCheckbox");
+    if (this.showTtkCheckbox) {
+      this.showTtkCheckbox.checked = this.showTtk;
+      this.showTtkCheckbox.addEventListener("change", (event) => {
+        this.showTtk = !!event.target?.checked;
+        this.safeSetSetting(this.storageKeys.showTtk, String(this.showTtk));
+        if (!this.showTtk) this.battleTime?.setTtk?.(null);
       });
     }
     this.showTotalDpsCheckbox = document.querySelector(".showTotalDpsCheckbox");
@@ -4209,6 +4229,23 @@ class DpsApp {
     const ariaLabel = this.i18n?.t(ariaKey, ariaFallback) ?? ariaFallback;
     this.metricToggleBtn.textContent = label;
     this.metricToggleBtn.setAttribute("aria-label", ariaLabel);
+  }
+
+  // Time to kill beside the battle timer: bosses only, and only with their HP
+  // known. The remaining HP is read the way the HP bar reads it.
+  updateTtk(isBoss, targetId, battleTimeMs, maxHp, totalDamage, currentHp) {
+    if (!this.battleTime?.setTtk) return;
+    const max = Number(maxHp) || 0;
+    if (!this.showTtk || !isBoss || !this.ttk || max <= 0 || !Number.isFinite(battleTimeMs)) {
+      this.battleTime.setTtk(null);
+      return;
+    }
+    const live = Number(currentHp);
+    const remaining =
+      Number.isFinite(live) && live >= 0
+        ? Math.min(max, Math.max(0, live))
+        : Math.max(0, max - Math.max(0, Number(totalDamage) || 0));
+    this.battleTime.setTtk(this.ttk.update(targetId, battleTimeMs, remaining, max));
   }
 
   // Boss remaining-HP bar. There is no live boss current-HP packet, so remaining

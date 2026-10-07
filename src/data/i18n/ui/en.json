@@ -194,6 +194,7 @@
       "dps": "DPS"
     },
     "showPing": "Show ping",
+    "showTtk": "Show time to kill (TTK)",
     "showTotalDps": "Show total DPS/DMG",
     "roundDps": "Round DPS",
     "autoHideMeter": "Auto-hide meter",
@@ -355,6 +356,7 @@
   },
   "battleTime": {
     "analysing": "Monitoring data...",
+    "ttkTooltip": "Estimated length of the whole boss fight, from its remaining HP and the party's damage",
     "idle": "Idle",
     "notRunning": "AION2 not running",
     "suspended": "App suspended",

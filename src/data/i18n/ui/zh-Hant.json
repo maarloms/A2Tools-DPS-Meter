@@ -189,6 +189,7 @@
       "dps": "DPS"
     },
     "showPing": "顯示延遲",
+    "showTtk": "顯示預計擊殺時間（TTK）",
     "showTotalDps": "顯示總DPS/DMG",
     "roundDps": "DPS取整",
     "autoHideMeter": "自動隱藏面板",
@@ -350,6 +351,7 @@
   },
   "battleTime": {
     "analysing": "正在監控資料...",
+    "ttkTooltip": "依首領剩餘生命值和隊伍傷害估算的整場戰鬥時長",
     "idle": "閒置",
     "notRunning": "AION2 not running",
     "suspended": "應用程式已暫停",

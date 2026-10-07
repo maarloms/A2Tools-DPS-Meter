@@ -24,6 +24,10 @@ pub struct DpsData {
     /// Live current HP of the current target from the in-place HP feed, or -1 if
     /// none has been observed. When >= 0 the bar uses this real value directly.
     pub target_current_hp: i64,
+    /// The current target is a boss (not a training dummy): the page shows the
+    /// time-to-kill estimate only then.
+    #[serde(default)]
+    pub target_is_boss: bool,
     /// Instance id from the party roster (0 = not in a party instance). The
     /// frontend maps it to a dungeon name + difficulty.
     pub dungeon_id: i32,
@@ -42,6 +46,7 @@ impl DpsData {
             target_max_hp: 0,
             target_total_damage: 0,
             target_current_hp: -1,
+            target_is_boss: false,
             dungeon_id: 0,
         }
     }

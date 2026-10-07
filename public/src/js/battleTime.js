@@ -2,6 +2,7 @@
 const createBattleTimeUI = ({
   rootEl,
   tickSelector,
+  ttkSelector,
   statusSelector,
   analysisSelector,
   getAnalysisText,
@@ -13,6 +14,7 @@ const createBattleTimeUI = ({
   if (!rootEl) return null;
 
   const tickEl = rootEl.querySelector(tickSelector);
+  const ttkEl = ttkSelector ? rootEl.querySelector(ttkSelector) : null;
   const statusEl = statusSelector ? rootEl.querySelector(statusSelector) : null;
   const analysisEl = analysisSelector ? rootEl.querySelector(analysisSelector) : null;
 
@@ -66,7 +68,16 @@ const createBattleTimeUI = ({
     lastSeenAt = 0;
 
     if (tickEl) tickEl.textContent = "00:00";
+    setTtk(null);
     setState("");
+  };
+
+  // The estimated length of the whole fight, after the timer as "/02:50";
+  // null hides it.
+  const setTtk = (totalMs) => {
+    if (!ttkEl) return;
+    const text = Number.isFinite(totalMs) && totalMs > 0 ? `/${formatMMSS(totalMs)}` : "";
+    if (ttkEl.textContent !== text) ttkEl.textContent = text;
   };
 
   const VISUAL_TICK_MS = 5000;
@@ -154,6 +165,7 @@ const createBattleTimeUI = ({
     render,
     reset,
     getCombatTimeText,
+    setTtk,
     getState,
     isEnded,
     setAnalysisTextProvider,

@@ -931,6 +931,18 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   line-height: 1;
   color: rgba(255, 255, 255, 0.8);
 }
+.battleTime .ttk {
+  flex: 0 0 auto;
+  margin-left: -4px;
+  font-family: var(--hud-tech);
+  font-variation-settings: "wght" 500, "wdth" 87.5;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.5);
+}
+.battleTime .ttk:empty { display: none; }
+.battleTime:not(.state-fighting) .ttk { display: none; }
 .battleTime .analysisStatus {
   min-width: 0;
   flex: 1 1 auto;

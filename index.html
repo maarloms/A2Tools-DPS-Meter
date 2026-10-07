@@ -669,6 +669,13 @@
                     </span>
                   </label>
                   <label class="settingsToggle">
+                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showTtk">Show time to kill (TTK)</span>
+                    <span class="settingsToggleControl">
+                      <input type="checkbox" class="showTtkCheckbox" />
+                      <span class="settingsToggleTrack" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                  <label class="settingsToggle">
                     <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showTotalDps">Show total DPS/DMG</span>
                     <span class="settingsToggleControl">
                       <input type="checkbox" class="showTotalDpsCheckbox" />
@@ -980,6 +987,7 @@
           <div class="battleTime">
             <div class="status"></div>
             <div class="tick"></div>
+            <div class="ttk" data-i18n-title="battleTime.ttkTooltip" title="Estimated length of the whole boss fight"></div>
             <div class="analysisStatus" data-i18n="battleTime.analysing">
               Monitoring data...
             </div>
@@ -1208,6 +1216,7 @@
     </div>
     <script src="/src/js/tauriBridge.js?v=202b2"></script>
     <script src="/src/js/battleTime.js"></script>
+    <script src="/src/js/ttk.js"></script>
     <script src="/src/js/meter.js"></script>
     <script src="/src/js/skillIcons.js"></script>
     <script src="/src/js/details.js?v=2021a"></script>

@@ -207,6 +207,11 @@ impl DpsCalculator {
             -1
         };
         dps_data.target_current_hp = target_current_hp;
+        let target_is_boss = self.current_target != 0
+            && self.data_storage.mob_code(self.current_target).is_some_and(|code| {
+                self.npc_lookup.is_boss(code) && !self.npc_lookup.is_training_dummy(code)
+            });
+        dps_data.target_is_boss = target_is_boss;
 
         // Collect actors from selected targets
         let mut combined_actors: HashMap<i32, i64> = HashMap::new();
@@ -246,6 +251,7 @@ impl DpsCalculator {
                 snapshot.target_max_hp = target_max_hp;
                 snapshot.target_total_damage = 0;
                 snapshot.target_current_hp = target_current_hp;
+                snapshot.target_is_boss = target_is_boss;
                 snapshot.dungeon_id = dps_data.dungeon_id;
                 let mut snap = snapshot.clone();
                 self.finalize_rows(&mut snap);
