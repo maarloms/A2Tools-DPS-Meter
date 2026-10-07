@@ -277,7 +277,12 @@ pub fn log_packet(cap: &CapturedPayload) {
     if !PACKET_LOG_ENABLED.load(Ordering::Relaxed) { return; }
     let mut guard = PACKET_LOGGER.lock();
     if let Some(ref mut logger) = *guard {
-        let ts = chrono::Local::now().format("%+");
+        // The packet's capture time, as the share ring stamps it: libpcap
+        // hands packets over in 100 ms batches, so the time of writing falls
+        // on that grid and hides the real spacing between packets.
+        use chrono::TimeZone;
+        let captured = cap.capture_time_ms().and_then(|ms| chrono::Local.timestamp_millis_opt(ms).single());
+        let ts = captured.unwrap_or_else(chrono::Local::now).format("%+");
         let key = format!("Client:{}", cap.src_port);
         let hex: String = cap.data.iter().map(|b| format!("{:02X}", b)).collect();
         let line = format!("{}|{}|{}\n", ts, key, hex);
