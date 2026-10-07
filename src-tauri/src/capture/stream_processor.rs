@@ -533,42 +533,9 @@ impl StreamProcessor {
     // ===== SUMMON OWNERSHIP (04 8D) =====
 
     fn parse_summon_ownership_packet(&self, packet: &[u8]) -> bool {
-        let length_info = read_varint(packet, 0);
-        if length_info.length < 0 {
+        let Some((summon_id, owner_id, name)) = ownership_at_front(packet) else {
             return false;
-        }
-        let offset = length_info.length as usize;
-        if offset + 1 >= packet.len() {
-            return false;
-        }
-        if packet[offset] != 0x04 || packet[offset + 1] != 0x8D {
-            return false;
-        }
-
-        let mut pos = offset + 2;
-        let summon_info = read_varint(packet, pos);
-        if summon_info.length <= 0 || summon_info.value < 100 {
-            return false;
-        }
-        let summon_id = summon_info.value;
-        pos += summon_info.length as usize;
-
-        // Skip 4-byte fixed field
-        if pos + 4 > packet.len() {
-            return false;
-        }
-        pos += 4;
-
-        let owner_info = read_varint(packet, pos);
-        if owner_info.length <= 0 || owner_info.value < 100 {
-            return false;
-        }
-        let owner_id = owner_info.value;
-        pos += owner_info.length as usize;
-
-        if owner_id == summon_id {
-            return false;
-        }
+        };
 
         // Only link confirmed summons
         if self.data_storage.is_confirmed_summon(summon_id) {
@@ -576,15 +543,8 @@ impl StreamProcessor {
         }
 
         // Name field after owner ID
-        let meta_info = read_varint(packet, pos);
-        if meta_info.length > 0 {
-            pos += meta_info.length as usize;
-            if pos < packet.len() {
-                let name_len = packet[pos] as usize;
-                if (1..=36).contains(&name_len) && pos + 1 + name_len <= packet.len() {
-                    self.register_utf8_nickname(packet, owner_id, pos + 1, name_len);
-                }
-            }
+        if let Some((start, len)) = name {
+            self.register_utf8_nickname(packet, owner_id, start, len);
         }
 
         true
@@ -647,129 +607,42 @@ impl StreamProcessor {
     }
 
     fn scan_for_embedded_04_8d(&self, data: &[u8]) -> bool {
-        let mut found_any = false;
-        let mut search_offset = 0;
-        let pattern: [u8; 2] = [0x04, 0x8D];
-
-        while search_offset + 1 < data.len() {
-            let idx = find_pattern(data, search_offset, &pattern);
-            if idx.is_none() {
-                break;
-            }
-            let idx = idx.unwrap();
-
-            search_offset = idx + 2;
-            if search_offset >= data.len() {
-                break;
-            }
-
-            let summon_info = read_varint(data, search_offset);
-            if summon_info.length <= 0 || !(100..=9_999_999).contains(&summon_info.value) {
-                continue;
-            }
-            let summon_id = summon_info.value;
-
-            let fixed_field_start = search_offset + summon_info.length as usize;
-            if fixed_field_start + 4 > data.len() {
-                continue;
-            }
-
-            // The owner follows: `<owner varint> <server id u16 LE> <len><name>`.
-            // The server id was once matched as the literal bytes `E0 07` /
-            // `E2 07` (servers 2016 and 2018), which skipped every other server:
-            // a Sorcerer on Ventus (1305, bytes `19 05`) never got a name. Any id
-            // in the servers' 1000–2999 range is accepted now, and a candidate
-            // only counts when the owner id sits wholly after the fixed field and
-            // the whole name field is a name.
-            let after_fixed = fixed_field_start + 4;
-            // A zero there is no owner: the record a summon gets as it
-            // despawns, all zeros. The scan below then ran on into whatever
-            // followed, and found an "owner" in the next damage records: a
-            // Cleric's Divine Aura went to entity 10210, named "M", and showed
-            // as its own row (2026-10-04, Divine Auldor).
-            if data.get(after_fixed).is_none_or(|&b| b == 0) {
-                continue;
-            }
-            let scan_end = std::cmp::min(data.len().saturating_sub(2), after_fixed + 128);
-            let mut found = None;
-            for server_idx in after_fixed + 1..scan_end {
-                let server_id = u16::from_le_bytes([data[server_idx], data[server_idx + 1]]);
-                if !(1000..=2999).contains(&server_id) {
-                    continue;
-                }
-                // The owner `ed 74` (14957) ends in a byte that alone reads as
-                // an id too (`74`, 116); see `varint_ending_at`.
-                let owner_id = varint_ending_at(data, server_idx, after_fixed, 100..=99_999);
-                let Some(owner_id) = owner_id.filter(|&id| id != summon_id) else {
-                    continue;
-                };
-                let name_len_idx = server_idx + 2;
-                let name_len = data[name_len_idx] as usize;
-                let name_end = name_len_idx + 1 + name_len;
-                if !NAME_FIELD_BYTES.contains(&name_len) || name_end > data.len() {
-                    continue;
-                }
-                if let Some(name) = exact_name(&data[name_len_idx + 1..name_end]) {
-                    found = Some((owner_id, server_id, name, name_end));
-                    break;
-                }
-            }
-            let Some((owner_id, server_id, name, name_end)) = found else {
-                continue;
-            };
-
+        let records = ownership_records(data);
+        for r in &records {
+            let (summon_id, owner_id, name) = (r.summon_id, r.owner_id, &r.name);
             if self.data_storage.is_confirmed_summon(summon_id) {
                 self.data_storage.append_summon(owner_id, summon_id);
             }
-            self.data_storage.append_nickname(owner_id, &name);
-            self.data_storage.note_player_server(&name, server_id);
+            self.data_storage.append_nickname(owner_id, name);
+            self.data_storage.note_player_server(name, r.server_id);
             // For a mob that was fought (it follows the mob's `35 38` despawn)
             // this is the loot owner, which so far has always been you.
             if !self.data_storage.is_confirmed_summon(summon_id)
                 && self.data_storage.is_damage_target(summon_id)
-                && self.data_storage.note_loot_owner(summon_id, owner_id, &name)
+                && self.data_storage.note_loot_owner(summon_id, owner_id, name)
             {
                 tracing::info!("loot record: local player '{}' -> entity {}", name, owner_id);
             }
-            found_any = true;
-
-            search_offset = name_end;
         }
-
-        found_any
+        !records.is_empty()
     }
 
     // ===== EMBEDDED 40 36 SCAN =====
 
     fn scan_for_embedded_40_36(&mut self, data: &[u8]) {
-        let mut i = 0;
-        while i + 5 < data.len() {
-            // Spawn family shifted +1 in June 2026: mob/summon 0x40->0x41,
-            // player 0x44->0x45. Accept both old and new leading bytes.
-            if data[i + 1] == 0x36 && matches!(data[i], 0x40 | 0x41 | 0x44 | 0x45) {
-                if i > 0 && data[i - 1] == 0x00 {
-                    i += 2;
-                    continue;
-                }
-                let target_info = read_varint(data, i + 2);
-                if target_info.length > 0 && (100..=9_999_999).contains(&target_info.value) {
-                    if data[i] == 0x44 || data[i] == 0x45 {
-                        // 44/45 36 = player spawn — extract name
-                        self.parse_player_spawn_name(data, i + 2);
-                    } else {
-                        // 40/41 36 = summon/mob spawn
-                        let mut real_id = target_info.value;
-                        if real_id > 1_000_000 {
-                            real_id = (real_id & 0x3FFF) | 0x4000;
-                        }
-                        if !self.data_storage.is_mob(real_id) {
-                            self.parse_summon_spawn_at(data, i + 2);
-                        }
-                    }
-                }
-                i += 2 + target_info.length.max(0) as usize;
+        for (i, opcode, id) in embedded_spawns(data) {
+            if opcode == 0x44 || opcode == 0x45 {
+                // 44/45 36 = player spawn — extract name
+                self.parse_player_spawn_name(data, i + 2);
             } else {
-                i += 1;
+                // 40/41 36 = summon/mob spawn
+                let mut real_id = id;
+                if real_id > 1_000_000 {
+                    real_id = (real_id & 0x3FFF) | 0x4000;
+                }
+                if !self.data_storage.is_mob(real_id) {
+                    self.parse_summon_spawn_at(data, i + 2);
+                }
             }
         }
     }
@@ -866,83 +739,20 @@ impl StreamProcessor {
     /// works when you are already loaded into a zone (where there is no login
     /// char-list and you never see your own spawn).
     fn scan_masked_identity(&self, data: &[u8]) {
-        if data.len() < 9 {
-            return;
-        }
-        let mut i = 0;
-        while i + 8 < data.len() {
-            if data[i + 1] != 0x36 {
-                i += 1;
-                continue;
-            }
-            // 0x33 = self, 0x45/0x44 = another player (pre/post the June 2026 shift).
-            let is_self = data[i] == 0x33;
-            if !is_self && data[i] != 0x45 && data[i] != 0x44 {
-                i += 1;
-                continue;
-            }
-            let id = read_varint(data, i + 2);
-            if id.length <= 0 || !(1..=9_999_999).contains(&id.value) {
-                i += 1;
-                continue;
-            }
-            // mask1 is 4 bytes; mask2 is the byte after it and gates the name.
-            let mask2_idx = i + 2 + id.length as usize + 4;
-            if mask2_idx + 1 >= data.len() || data[mask2_idx] & 0x01 == 0 {
-                i += 1;
-                continue;
-            }
-            let name_len = data[mask2_idx + 1] as usize;
-            if !NAME_FIELD_BYTES.contains(&name_len) || mask2_idx + 2 + name_len > data.len() {
-                i += 1;
-                continue;
-            }
-            let field = &data[mask2_idx + 2..mask2_idx + 2 + name_len];
-            let raw = match std::str::from_utf8(field) {
-                Ok(s) => s,
-                Err(_) => {
-                    i += 1;
-                    continue;
+        for record in masked_records(data) {
+            let id = record.id;
+            let Some(sanitized) = record.name else {
+                // A tutorial character's placeholder: still you, with no name.
+                if self.data_storage.set_local_identity_from_game(id as i64, None) {
+                    tracing::info!("self record: unnamed tutorial character -> entity {}", id);
                 }
-            };
-            // A new character plays the tutorial before it has a name; until
-            // then the game calls it `$` plus random letters and digits (seen:
-            // `$Kc03nyeQHr4`, entity 3877, on 2026-10-01). It is still you, so
-            // bind the entity, but with no name: a placeholder would be noise,
-            // and keeping the previous character's name would be wrong.
-            if is_self && is_placeholder_name(raw) {
-                if self.data_storage.set_local_identity_from_game(id.value as i64, None) {
-                    tracing::info!("self record: unnamed tutorial character -> entity {}", id.value);
-                }
-                i = mask2_idx + 2 + name_len;
-                continue;
-            }
-            // The whole field must be one clean name; otherwise we landed
-            // mid-record rather than on a real name string.
-            let Some(sanitized) = exact_name(field) else {
-                i += 1;
                 continue;
             };
-            let after = mask2_idx + 2 + name_len;
-            // A self record without your server and class after the name is
-            // not one. The last `33 36` of a `1d 37` record ending `33 36 33 36`
-            // read with the next record's bytes as entity 16 and a two-letter
-            // name (2026-10-05 17:42:14), and the meter took that for you.
-            // Entity ids under 100 are real players, so the id cannot tell.
-            let profile = if is_self {
-                let Some(profile) = self_profile(data, after) else {
-                    i += 1;
-                    continue;
-                };
-                Some(profile)
-            } else {
-                None
-            };
-
-            self.data_storage.note_low_id_entity(id.value);
+            let after = record.field.end;
+            self.data_storage.note_low_id_entity(id);
             self.data_storage
-                .append_nickname_authoritative(id.value, &sanitized);
-            if let Some((server, job)) = profile {
+                .append_nickname_authoritative(id, &sanitized);
+            if let Some((server, job)) = record.profile {
                 // The game's word on who you are replaces whatever name was
                 // configured. That name comes from the window title or the last
                 // session, and both go stale: the title does not change when a
@@ -950,9 +760,9 @@ impl StreamProcessor {
                 // leaves the previous name behind.
                 if self
                     .data_storage
-                    .set_local_identity_from_game(id.value as i64, Some(sanitized.clone()))
+                    .set_local_identity_from_game(id as i64, Some(sanitized.clone()))
                 {
-                    tracing::info!("self record: local player '{}' -> entity {}", sanitized, id.value);
+                    tracing::info!("self record: local player '{}' -> entity {}", sanitized, id);
                 }
                 self.data_storage.note_player_server(&sanitized, server);
                 // A byte, then level (u32). Confirmed by a level-up, 28
@@ -965,9 +775,8 @@ impl StreamProcessor {
                     .filter(|l| (1..=99).contains(l));
                 self.data_storage.note_self_profile(&sanitized, job, level);
             } else {
-                tracing::debug!("player record: '{}' -> entity {}", sanitized, id.value);
+                tracing::debug!("player record: '{}' -> entity {}", sanitized, id);
             }
-            i = mask2_idx + 2 + name_len;
         }
     }
 
@@ -1007,29 +816,15 @@ impl StreamProcessor {
     /// Empty slots are encoded with a zero mask and an empty name, in a short
     /// record of varying width; the walk re-acquires the next member past them.
     fn scan_party_roster(&self, data: &[u8]) {
-        if data.len() < 32 {
-            return;
-        }
-        let mut i = 0;
-        while i + 24 < data.len() {
-            if data[i] != 0x02 || data[i + 1] != 0x97 {
-                i += 1;
-                continue;
-            }
-            match parse_party_roster_at(data, i + 2) {
-                Some((members, complete, dungeon_id)) => {
-                    tracing::debug!(
-                        "Party roster: {} members (complete={}, dungeon={})",
-                        members.len(),
-                        complete,
-                        dungeon_id
-                    );
-                    self.data_storage.set_current_dungeon(dungeon_id);
-                    self.data_storage.set_party_roster(members, complete);
-                    i += 2;
-                }
-                None => i += 1,
-            }
+        for roster in rosters(data) {
+            tracing::debug!(
+                "Party roster: {} members (complete={}, dungeon={})",
+                roster.members.len(),
+                roster.complete,
+                roster.dungeon_id
+            );
+            self.data_storage.set_current_dungeon(roster.dungeon_id);
+            self.data_storage.set_party_roster(roster.members, roster.complete);
         }
     }
 
@@ -1040,22 +835,7 @@ impl StreamProcessor {
     /// than hunting for the literal `0x07` that older builds happened to put in
     /// the `mask2` slot.
     fn parse_player_spawn_name(&self, data: &[u8], offset_after_opcode: usize) {
-        let actor_info = read_varint(data, offset_after_opcode);
-        // Raid/invasion player ids run well past 99,999, so accept the full entity-id
-        // range (matching the embedded-scan gate) or those spawns are silently dropped.
-        if actor_info.length <= 0 || !(1..=9_999_999).contains(&actor_info.value) {
-            return;
-        }
-        let actor_id = actor_info.value;
-        let mask2_idx = offset_after_opcode + actor_info.length as usize + 4;
-        if mask2_idx + 1 >= data.len() || data[mask2_idx] & 0x01 == 0 {
-            return;
-        }
-        let name_len = data[mask2_idx + 1] as usize;
-        if !NAME_FIELD_BYTES.contains(&name_len) || mask2_idx + 2 + name_len > data.len() {
-            return;
-        }
-        let Some(sanitized) = exact_name(&data[mask2_idx + 2..mask2_idx + 2 + name_len]) else {
+        let Some((actor_id, sanitized, _)) = player_spawn_at(data, offset_after_opcode) else {
             return;
         };
         // 45/44 36 player spawn is an authoritative id↔name source.
@@ -1155,30 +935,8 @@ impl StreamProcessor {
         // *owner's* character name, and it is the fallback that attributes a pet's
         // damage to its player when no parent_key is present. A silently
         // mispositioned gate shows up as summons drifting back into their own rows.
-        const MASK_U16_SUBTREE: usize = 2;
-        const MASK_U32_SUBTREE: usize = 4;
-
-        let read_name_at = |sub_offset: usize| -> Option<(String, usize)> {
-            let gate = *packet.get(offset + sub_offset)?;
-            if gate & 0x01 == 0 {
-                return None;
-            }
-            let cursor = offset + sub_offset + 1;
-            let name_len = *packet.get(cursor)? as usize;
-            if !NAME_FIELD_BYTES.contains(&name_len) || cursor + 1 + name_len > packet.len() {
-                return None;
-            }
-            // The whole field must be a name. This check is what makes trying
-            // two positions safe: a wrong guess almost never decodes cleanly.
-            let name = exact_name(&packet[cursor + 1..cursor + 1 + name_len])?;
-            Some((name, cursor + 1 + name_len))
-        };
-
-        // Current format first, so a live stream never depends on the fallback.
-        let (spawn_name, cursor) = match read_name_at(MASK_U32_SUBTREE)
-            .or_else(|| read_name_at(MASK_U16_SUBTREE))
-        {
-            Some((name, next)) => (Some(name), next),
+        let (spawn_name, cursor) = match spawn_name_at(packet, offset) {
+            Some((name, field)) => (Some(name), field.end),
             None => (None, offset + MASK_U32_SUBTREE + 1),
         };
 
@@ -1377,73 +1135,9 @@ impl StreamProcessor {
     // ===== ACTOR NAME BINDING =====
 
     fn parse_actor_name_binding_rules(&self, packet: &[u8]) -> bool {
-        let mut i = 0;
-        let mut last_anchor: Option<(i32, usize, usize)> = None; // (actor_id, start, end)
-        let mut named_actors = HashSet::new();
-
-        while i < packet.len() {
-            if packet[i] == 0x36 {
-                // Skip spawn opcodes (40/41 36 mob, 44/45 36 player) — the
-                // 0x36 family shifted +1 in June 2026.
-                if i > 0 && matches!(packet[i - 1], 0x40 | 0x41 | 0x44 | 0x45) {
-                    i += 1;
-                    continue;
-                }
-                if i + 1 >= packet.len() {
-                    i += 1;
-                    continue;
-                }
-                let actor_info = read_varint(packet, i + 1);
-                last_anchor = if actor_info.length > 0 && actor_info.value >= 100 {
-                    Some((actor_info.value, i, i + 1 + actor_info.length as usize))
-                } else {
-                    None
-                };
-                i += 1;
-                continue;
-            }
-
-            if packet[i] == 0x07 {
-                if let Some(name_info) = self.read_utf8_name(packet, i) {
-                    if let Some((actor_id, _, end_idx)) = last_anchor {
-                        if !named_actors.contains(&actor_id) {
-                            let distance = i as isize - end_idx as isize;
-                            if (0..=64).contains(&distance) {
-                                if self.register_utf8_nickname(packet, actor_id, name_info.0, name_info.1) {
-                                    named_actors.insert(actor_id);
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            i += 1;
-        }
-        false
-    }
-
-    fn read_utf8_name(&self, packet: &[u8], anchor_index: usize) -> Option<(usize, usize)> {
-        let length_index = anchor_index + 1;
-        if length_index >= packet.len() {
-            return None;
-        }
-        let name_length = packet[length_index] as usize;
-        if !(1..=36).contains(&name_length) {
-            return None;
-        }
-        let name_start = length_index + 1;
-        let name_end = name_start + name_length;
-        if name_end > packet.len() {
-            return None;
-        }
-        let name_bytes = &packet[name_start..name_end];
-        let name = std::str::from_utf8(name_bytes).ok()?;
-        let sanitized = sanitize_nickname(name)?;
-        if sanitized.is_empty() {
-            return None;
-        }
-        Some((name_start, name_length))
+        actor_name_fields(packet)
+            .into_iter()
+            .any(|(actor_id, name_start, name_length)| self.register_utf8_nickname(packet, actor_id, name_start, name_length))
     }
 
     fn register_utf8_nickname(&self, packet: &[u8], actor_id: i32, name_start: usize, name_length: usize) -> bool {
@@ -1477,72 +1171,12 @@ impl StreamProcessor {
 
     fn parse_loot_attribution_actor_name(&self, packet: &[u8]) -> bool {
         let mut candidates: std::collections::HashMap<i32, (String, Vec<u8>)> = std::collections::HashMap::new();
-        let mut idx = 0;
-
-        while idx + 2 < packet.len() {
-            let marker = packet[idx] as u32;
-            let marker_next = packet[idx + 1] as u32;
-            let is_marker = (0xF0..=0xFF).contains(&marker) && (marker_next == 0x03 || marker_next == 0xA3);
-
-            if is_marker {
-                // Scan backward for actor ID
-                let mut actor_info: Option<VarIntResult> = None;
-                let min_offset = idx.saturating_sub(8);
-                for actor_offset in min_offset..idx {
-                    if !can_read_varint(packet, actor_offset) {
-                        continue;
-                    }
-                    let candidate = read_varint(packet, actor_offset);
-                    if candidate.length <= 0 || actor_offset + candidate.length as usize != idx {
-                        continue;
-                    }
-                    if !(100..=99999).contains(&candidate.value) {
-                        continue;
-                    }
-                    actor_info = Some(candidate);
-                    break;
-                }
-
-                let actor_info = match actor_info {
-                    Some(a) => a,
-                    None => { idx += 1; continue; }
-                };
-
-                let length_idx = idx + 2;
-                if length_idx >= packet.len() {
-                    idx += 1;
-                    continue;
-                }
-                let name_length = packet[length_idx] as usize;
-                if !(1..=36).contains(&name_length) {
-                    idx += 1;
-                    continue;
-                }
-                let name_start = length_idx + 1;
-                let name_end = name_start + name_length;
-                if name_end > packet.len() {
-                    idx += 1;
-                    continue;
-                }
-                let name_bytes = &packet[name_start..name_end];
-                let name = match std::str::from_utf8(name_bytes) {
-                    Ok(s) => s,
-                    Err(_) => { idx = name_end; continue; }
-                };
-                let sanitized = match sanitize_nickname(name) {
-                    Some(s) => s,
-                    None => { idx = name_end; continue; }
-                };
-
-                let actor_id = actor_info.value;
-                let existing = candidates.get(&actor_id);
-                if existing.is_none() || name_bytes.len() > existing.unwrap().1.len() {
-                    candidates.insert(actor_id, (sanitized, name_bytes.to_vec()));
-                }
-                idx = name_end;
-                continue;
+        for (actor_id, sanitized, field) in loot_actor_fields(packet) {
+            let name_bytes = &packet[field];
+            let existing = candidates.get(&actor_id);
+            if existing.is_none() || name_bytes.len() > existing.unwrap().1.len() {
+                candidates.insert(actor_id, (sanitized, name_bytes.to_vec()));
             }
-            idx += 1;
         }
 
         if candidates.is_empty() {
@@ -1579,204 +1213,11 @@ impl StreamProcessor {
     // ===== NICKNAME PARSING =====
 
     fn parsing_nickname(&self, packet: &[u8]) -> bool {
-        let mut parsed_any = false;
-        let mut search_offset = 0;
-
-        while search_offset + 2 < packet.len() {
-            // PATTERN A: E2/E0 07 anchor
-            if (packet[search_offset] == 0xE2 || packet[search_offset] == 0xE0)
-                && packet[search_offset + 1] == 0x07
-            {
-                let len_idx = search_offset + 2;
-                if len_idx < packet.len() {
-                    let name_len = packet[len_idx] as usize;
-                    if (2..=36).contains(&name_len) && len_idx + 1 + name_len <= packet.len() {
-                        let np = &packet[len_idx + 1..len_idx + 1 + name_len];
-                        if let Ok(possible_name) = std::str::from_utf8(np) {
-                            if !possible_name.is_empty() && possible_name.chars().next().unwrap().is_alphanumeric() {
-                                if let Some(sanitized) = sanitize_nickname(possible_name) {
-                                    if sanitized.len() >= 2
-                                        && let Some(id) = varint_ending_at(packet, search_offset, 0, 100..=9_999_999)
-                                    {
-                                        self.data_storage.append_nickname(id, &sanitized);
-                                        parsed_any = true;
-                                        search_offset = len_idx + 1 + name_len;
-                                        // Skip guild name
-                                        search_offset = self.skip_guild_name(packet, search_offset);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // PATTERN B: 0F 1D 37 block anchor
-            if search_offset + 2 < packet.len()
-                && packet[search_offset] == 0x0F
-                && packet[search_offset + 1] == 0x1D
-                && packet[search_offset + 2] == 0x37
-            {
-                let id_offset = search_offset + 3;
-                if can_read_varint(packet, id_offset) {
-                    let block_actor = read_varint(packet, id_offset);
-                    if (100..=9_999_999).contains(&block_actor.value) {
-                        let mut block_scan = id_offset + block_actor.length as usize;
-                        let block_end = std::cmp::min(packet.len(), block_scan + 500);
-
-                        while block_scan + 3 < block_end {
-                            // Stop at terminator. The leading byte changed
-                            // 0x06 -> 0x0E in the June 2026 update; accept both.
-                            if (packet[block_scan] == 0x06 || packet[block_scan] == 0x0E) && packet[block_scan + 1] == 0x00 && packet[block_scan + 2] == 0x36 {
-                                break;
-                            }
-                            // Name must be preceded by 00 00
-                            if packet[block_scan] == 0x00 && packet[block_scan + 1] == 0x00 {
-                                let len_idx = block_scan + 2;
-                                if len_idx < packet.len() {
-                                    let name_len = packet[len_idx] as usize;
-                                    if (2..=36).contains(&name_len) && len_idx + 1 + name_len <= packet.len() {
-                                        let np = &packet[len_idx + 1..len_idx + 1 + name_len];
-                                        if let Ok(possible_name) = std::str::from_utf8(np) {
-                                            if !possible_name.is_empty() && possible_name.chars().next().unwrap().is_alphanumeric() {
-                                                if let Some(sanitized) = sanitize_nickname(possible_name) {
-                                                    if sanitized.len() >= 2 {
-                                                        self.data_storage.append_nickname(block_actor.value, &sanitized);
-                                                        parsed_any = true;
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            block_scan += 1;
-                        }
-                    }
-                }
-            }
-
-            // PATTERN D: Terminator anchor (04/00 4C)
-            if search_offset + 1 < packet.len() {
-                let b0 = packet[search_offset] as u32;
-                let b1 = packet[search_offset + 1] as u32;
-
-                if (b0 == 0x04 || b0 == 0x00) && b1 == 0x4C {
-                    let id_idx = search_offset + 2;
-                    if can_read_varint(packet, id_idx) {
-                        let player_info = read_varint(packet, id_idx);
-                        if player_info.length > 0 && (100..=9_999_999).contains(&player_info.value) {
-                            let stop_at = std::cmp::min(packet.len().saturating_sub(2), id_idx + 128);
-                            let mut scan_idx = id_idx + player_info.length as usize;
-
-                            while scan_idx < stop_at {
-                                // Terminator: leading byte changed 0x06 -> 0x0E
-                                // in the June 2026 update; accept both.
-                                if (packet[scan_idx] == 0x06 || packet[scan_idx] == 0x0E)
-                                    && packet[scan_idx + 1] == 0x00
-                                    && packet[scan_idx + 2] == 0x36
-                                {
-                                    // Look backwards for name
-                                    for test_len in 2..=36usize {
-                                        if scan_idx < test_len + 1 + id_idx {
-                                            continue;
-                                        }
-                                        let len_byte_idx = scan_idx - test_len - 1;
-                                        if len_byte_idx <= id_idx {
-                                            continue;
-                                        }
-                                        let possible_len = packet[len_byte_idx] as usize;
-                                        if possible_len == test_len {
-                                            let np = &packet[len_byte_idx + 1..len_byte_idx + 1 + test_len];
-                                            if let Ok(possible_name) = std::str::from_utf8(np) {
-                                                if !possible_name.is_empty() && possible_name.chars().next().unwrap().is_alphanumeric() {
-                                                    if let Some(sanitized) = sanitize_nickname(possible_name) {
-                                                        if sanitized.len() >= 2 {
-                                                            // Try to find earlier name (player name vs guild)
-                                                            let before_name = self.find_name_before(
-                                                                packet, len_byte_idx,
-                                                                id_idx + player_info.length as usize,
-                                                            );
-                                                            let final_name = before_name.unwrap_or(sanitized);
-                                                            self.data_storage.append_nickname(player_info.value, &final_name);
-                                                            parsed_any = true;
-                                                            search_offset = scan_idx;
-                                                            break;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    break;
-                                }
-                                scan_idx += 1;
-                            }
-                        }
-                    }
-                }
-            }
-
-            search_offset += 1;
+        let fields = nickname_fields(packet);
+        for (id, name, _) in &fields {
+            self.data_storage.append_nickname(*id, name);
         }
-        parsed_any
-    }
-
-    fn find_name_before(&self, packet: &[u8], before_idx: usize, min_idx: usize) -> Option<String> {
-        for test_len in 2..=36usize {
-            for gap in 0..=1usize {
-                if before_idx < gap + test_len + 1 {
-                    continue;
-                }
-                let name_len_idx = before_idx - gap - test_len - 1;
-                if name_len_idx < min_idx {
-                    continue;
-                }
-                let possible_len = packet[name_len_idx] as usize;
-                if possible_len != test_len {
-                    continue;
-                }
-                let np = &packet[name_len_idx + 1..name_len_idx + 1 + test_len];
-                if let Ok(possible_name) = std::str::from_utf8(np) {
-                    if possible_name.is_empty() || !possible_name.chars().next().unwrap().is_alphanumeric() {
-                        continue;
-                    }
-                    if let Some(sanitized) = sanitize_nickname(possible_name) {
-                        if sanitized.len() >= 2 {
-                            return Some(sanitized);
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    fn skip_guild_name(&self, packet: &[u8], start_index: usize) -> usize {
-        if start_index >= packet.len() {
-            return start_index;
-        }
-        let mut offset = start_index;
-        if packet[offset] == 0x00 {
-            offset += 1;
-            if offset >= packet.len() {
-                return offset;
-            }
-        }
-        let length = packet[offset] as usize;
-        if !(1..=36).contains(&length) {
-            return offset;
-        }
-        let name_start = offset + 1;
-        let name_end = name_start + length;
-        if name_end > packet.len() {
-            return offset;
-        }
-        if std::str::from_utf8(&packet[name_start..name_end]).is_err() {
-            return offset;
-        }
-        name_end
+        !fields.is_empty()
     }
 
     // ===== EMBEDDED DAMAGE PACKET =====
@@ -2556,11 +1997,7 @@ fn should_use_repeated_hit_damage(switch_value: i32, encoded_damage: i32, multi_
 /// header does not look like a roster (the opcode is scanned for in raw byte
 /// streams, so the header checks double as the false-positive filter).
 /// See `StreamProcessor::scan_party_roster` for the layout.
-#[allow(clippy::type_complexity)]
-fn parse_party_roster_at(
-    data: &[u8],
-    at: usize,
-) -> Option<(Vec<(String, crate::combat::data_storage::PartyMember)>, bool, i32)> {
+fn parse_party_roster_at(data: &[u8], at: usize) -> Option<Roster> {
     use crate::combat::data_storage::PartyMember;
 
     let mut o = at.checked_add(4)?; // party_key u32
@@ -2590,6 +2027,7 @@ fn parse_party_roster_at(
 
     let count = count_info.value;
     let mut members = Vec::new();
+    let mut name_fields = Vec::new();
     let mut complete = false;
     for _ in 0..count {
         if o + 20 > data.len() {
@@ -2624,6 +2062,7 @@ fn parse_party_roster_at(
             Ok(s) => s.to_string(),
             Err(_) => break,
         };
+        let name_field = o..o + nick_len;
         o += nick_len;
         if o + 12 > data.len() {
             break;
@@ -2657,6 +2096,7 @@ fn parse_party_roster_at(
             break;
         }
 
+        name_fields.push(name_field);
         members.push((
             nickname,
             PartyMember {
@@ -2688,7 +2128,7 @@ fn parse_party_roster_at(
     if members.is_empty() {
         return None;
     }
-    Some((members, complete, dungeon_id))
+    Some(Roster { members, complete, dungeon_id, name_fields })
 }
 
 /// Find a little-endian `u16` equal to `wanted` in `data[from..to]`.
@@ -2912,6 +2352,811 @@ fn unicode_script(ch: char) -> UnicodeScript {
     }
 }
 
+// ===== WHERE RECORDS HOLD NAMES =====
+//
+// The parser's name readers, as functions of the bytes alone: what each reads
+// and where in the packet the name sits. The parser reads names through them,
+// and the Evidence Slice blinds names where they say a name is (`name_fields`),
+// so the two can never disagree about where a name is.
+
+/// The `04 8D` record at the front of a packet, as
+/// `StreamProcessor::parse_summon_ownership_packet` reads it: the summon, its
+/// owner, and the owner's name field (start, length) if one follows.
+fn ownership_at_front(packet: &[u8]) -> Option<(i32, i32, Option<(usize, usize)>)> {
+    let length_info = read_varint(packet, 0);
+    if length_info.length < 0 {
+        return None;
+    }
+    let offset = length_info.length as usize;
+    if offset + 1 >= packet.len() {
+        return None;
+    }
+    if packet[offset] != 0x04 || packet[offset + 1] != 0x8D {
+        return None;
+    }
+
+    let mut pos = offset + 2;
+    let summon_info = read_varint(packet, pos);
+    if summon_info.length <= 0 || summon_info.value < 100 {
+        return None;
+    }
+    let summon_id = summon_info.value;
+    pos += summon_info.length as usize;
+
+    // Skip 4-byte fixed field
+    if pos + 4 > packet.len() {
+        return None;
+    }
+    pos += 4;
+
+    let owner_info = read_varint(packet, pos);
+    if owner_info.length <= 0 || owner_info.value < 100 {
+        return None;
+    }
+    let owner_id = owner_info.value;
+    pos += owner_info.length as usize;
+
+    if owner_id == summon_id {
+        return None;
+    }
+
+    // Name field after owner ID
+    let mut name = None;
+    let meta_info = read_varint(packet, pos);
+    if meta_info.length > 0 {
+        pos += meta_info.length as usize;
+        if pos < packet.len() {
+            let name_len = packet[pos] as usize;
+            if (1..=36).contains(&name_len) && pos + 1 + name_len <= packet.len() {
+                name = Some((pos + 1, name_len));
+            }
+        }
+    }
+    Some((summon_id, owner_id, name))
+}
+
+/// A `04 8D` ownership or loot record found anywhere in `data`.
+struct Ownership {
+    summon_id: i32,
+    owner_id: i32,
+    server_id: u16,
+    name: String,
+    field: std::ops::Range<usize>,
+}
+
+/// Every `04 8D` record in `data` that names its owner, as
+/// `StreamProcessor::scan_for_embedded_04_8d` reads them.
+fn ownership_records(data: &[u8]) -> Vec<Ownership> {
+    let mut out = Vec::new();
+    let mut search_offset = 0;
+    let pattern: [u8; 2] = [0x04, 0x8D];
+
+    while search_offset + 1 < data.len() {
+        let idx = find_pattern(data, search_offset, &pattern);
+        if idx.is_none() {
+            break;
+        }
+        let idx = idx.unwrap();
+
+        search_offset = idx + 2;
+        if search_offset >= data.len() {
+            break;
+        }
+
+        let summon_info = read_varint(data, search_offset);
+        if summon_info.length <= 0 || !(100..=9_999_999).contains(&summon_info.value) {
+            continue;
+        }
+        let summon_id = summon_info.value;
+
+        let fixed_field_start = search_offset + summon_info.length as usize;
+        if fixed_field_start + 4 > data.len() {
+            continue;
+        }
+
+        // The owner follows: `<owner varint> <server id u16 LE> <len><name>`.
+        // The server id was once matched as the literal bytes `E0 07` /
+        // `E2 07` (servers 2016 and 2018), which skipped every other server:
+        // a Sorcerer on Ventus (1305, bytes `19 05`) never got a name. Any id
+        // in the servers' 1000–2999 range is accepted now, and a candidate
+        // only counts when the owner id sits wholly after the fixed field and
+        // the whole name field is a name.
+        let after_fixed = fixed_field_start + 4;
+        // A zero there is no owner: the record a summon gets as it
+        // despawns, all zeros. The scan below then ran on into whatever
+        // followed, and found an "owner" in the next damage records: a
+        // Cleric's Divine Aura went to entity 10210, named "M", and showed
+        // as its own row (2026-10-04, Divine Auldor).
+        if data.get(after_fixed).is_none_or(|&b| b == 0) {
+            continue;
+        }
+        let scan_end = std::cmp::min(data.len().saturating_sub(2), after_fixed + 128);
+        let mut found = None;
+        for server_idx in after_fixed + 1..scan_end {
+            let server_id = u16::from_le_bytes([data[server_idx], data[server_idx + 1]]);
+            if !(1000..=2999).contains(&server_id) {
+                continue;
+            }
+            // The owner `ed 74` (14957) ends in a byte that alone reads as
+            // an id too (`74`, 116); see `varint_ending_at`.
+            let owner_id = varint_ending_at(data, server_idx, after_fixed, 100..=99_999);
+            let Some(owner_id) = owner_id.filter(|&id| id != summon_id) else {
+                continue;
+            };
+            let name_len_idx = server_idx + 2;
+            let name_len = data[name_len_idx] as usize;
+            let name_end = name_len_idx + 1 + name_len;
+            if !NAME_FIELD_BYTES.contains(&name_len) || name_end > data.len() {
+                continue;
+            }
+            if let Some(name) = exact_name(&data[name_len_idx + 1..name_end]) {
+                found = Some(Ownership { summon_id, owner_id, server_id, name, field: name_len_idx + 1..name_end });
+                break;
+            }
+        }
+        let Some(record) = found else {
+            continue;
+        };
+        search_offset = record.field.end;
+        out.push(record);
+    }
+    out
+}
+
+/// Every spawn opcode (40/41/44/45 36) in `data` that
+/// `StreamProcessor::scan_for_embedded_40_36` reads: (where, the opcode's
+/// first byte, entity id).
+fn embedded_spawns(data: &[u8]) -> Vec<(usize, u8, i32)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 5 < data.len() {
+        // Spawn family shifted +1 in June 2026: mob/summon 0x40->0x41,
+        // player 0x44->0x45. Accept both old and new leading bytes.
+        if data[i + 1] == 0x36 && matches!(data[i], 0x40 | 0x41 | 0x44 | 0x45) {
+            if i > 0 && data[i - 1] == 0x00 {
+                i += 2;
+                continue;
+            }
+            let target_info = read_varint(data, i + 2);
+            if target_info.length > 0 && (100..=9_999_999).contains(&target_info.value) {
+                out.push((i, data[i], target_info.value));
+            }
+            i += 2 + target_info.length.max(0) as usize;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Where a spawn's mask sits relative to `offset` (just past its entity id),
+/// in the u16 and u32 formats: the subtree byte that gates the inline name.
+const MASK_U16_SUBTREE: usize = 2;
+const MASK_U32_SUBTREE: usize = 4;
+
+/// The inline name of a `40/41 36` spawn (its owner's or caster's), and the
+/// name field's bytes. `offset` is just past the entity id.
+///
+/// The mask width changed from u16 to u32, which moves the subtree byte that
+/// gates the inline name. Nothing else in this record is sensitive to it, so
+/// rather than version-sniffing the stream, both positions are tried, the
+/// current format first so a live stream never depends on the fallback.
+///
+/// Getting this wrong is not cosmetic. For a summon the inline name is the
+/// *owner's* character name, and it is the fallback that attributes a pet's
+/// damage to its player when no parent_key is present. A silently
+/// mispositioned gate shows up as summons drifting back into their own rows.
+fn spawn_name_at(packet: &[u8], offset: usize) -> Option<(String, std::ops::Range<usize>)> {
+    let read_name_at = |sub_offset: usize| -> Option<(String, std::ops::Range<usize>)> {
+        let gate = *packet.get(offset + sub_offset)?;
+        if gate & 0x01 == 0 {
+            return None;
+        }
+        let cursor = offset + sub_offset + 1;
+        let name_len = *packet.get(cursor)? as usize;
+        if !NAME_FIELD_BYTES.contains(&name_len) || cursor + 1 + name_len > packet.len() {
+            return None;
+        }
+        // The whole field must be a name. This check is what makes trying
+        // two positions safe: a wrong guess almost never decodes cleanly.
+        let name = exact_name(&packet[cursor + 1..cursor + 1 + name_len])?;
+        Some((name, cursor + 1..cursor + 1 + name_len))
+    };
+    read_name_at(MASK_U32_SUBTREE).or_else(|| read_name_at(MASK_U16_SUBTREE))
+}
+
+/// A self record (`33 36`) or another player's record (`44 36`, `45 36`), as
+/// `StreamProcessor::scan_masked_identity` reads it.
+struct MaskedRecord {
+    id: i32,
+    /// The name field's bytes.
+    field: std::ops::Range<usize>,
+    /// `None` for a tutorial character's placeholder in your self record.
+    name: Option<String>,
+    /// Your server and class, in a self record.
+    profile: Option<(u16, Option<JobClass>)>,
+}
+
+/// Every masked identity record in `data`:
+/// `<opcode 2B> <entity_id varint> <mask1 u32 LE> <mask2 u8> [mask2 & 0x01] <len u8><utf8 name>`.
+fn masked_records(data: &[u8]) -> Vec<MaskedRecord> {
+    let mut out = Vec::new();
+    if data.len() < 9 {
+        return out;
+    }
+    let mut i = 0;
+    while i + 8 < data.len() {
+        if data[i + 1] != 0x36 {
+            i += 1;
+            continue;
+        }
+        // 0x33 = self, 0x45/0x44 = another player (pre/post the June 2026 shift).
+        let is_self = data[i] == 0x33;
+        if !is_self && data[i] != 0x45 && data[i] != 0x44 {
+            i += 1;
+            continue;
+        }
+        let id = read_varint(data, i + 2);
+        if id.length <= 0 || !(1..=9_999_999).contains(&id.value) {
+            i += 1;
+            continue;
+        }
+        // mask1 is 4 bytes; mask2 is the byte after it and gates the name.
+        let mask2_idx = i + 2 + id.length as usize + 4;
+        if mask2_idx + 1 >= data.len() || data[mask2_idx] & 0x01 == 0 {
+            i += 1;
+            continue;
+        }
+        let name_len = data[mask2_idx + 1] as usize;
+        if !NAME_FIELD_BYTES.contains(&name_len) || mask2_idx + 2 + name_len > data.len() {
+            i += 1;
+            continue;
+        }
+        let field = mask2_idx + 2..mask2_idx + 2 + name_len;
+        let Ok(raw) = std::str::from_utf8(&data[field.clone()]) else {
+            i += 1;
+            continue;
+        };
+        // A new character plays the tutorial before it has a name; until
+        // then the game calls it `$` plus random letters and digits (seen:
+        // `$Kc03nyeQHr4`, entity 3877, on 2026-10-01). It is still you, so
+        // bind the entity, but with no name: a placeholder would be noise,
+        // and keeping the previous character's name would be wrong.
+        if is_self && is_placeholder_name(raw) {
+            i = field.end;
+            out.push(MaskedRecord { id: id.value, field, name: None, profile: None });
+            continue;
+        }
+        // The whole field must be one clean name; otherwise we landed
+        // mid-record rather than on a real name string.
+        let Some(sanitized) = exact_name(&data[field.clone()]) else {
+            i += 1;
+            continue;
+        };
+        // A self record without your server and class after the name is
+        // not one. The last `33 36` of a `1d 37` record ending `33 36 33 36`
+        // read with the next record's bytes as entity 16 and a two-letter
+        // name (2026-10-05 17:42:14), and the meter took that for you.
+        // Entity ids under 100 are real players, so the id cannot tell.
+        let profile = if is_self {
+            let Some(profile) = self_profile(data, field.end) else {
+                i += 1;
+                continue;
+            };
+            Some(profile)
+        } else {
+            None
+        };
+        i = field.end;
+        out.push(MaskedRecord { id: id.value, field, name: Some(sanitized), profile });
+    }
+    out
+}
+
+/// A named player spawn's (`44 36`, `45 36`) id, name and name field, as
+/// `StreamProcessor::parse_player_spawn_name` reads them. Uses the same
+/// mask-gated layout as `masked_records`
+/// (`<id varint> <mask1 u32> <mask2 u8> [mask2 & 0x01] <len><utf8>`) rather
+/// than hunting for the literal `0x07` that older builds happened to put in
+/// the `mask2` slot.
+fn player_spawn_at(data: &[u8], offset_after_opcode: usize) -> Option<(i32, String, std::ops::Range<usize>)> {
+    let actor_info = read_varint(data, offset_after_opcode);
+    // Raid/invasion player ids run well past 99,999, so accept the full entity-id
+    // range (matching the embedded-scan gate) or those spawns are silently dropped.
+    if actor_info.length <= 0 || !(1..=9_999_999).contains(&actor_info.value) {
+        return None;
+    }
+    let actor_id = actor_info.value;
+    let mask2_idx = offset_after_opcode + actor_info.length as usize + 4;
+    if mask2_idx + 1 >= data.len() || data[mask2_idx] & 0x01 == 0 {
+        return None;
+    }
+    let name_len = data[mask2_idx + 1] as usize;
+    if !NAME_FIELD_BYTES.contains(&name_len) || mask2_idx + 2 + name_len > data.len() {
+        return None;
+    }
+    let field = mask2_idx + 2..mask2_idx + 2 + name_len;
+    let name = exact_name(&data[field.clone()])?;
+    Some((actor_id, name, field))
+}
+
+/// A party roster as `StreamProcessor::scan_party_roster` reads it.
+struct Roster {
+    members: Vec<(String, crate::combat::data_storage::PartyMember)>,
+    complete: bool,
+    dungeon_id: i32,
+    /// Each member's name field, in member order.
+    name_fields: Vec<std::ops::Range<usize>>,
+}
+
+/// Every party roster in `data`.
+fn rosters(data: &[u8]) -> Vec<Roster> {
+    let mut out = Vec::new();
+    if data.len() < 32 {
+        return out;
+    }
+    let mut i = 0;
+    while i + 24 < data.len() {
+        if data[i] != 0x02 || data[i + 1] != 0x97 {
+            i += 1;
+            continue;
+        }
+        match parse_party_roster_at(data, i + 2) {
+            Some(roster) => {
+                out.push(roster);
+                i += 2;
+            }
+            None => i += 1,
+        }
+    }
+    out
+}
+
+/// Where `parse_actor_name_binding_rules` reads a name: `07 <len> <name>` up to
+/// 64 bytes after an anchor `36 <actor varint>`. (actor, name start, length)
+fn actor_name_fields(packet: &[u8]) -> Vec<(i32, usize, usize)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    let mut last_anchor: Option<(i32, usize, usize)> = None; // (actor_id, start, end)
+
+    while i < packet.len() {
+        if packet[i] == 0x36 {
+            // Skip spawn opcodes (40/41 36 mob, 44/45 36 player) — the
+            // 0x36 family shifted +1 in June 2026.
+            if i > 0 && matches!(packet[i - 1], 0x40 | 0x41 | 0x44 | 0x45) {
+                i += 1;
+                continue;
+            }
+            if i + 1 >= packet.len() {
+                i += 1;
+                continue;
+            }
+            let actor_info = read_varint(packet, i + 1);
+            last_anchor = if actor_info.length > 0 && actor_info.value >= 100 {
+                Some((actor_info.value, i, i + 1 + actor_info.length as usize))
+            } else {
+                None
+            };
+            i += 1;
+            continue;
+        }
+
+        if packet[i] == 0x07
+            && let Some((name_start, name_length)) = read_utf8_name(packet, i)
+            && let Some((actor_id, _, end_idx)) = last_anchor
+        {
+            let distance = i as isize - end_idx as isize;
+            if (0..=64).contains(&distance) {
+                out.push((actor_id, name_start, name_length));
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+fn read_utf8_name(packet: &[u8], anchor_index: usize) -> Option<(usize, usize)> {
+    let length_index = anchor_index + 1;
+    if length_index >= packet.len() {
+        return None;
+    }
+    let name_length = packet[length_index] as usize;
+    if !(1..=36).contains(&name_length) {
+        return None;
+    }
+    let name_start = length_index + 1;
+    let name_end = name_start + name_length;
+    if name_end > packet.len() {
+        return None;
+    }
+    let name_bytes = &packet[name_start..name_end];
+    let name = std::str::from_utf8(name_bytes).ok()?;
+    let sanitized = sanitize_nickname(name)?;
+    if sanitized.is_empty() {
+        return None;
+    }
+    Some((name_start, name_length))
+}
+
+/// Where `parse_loot_attribution_actor_name` reads a name:
+/// `<actor varint> <F0..FF> <03|A3> <len> <name>`. (actor, name, whole field)
+fn loot_actor_fields(packet: &[u8]) -> Vec<(i32, String, std::ops::Range<usize>)> {
+    let mut out = Vec::new();
+    let mut idx = 0;
+
+    while idx + 2 < packet.len() {
+        let marker = packet[idx] as u32;
+        let marker_next = packet[idx + 1] as u32;
+        let is_marker = (0xF0..=0xFF).contains(&marker) && (marker_next == 0x03 || marker_next == 0xA3);
+
+        if is_marker {
+            // Scan backward for actor ID
+            let mut actor_info: Option<VarIntResult> = None;
+            let min_offset = idx.saturating_sub(8);
+            for actor_offset in min_offset..idx {
+                if !can_read_varint(packet, actor_offset) {
+                    continue;
+                }
+                let candidate = read_varint(packet, actor_offset);
+                if candidate.length <= 0 || actor_offset + candidate.length as usize != idx {
+                    continue;
+                }
+                if !(100..=99999).contains(&candidate.value) {
+                    continue;
+                }
+                actor_info = Some(candidate);
+                break;
+            }
+
+            let actor_info = match actor_info {
+                Some(a) => a,
+                None => { idx += 1; continue; }
+            };
+
+            let length_idx = idx + 2;
+            if length_idx >= packet.len() {
+                idx += 1;
+                continue;
+            }
+            let name_length = packet[length_idx] as usize;
+            if !(1..=36).contains(&name_length) {
+                idx += 1;
+                continue;
+            }
+            let name_start = length_idx + 1;
+            let name_end = name_start + name_length;
+            if name_end > packet.len() {
+                idx += 1;
+                continue;
+            }
+            let name = match std::str::from_utf8(&packet[name_start..name_end]) {
+                Ok(s) => s,
+                Err(_) => { idx = name_end; continue; }
+            };
+            let sanitized = match sanitize_nickname(name) {
+                Some(s) => s,
+                None => { idx = name_end; continue; }
+            };
+            out.push((actor_info.value, sanitized, name_start..name_end));
+            idx = name_end;
+            continue;
+        }
+        idx += 1;
+    }
+    out
+}
+
+/// Where `parsing_nickname` reads a name, by its three patterns. (id, name,
+/// the name's bytes)
+fn nickname_fields(packet: &[u8]) -> Vec<(i32, String, std::ops::Range<usize>)> {
+    let mut out = Vec::new();
+    let mut search_offset = 0;
+
+    while search_offset + 2 < packet.len() {
+        // PATTERN A: E2/E0 07 anchor
+        if (packet[search_offset] == 0xE2 || packet[search_offset] == 0xE0)
+            && packet[search_offset + 1] == 0x07
+        {
+            let len_idx = search_offset + 2;
+            if len_idx < packet.len() {
+                let name_len = packet[len_idx] as usize;
+                if (2..=36).contains(&name_len) && len_idx + 1 + name_len <= packet.len() {
+                    let np = &packet[len_idx + 1..len_idx + 1 + name_len];
+                    if let Ok(possible_name) = std::str::from_utf8(np) {
+                        if !possible_name.is_empty() && possible_name.chars().next().unwrap().is_alphanumeric() {
+                            if let Some((sanitized, range)) = sanitized_at(packet, len_idx + 1, name_len) {
+                                if sanitized.len() >= 2
+                                    && let Some(id) = varint_ending_at(packet, search_offset, 0, 100..=9_999_999)
+                                {
+                                    out.push((id, sanitized, range));
+                                    search_offset = len_idx + 1 + name_len;
+                                    // Skip guild name
+                                    search_offset = skip_guild_name(packet, search_offset);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // PATTERN B: 0F 1D 37 block anchor
+        if search_offset + 2 < packet.len()
+            && packet[search_offset] == 0x0F
+            && packet[search_offset + 1] == 0x1D
+            && packet[search_offset + 2] == 0x37
+        {
+            let id_offset = search_offset + 3;
+            if can_read_varint(packet, id_offset) {
+                let block_actor = read_varint(packet, id_offset);
+                if (100..=9_999_999).contains(&block_actor.value) {
+                    let mut block_scan = id_offset + block_actor.length as usize;
+                    let block_end = std::cmp::min(packet.len(), block_scan + 500);
+
+                    while block_scan + 3 < block_end {
+                        // Stop at terminator. The leading byte changed
+                        // 0x06 -> 0x0E in the June 2026 update; accept both.
+                        if (packet[block_scan] == 0x06 || packet[block_scan] == 0x0E) && packet[block_scan + 1] == 0x00 && packet[block_scan + 2] == 0x36 {
+                            break;
+                        }
+                        // Name must be preceded by 00 00
+                        if packet[block_scan] == 0x00 && packet[block_scan + 1] == 0x00 {
+                            let len_idx = block_scan + 2;
+                            if len_idx < packet.len() {
+                                let name_len = packet[len_idx] as usize;
+                                if (2..=36).contains(&name_len) && len_idx + 1 + name_len <= packet.len() {
+                                    let np = &packet[len_idx + 1..len_idx + 1 + name_len];
+                                    if let Ok(possible_name) = std::str::from_utf8(np) {
+                                        if !possible_name.is_empty() && possible_name.chars().next().unwrap().is_alphanumeric() {
+                                            if let Some((sanitized, range)) = sanitized_at(packet, len_idx + 1, name_len) {
+                                                if sanitized.len() >= 2 {
+                                                    out.push((block_actor.value, sanitized, range));
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        block_scan += 1;
+                    }
+                }
+            }
+        }
+
+        // PATTERN D: Terminator anchor (04/00 4C)
+        if search_offset + 1 < packet.len() {
+            let b0 = packet[search_offset] as u32;
+            let b1 = packet[search_offset + 1] as u32;
+
+            if (b0 == 0x04 || b0 == 0x00) && b1 == 0x4C {
+                let id_idx = search_offset + 2;
+                if can_read_varint(packet, id_idx) {
+                    let player_info = read_varint(packet, id_idx);
+                    if player_info.length > 0 && (100..=9_999_999).contains(&player_info.value) {
+                        let stop_at = std::cmp::min(packet.len().saturating_sub(2), id_idx + 128);
+                        let mut scan_idx = id_idx + player_info.length as usize;
+
+                        while scan_idx < stop_at {
+                            // Terminator: leading byte changed 0x06 -> 0x0E
+                            // in the June 2026 update; accept both.
+                            if (packet[scan_idx] == 0x06 || packet[scan_idx] == 0x0E)
+                                && packet[scan_idx + 1] == 0x00
+                                && packet[scan_idx + 2] == 0x36
+                            {
+                                // Look backwards for name
+                                for test_len in 2..=36usize {
+                                    if scan_idx < test_len + 1 + id_idx {
+                                        continue;
+                                    }
+                                    let len_byte_idx = scan_idx - test_len - 1;
+                                    if len_byte_idx <= id_idx {
+                                        continue;
+                                    }
+                                    let possible_len = packet[len_byte_idx] as usize;
+                                    if possible_len == test_len {
+                                        let np = &packet[len_byte_idx + 1..len_byte_idx + 1 + test_len];
+                                        if let Ok(possible_name) = std::str::from_utf8(np) {
+                                            if !possible_name.is_empty() && possible_name.chars().next().unwrap().is_alphanumeric() {
+                                                if let Some(found) = sanitized_at(packet, len_byte_idx + 1, test_len) {
+                                                    if found.0.len() >= 2 {
+                                                        // Try to find earlier name (player name vs guild)
+                                                        let before_name = find_name_before(
+                                                            packet, len_byte_idx,
+                                                            id_idx + player_info.length as usize,
+                                                        );
+                                                        let (final_name, range) = before_name.unwrap_or(found);
+                                                        out.push((player_info.value, final_name, range));
+                                                        search_offset = scan_idx;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                            scan_idx += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        search_offset += 1;
+    }
+    out
+}
+
+fn find_name_before(packet: &[u8], before_idx: usize, min_idx: usize) -> Option<(String, std::ops::Range<usize>)> {
+    for test_len in 2..=36usize {
+        for gap in 0..=1usize {
+            if before_idx < gap + test_len + 1 {
+                continue;
+            }
+            let name_len_idx = before_idx - gap - test_len - 1;
+            if name_len_idx < min_idx {
+                continue;
+            }
+            let possible_len = packet[name_len_idx] as usize;
+            if possible_len != test_len {
+                continue;
+            }
+            let np = &packet[name_len_idx + 1..name_len_idx + 1 + test_len];
+            if let Ok(possible_name) = std::str::from_utf8(np) {
+                if possible_name.is_empty() || !possible_name.chars().next().unwrap().is_alphanumeric() {
+                    continue;
+                }
+                if let Some(found) = sanitized_at(packet, name_len_idx + 1, test_len) {
+                    if found.0.len() >= 2 {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn skip_guild_name(packet: &[u8], start_index: usize) -> usize {
+    if start_index >= packet.len() {
+        return start_index;
+    }
+    let mut offset = start_index;
+    if packet[offset] == 0x00 {
+        offset += 1;
+        if offset >= packet.len() {
+            return offset;
+        }
+    }
+    let length = packet[offset] as usize;
+    if !(1..=36).contains(&length) {
+        return offset;
+    }
+    let name_start = offset + 1;
+    let name_end = name_start + length;
+    if name_end > packet.len() {
+        return offset;
+    }
+    if std::str::from_utf8(&packet[name_start..name_end]).is_err() {
+        return offset;
+    }
+    name_end
+}
+
+/// The name `sanitize_nickname` reads from `packet[start..start + len]`, and
+/// where its bytes sit: the field's first run of letters and digits.
+fn sanitized_at(packet: &[u8], start: usize, len: usize) -> Option<(String, std::ops::Range<usize>)> {
+    let field = std::str::from_utf8(packet.get(start..start.checked_add(len)?)?).ok()?;
+    let name = sanitize_nickname(field)?;
+    let head = field.split('\0').next().unwrap_or("");
+    let at = start + head.len() - head.trim_start().len();
+    let end = at + name.len();
+    (packet.get(at..end)? == name.as_bytes()).then_some((name, at..end))
+}
+
+/// A place where a packet holds a character name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NameField {
+    pub range: std::ops::Range<usize>,
+}
+
+/// Where one framed packet holds character names, as a replay reads that
+/// packet: the readers `parse_perfect_packet` runs on it, and the record scans
+/// over it (`scan_records`). Sorted by where they start; two readers that find
+/// the same field give it once. Found whether or not the parser would take the
+/// name (it may already know the entity): a name is a name either way.
+///
+/// The Evidence Slice blinds names here, at any length. That is the only way
+/// to find a one-letter name, which the game allows: searched for, its one
+/// byte turns up all through the packets.
+pub fn name_fields(packet: &[u8]) -> Vec<NameField> {
+    let mut out = Vec::new();
+    let mut push = |range: std::ops::Range<usize>| out.push(NameField { range });
+    // At the front: `parse_summon_ownership_packet` and `parse_summon_packet`.
+    let length = read_varint(packet, 0);
+    if length.length >= 0 {
+        let offset = length.length as usize;
+        if offset + 1 < packet.len() && packet[offset + 1] == 0x36 {
+            if matches!(packet[offset], 0x44 | 0x45) {
+                if let Some((_, _, range)) = player_spawn_at(packet, offset + 2) {
+                    push(range);
+                }
+            } else if matches!(packet[offset], 0x40 | 0x41)
+                && let Some(range) = spawn_owner(packet, offset + 2)
+            {
+                push(range);
+            }
+        }
+    }
+    if let Some((_, _, Some((start, len)))) = ownership_at_front(packet)
+        && let Some((_, range)) = sanitized_at(packet, start, len)
+    {
+        push(range);
+    }
+    for (_, start, len) in actor_name_fields(packet) {
+        if let Some((_, range)) = sanitized_at(packet, start, len) {
+            push(range);
+        }
+    }
+    for (_, _, range) in loot_actor_fields(packet) {
+        if let Some((_, range)) = sanitized_at(packet, range.start, range.len()) {
+            push(range);
+        }
+    }
+    for (_, _, range) in nickname_fields(packet) {
+        push(range);
+    }
+    scanned_name_fields(packet, &mut out);
+    out.sort_by_key(|f| (f.range.start, f.range.end));
+    out.dedup_by(|a, b| a.range == b.range);
+    out
+}
+
+/// The name a `40/41 36` spawn carries, as `parse_summon_spawn_at` reads it.
+fn spawn_owner(packet: &[u8], offset_after_opcode: usize) -> Option<std::ops::Range<usize>> {
+    let id = read_varint(packet, offset_after_opcode);
+    if id.length < 0 {
+        return None;
+    }
+    let offset = offset_after_opcode + id.length as usize;
+    if offset + 2 >= packet.len() {
+        return None;
+    }
+    spawn_name_at(packet, offset).map(|(_, range)| range)
+}
+
+/// The records the scans read anywhere in a packet (see `scan_records`). The
+/// character-select list (`scan_char_list_self`) is left out: it names only
+/// the character the meter was told to look for.
+fn scanned_name_fields(data: &[u8], out: &mut Vec<NameField>) {
+    for record in ownership_records(data) {
+        out.push(NameField { range: record.field });
+    }
+    for (i, opcode, _) in embedded_spawns(data) {
+        if opcode == 0x44 || opcode == 0x45 {
+            if let Some((_, _, range)) = player_spawn_at(data, i + 2) {
+                out.push(NameField { range });
+            }
+        } else if let Some(range) = spawn_owner(data, i + 2) {
+            // Read whether or not the parser already knows the id as a mob.
+            out.push(NameField { range });
+        }
+    }
+    for record in masked_records(data) {
+        if record.name.is_some() {
+            out.push(NameField { range: record.field });
+        }
+    }
+    for roster in rosters(data) {
+        for range in roster.name_fields {
+            out.push(NameField { range });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2932,7 +3177,7 @@ mod tests {
         ]
         .join(" ");
         let data: Vec<u8> = roster.split_whitespace().map(|b| u8::from_str_radix(b, 16).unwrap()).collect();
-        let (members, complete, _) = parse_party_roster_at(&data, 2).expect("a roster");
+        let Roster { members, complete, .. } = parse_party_roster_at(&data, 2).expect("a roster");
         let slots: Vec<(String, u8)> = members.iter().map(|(n, m)| (n.clone(), m.slot)).collect();
         assert_eq!(slots, vec![("九州依然在".to_string(), 1), ("M7".to_string(), 5)]);
         assert!(complete);
@@ -2940,7 +3185,7 @@ mod tests {
         // Members in slots 1-2 and the rest vacant: complete, as before.
         let roster = ["02 97 a5 f9 08 00 0b 38 35 30 4b 20 e8 bf 9e e5 88 b7 05 63 28 09 00 00 03 85 4b 01 00 00 00 f6 03 1f 02 00 05", "0c 01 85 4b 01 00 00 00 f6 03 0f e4 b9 9d e5 b7 9e e4 be 9d e7 84 b6 e5 9c a8 06 00 00 00 32 00 00 00 07 17 00 00 f6 03 f6 03 04 38 39 0d 00 00 00 00 00 00 01 01", "0e 02 62 64 01 00 00 00 f6 03 02 4d 37 0e 00 00 00 32 00 00 00 5e 16 00 00 f6 03 f6 03 04 6a 03 0d 00 00 00 00 00 00 01 01", "00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00", "00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00", "00 05 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00"].join(" ");
         let data: Vec<u8> = roster.split_whitespace().map(|b| u8::from_str_radix(b, 16).unwrap()).collect();
-        let (members, complete, _) = parse_party_roster_at(&data, 2).expect("a roster");
+        let Roster { members, complete, .. } = parse_party_roster_at(&data, 2).expect("a roster");
         assert_eq!(members.len(), 2);
         assert!(complete, "vacant slots after the last member end the roster");
     }
