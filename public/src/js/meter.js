@@ -294,6 +294,7 @@ const createMeterUI = ({
       const isSupporter = !!row.isSupporter;
       if (view.lastIsSupporter !== isSupporter) {
         view.nameEl.classList.toggle("isSupporter", isSupporter);
+        view.rowEl.classList.toggle("isSupporterRow", isSupporter);
         view.supporterBadgeEl.style.display = isSupporter ? "inline-flex" : "none";
         view.lastIsSupporter = isSupporter;
       }

@@ -2326,8 +2326,8 @@ body.legacyUi .meter .item .content .name.isSupporter,
   justify-content: center;
   margin-left: 4px;
   flex: 0 0 auto;
-  color: var(--supporter-name, #ffcf5c);
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.9));
+  color: #ffe08a;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 4px rgba(255, 205, 90, 0.75));
   line-height: 0;
 }
 
@@ -2336,20 +2336,21 @@ body.legacyUi .meter .item .content .name.isSupporter,
   height: 9px;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  @supports ((background-clip: text) or (-webkit-background-clip: text)) {
-    .supporterBadge {
-      animation: a2toolsBadgeGlow 3s ease-in-out infinite;
-    }
-  }
-}
-
-/* Paired with the name sweep rather than matching it exactly: the star is a few
-   pixels across, so a travelling band would be invisible on it. A brightness
-   pulse on the same 3s period reads as the same effect. */
-@keyframes a2toolsBadgeGlow {
-  0%, 100% { color: #d9a13c; filter: drop-shadow(0 1px 1px rgba(0,0,0,.9)); }
-  50%      { color: #fff3c8; filter: drop-shadow(0 1px 1px rgba(0,0,0,.9)) drop-shadow(0 0 4px rgba(255,205,90,.85)); }
+/* A supporter's row carries a gold hairline along its foot, fading out to the
+   right: visible at a glance in every layout, and still. The left edge is
+   your own row's rail. Nothing here loops: the meter is a transparent window
+   over the game, and anything that never stops animating has it redrawn every
+   frame (an endless sweep and glow cost about 5% CPU, 2026-10-07). */
+.list .item.isSupporterRow::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(255, 214, 110, 0.95) 0%, rgba(255, 214, 110, 0.35) 45%, rgba(255, 214, 110, 0) 80%);
 }
 
 /* A narrow bright band travelling across a warm gold base. The band is only a
@@ -2411,7 +2412,9 @@ body.legacyUi .meter .item .content .name.isSupporter,
     filter:
       drop-shadow(0 1px 1px rgba(0, 0, 0, 0.92))
       drop-shadow(0 0 5px rgba(255, 190, 60, 0.42));
-    animation: a2toolsGoldSweep 3s linear infinite;
+    /* Once, when the name turns gold (a supporter joins the meter), then it
+       holds with a band across the start of the name. */
+    animation: a2toolsGoldSweep 2.4s ease-out 1 both;
   }
 }
 
