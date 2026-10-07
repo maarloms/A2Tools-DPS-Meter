@@ -27,7 +27,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use a2tools_dps_meter_lib::capture::evidence_slice::{self, CapturedPacket, NameMap};
 use a2tools_dps_meter_lib::capture::packet_accumulator::PacketAccumulator;
@@ -113,7 +113,6 @@ fn from_history(dir: &Path, wanted: &[String], t: &Tables) -> (usize, usize) {
 /// slice cut by `save_slice` as the auto-save would, read back and derived.
 fn ring_check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord, t: &Tables) {
     use std::io::Read;
-    use std::sync::Mutex;
     // The ring is process-wide, like the live one. Feed each capture once, or
     // a second fight from the same capture sees every packet twice.
     static FED: Mutex<Vec<i64>> = Mutex::new(Vec::new());
@@ -252,8 +251,25 @@ fn replay(packets: &[CapturedPacket], t: &Tables) -> (Arc<DataStorage>, Vec<Figh
     // taken only at the end of the capture is not what anyone saw: by then a
     // player who changed entity id has had their damage moved off the old id,
     // and a dummy hit again has been reset, which made correct slices look wrong.
-    let mut calc = DpsCalculator::new(storage.clone(), sk, npc, Arc::new(PingTracker::new()));
-    let mut saved: HashMap<String, FightRecord> = HashMap::new();
+    let calc = Arc::new(Mutex::new(DpsCalculator::new(storage.clone(), sk, npc, Arc::new(PingTracker::new()))));
+    let saved: Arc<Mutex<HashMap<String, FightRecord>>> = Arc::new(Mutex::new(HashMap::new()));
+    // And before combat is cleared (a zone change, the end of a party), as
+    // the meter does since #19: a fight followed by a teleport before the
+    // next tick was left at that tick's record, short of its end (Ultimate
+    // Berk, Caretaker Sinandash), or lost when it had no tick yet.
+    {
+        let (calc, saved, store) = (calc.clone(), saved.clone(), Arc::downgrade(&storage));
+        storage.set_before_reset(move || {
+            if store.upgrade().is_none_or(|s| s.damage_generation() <= 0) {
+                return;
+            }
+            let records = calc.lock().unwrap().snapshot_boss_fights_force();
+            let mut saved = saved.lock().unwrap();
+            for r in records {
+                saved.insert(r.id.clone(), r);
+            }
+        });
+    }
     let mut next_save = packets.first().map(|p| p.captured_at_ms + 30_000).unwrap_or(0);
     for p in packets {
         proc.set_override_timestamp(Some(p.captured_at_ms));
@@ -264,7 +280,9 @@ fn replay(packets: &[CapturedPacket], t: &Tables) -> (Arc<DataStorage>, Vec<Figh
             acc.discard_bytes(used);
         }
         if p.captured_at_ms >= next_save {
-            for r in calc.snapshot_boss_fights() {
+            let records = calc.lock().unwrap().snapshot_boss_fights();
+            let mut saved = saved.lock().unwrap();
+            for r in records {
                 saved.insert(r.id.clone(), r);
             }
             next_save = p.captured_at_ms + 30_000;
@@ -273,7 +291,9 @@ fn replay(packets: &[CapturedPacket], t: &Tables) -> (Arc<DataStorage>, Vec<Figh
     // Fights still running when the capture stops: the meter saves those on
     // its next tick, which a capture that ends never reaches. (Fights already
     // frozen are not in this snapshot.)
-    for r in calc.snapshot_boss_fights_force() {
+    let records = calc.lock().unwrap().snapshot_boss_fights_force();
+    let mut saved = std::mem::take(&mut *saved.lock().unwrap());
+    for r in records {
         saved.insert(r.id.clone(), r);
     }
     proc.set_override_timestamp(None);
