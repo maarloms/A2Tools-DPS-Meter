@@ -10,7 +10,9 @@
 //! cut the Evidence Slice an upload would send, run `rederive::derive_fight`
 //! over the slice alone (the function the service runs, with the same data
 //! tables), and compare the two record for record: per actor, per skill, hit
-//! counts. A saved fight's record is shown too, but only as context: it was
+//! counts. The comparison is made before the service hides unplaced summons
+//! (`hide_unplaced_summons`), which the whole-capture record never goes
+//! through; the damage the hide removes is printed on its own line. A saved fight's record is shown too, but only as context: it was
 //! made by whichever build was running that day, so it can differ from both
 //! for reasons that have nothing to do with the slice.
 //!
@@ -37,7 +39,7 @@ use a2tools_dps_meter_lib::combat::dps_calculator::DpsCalculator;
 use a2tools_dps_meter_lib::combat::ping_tracker::PingTracker;
 use a2tools_dps_meter_lib::entity::fight_record::FightRecord;
 use a2tools_dps_meter_lib::i18n::lookup::{NpcLookup, SkillLookup};
-use a2tools_dps_meter_lib::rederive::{derive_fight, DerivedFight};
+use a2tools_dps_meter_lib::rederive::{derive_fight_unhidden, DerivedFight};
 use a2tools_dps_meter_lib::share::{find_captures, read_capture};
 
 struct Tables {
@@ -128,7 +130,7 @@ fn ring_check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord
             .map_err(|e| e.to_string())?;
         let mut slice = Vec::new();
         flate2::read::GzDecoder::new(&gz[..]).read_to_end(&mut slice).map_err(|e| e.to_string())?;
-        let d = derive_fight(&slice, &t.npcs, &t.skills, &t.dots).map_err(|e| format!("{e:?}"))?;
+        let (d, _) = derive(&slice, t).map_err(|e| format!("{e:?}"))?;
         Ok((bytes, d))
     });
     match result {
@@ -146,7 +148,7 @@ fn ring_check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord
 }
 
 /// Every boss fight in one capture file.
-fn from_capture(path: &Path, t: &Tables, partner: Option<&[(String, DerivedFight)]>) -> (usize, usize) {
+fn from_capture(path: &Path, t: &Tables, partner: Option<&[(String, DerivedFight, i64)]>) -> (usize, usize) {
     let packets = read_capture(path).expect("capture");
     let (storage, mut whole) = replay(&packets, t);
     whole.sort_by_key(|r| r.start_time_ms);
@@ -163,7 +165,7 @@ fn from_capture(path: &Path, t: &Tables, partner: Option<&[(String, DerivedFight
     }
     // A partner slice for a fight the whole capture does not show is a fight
     // one of the two readings lost: say so rather than skip it.
-    for (name, d) in partner.unwrap_or(&[]) {
+    for (name, d, _) in partner.unwrap_or(&[]) {
         if whole.iter().any(|w| w.target_id == d.record.target_id) {
             continue;
         }
@@ -177,7 +179,7 @@ fn from_capture(path: &Path, t: &Tables, partner: Option<&[(String, DerivedFight
 }
 
 /// Every slice in `dir`, derived as the log service derives it.
-fn partner_slices(dir: &Path, t: &Tables) -> Vec<(String, DerivedFight)> {
+fn partner_slices(dir: &Path, t: &Tables) -> Vec<(String, DerivedFight, i64)> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(dir).expect("partner slice folder").flatten() {
         let path = entry.path();
@@ -196,8 +198,8 @@ fn partner_slices(dir: &Path, t: &Tables) -> Vec<(String, DerivedFight)> {
             raw
         };
         let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        match derive_fight(&slice, &t.npcs, &t.skills, &t.dots) {
-            Ok(d) => out.push((name, d)),
+        match derive(&slice, t) {
+            Ok((d, hidden)) => out.push((name, d, hidden)),
             Err(e) => println!("partner slice {name}: not derivable ({e:?})"),
         }
     }
@@ -206,8 +208,8 @@ fn partner_slices(dir: &Path, t: &Tables) -> Vec<(String, DerivedFight)> {
 }
 
 /// Hold another meter's slice of `w` to the standard ours is held to.
-fn check_partner(partner: &[(String, DerivedFight)], w: &FightRecord) -> bool {
-    let Some((name, d)) = partner.iter().find(|(_, d)| d.record.target_id == w.target_id) else {
+fn check_partner(partner: &[(String, DerivedFight, i64)], w: &FightRecord) -> bool {
+    let Some((name, d, hidden)) = partner.iter().find(|(_, d, _)| d.record.target_id == w.target_id) else {
         println!("   partner: NO SLICE for target {}", w.target_id);
         return false;
     };
@@ -225,6 +227,7 @@ fn check_partner(partner: &[(String, DerivedFight)], w: &FightRecord) -> bool {
              w.details.total_target_damage, d.record.details.total_target_damage, differing,
              c.unblinded_names, c.lifted, c.records, c.bundles,
              if identical && blinded { "conforms" } else { "DOES NOT CONFORM" });
+    print_hidden(*hidden, d);
     identical && blinded
 }
 
@@ -329,7 +332,7 @@ fn check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord, t: 
             return false;
         }
     };
-    let d = match derive_fight(&slice, &t.npcs, &t.skills, &t.dots) {
+    let (d, hidden) = match derive(&slice, t) {
         Ok(d) => d,
         Err(e) => {
             println!("   derive failed: {e:?} ({} bytes of slice)", slice.len());
@@ -401,7 +404,27 @@ fn check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord, t: 
     for k in diffs.iter().take(if std::env::var("A2_ALL_ROWS").is_ok() { usize::MAX } else { 12 }) {
         println!("     row {:?}: whole {:?} slice {:?}", k, a.get(k), b.get(k));
     }
+    print_hidden(hidden, &d);
     identical
+}
+
+/// The slice derived as the log service derives it, but before
+/// `hide_unplaced_summons`, and the damage that hide removes. The whole-capture
+/// record never goes through the hide, so the two are compared before it:
+/// compared after, every hidden row was a difference (Phantasm Kasia, 296
+/// unnamed actors, 4.1% of the damage). What the service stores is the hidden
+/// record; `print_hidden` says how far it is from the one compared.
+fn derive(slice: &[u8], t: &Tables) -> Result<(DerivedFight, i64), a2tools_dps_meter_lib::rederive::DeriveError> {
+    derive_fight_unhidden(slice, &t.npcs, &t.skills, &t.dots)
+}
+
+fn print_hidden(hidden: i64, d: &DerivedFight) {
+    if hidden != 0 {
+        println!("   the service hides unplaced summons: {} damage ({:.1}%), stored total {}",
+                 hidden,
+                 if d.total_damage > 0 { hidden as f64 * 100.0 / d.total_damage as f64 } else { 0.0 },
+                 d.total_damage - hidden);
+    }
 }
 
 fn gz_len(data: &[u8]) -> usize {
