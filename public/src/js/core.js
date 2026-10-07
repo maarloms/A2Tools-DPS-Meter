@@ -1195,7 +1195,7 @@ class DpsApp {
 
     this.updateConnectionStatusUi();
     if (targetMode === "trainTargets" && this.isLocalUserIdentified()) {
-      rowsToRender = rowsToRender.filter((row) => row.name === this.USER_NAME);
+      rowsToRender = rowsToRender.filter((row) => row.isUser); // by id or name: an unnamed row is still yours
     }
     // render
     this.lastDungeonId = dungeonId;
@@ -4540,7 +4540,7 @@ class DpsApp {
     if (this.isCollapse) return;
     let rowsToRender = Array.isArray(this.lastSnapshot) ? this.lastSnapshot : [];
     if (this.lastTargetMode === "trainTargets" && this.isLocalUserIdentified()) {
-      rowsToRender = rowsToRender.filter((row) => row.name === this.USER_NAME);
+      rowsToRender = rowsToRender.filter((row) => row.isUser); // by id or name: an unnamed row is still yours
     }
     const rowsSummary = this.getRowsSummary(rowsToRender);
     if (rowsSummary.listSignature !== this._lastRenderedListSignature) {
