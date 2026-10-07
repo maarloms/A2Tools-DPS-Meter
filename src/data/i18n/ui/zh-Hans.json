@@ -194,6 +194,22 @@
       "activity": "在 Discord 显示我正在玩的内容",
       "activityHint": "AION2 打开时，你的 Discord 状态会显示角色名、职业、等级、服务器，以及正在对战的首领。通过这台电脑上的 Discord 应用显示，不需要账号。"
     },
+    "streamOverlay": {
+      "title": "直播",
+      "enable": "直播叠加层（另一台电脑上的 OBS）",
+      "enableHint": "在局域网内提供面板，让第二台电脑上的 OBS 以浏览器源显示。",
+      "port": "端口",
+      "url": "浏览器源 URL",
+      "copy": "复制",
+      "copied": "已复制",
+      "newKey": "新密钥",
+      "help": "在另一台电脑的 OBS 中，用此 URL 添加浏览器源。首次使用时 Windows 防火墙会询问是否允许，请在专用网络上允许。局域网内任何拿到链接的人都能看到面板；点“新密钥”会使旧链接失效。",
+      "noAddress": "未找到网络地址。这台电脑是否已连接网络？",
+      "portInvalid": "请输入 1024 到 65535 之间的端口。",
+      "error": "叠加层无法启动：{error}",
+      "waiting": "等待战斗…",
+      "reconnecting": "正在重新连接面板…"
+    },
     "version": "版本",
     "theme": {
       "label": "主题",

@@ -189,6 +189,22 @@
       "activity": "Afficher dans Discord ce à quoi je joue",
       "activityHint": "Tant qu'AION2 est ouvert, votre statut Discord affiche le nom de votre personnage, sa classe, son niveau, votre serveur et le boss que vous combattez. Cela passe par l'application Discord de cet ordinateur ; aucun compte n'est nécessaire."
     },
+    "streamOverlay": {
+      "title": "Streaming",
+      "enable": "Overlay de stream (OBS sur un autre PC)",
+      "enableHint": "Partage le meter sur votre réseau local pour qu'OBS sur un second PC l'affiche comme source navigateur.",
+      "port": "Port",
+      "url": "URL de la source navigateur",
+      "copy": "Copier",
+      "copied": "Copié",
+      "newKey": "Nouvelle clé",
+      "help": "Dans OBS sur l'autre PC, ajoutez une source navigateur avec cette URL. La première fois, le pare-feu Windows pose la question pour le meter : autorisez-le sur les réseaux privés. Toute personne de votre réseau ayant le lien peut voir le meter ; « Nouvelle clé » désactive les anciens liens.",
+      "noAddress": "Aucune adresse réseau trouvée. Ce PC est-il connecté à votre réseau ?",
+      "portInvalid": "Indiquez un port entre 1024 et 65535.",
+      "error": "Impossible de démarrer l'overlay : {error}",
+      "waiting": "En attente de combat…",
+      "reconnecting": "Reconnexion au meter…"
+    },
     "version": "Version",
     "theme": {
       "label": "Thème",

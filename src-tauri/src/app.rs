@@ -77,6 +77,8 @@ pub struct AppState {
     /// `Some(None)` signed out or `Some(Some(_))` signed in. Settings shows it
     /// at once instead of "checking" for as long as the server takes.
     pub account_seen: Mutex<Option<Option<crate::account::AccountSummary>>>,
+    /// The LAN stream overlay for OBS on another PC; off unless enabled.
+    pub stream_overlay: crate::stream_overlay::Manager,
 }
 
 /// The overlay's click-through lock: while locked, clicks go through the meter
@@ -449,6 +451,38 @@ fn account_sign_out(state: tauri::State<'_, AppState>) {
     tracing::info!("Account signed out on this machine");
 }
 
+/// The stream overlay as Settings shows it: on or off, the port, the URLs.
+#[tauri::command]
+fn stream_overlay_status(state: tauri::State<'_, AppState>) -> crate::stream_overlay::Status {
+    state.stream_overlay.status(&state.settings)
+}
+
+/// Turn the stream overlay on or off, or move it to another port. Async so a
+/// restart, which waits for the old port to close, never holds the UI thread.
+#[tauri::command]
+async fn stream_overlay_configure(
+    app: tauri::AppHandle,
+    enabled: bool,
+    port: u16,
+) -> Result<crate::stream_overlay::Status, String> {
+    if port < 1024 {
+        return Err("port must be between 1024 and 65535".into());
+    }
+    {
+        let state = app.state::<AppState>();
+        state.settings.set(crate::stream_overlay::PORT_KEY, &port.to_string());
+        state.settings.set(crate::stream_overlay::ENABLED_KEY, if enabled { "true" } else { "false" });
+    }
+    Ok(crate::stream_overlay::sync(&app))
+}
+
+/// A fresh overlay key: every URL handed out before stops working.
+#[tauri::command]
+async fn stream_overlay_new_key(app: tauri::AppHandle) -> Result<crate::stream_overlay::Status, String> {
+    crate::stream_overlay::regenerate_token(&app.state::<AppState>().settings);
+    Ok(crate::stream_overlay::sync(&app))
+}
+
 #[tauri::command]
 fn get_settings(state: tauri::State<'_, AppState>) -> std::collections::HashMap<String, String> {
     state.settings.get_all()
@@ -470,12 +504,16 @@ fn update_settings(
 ) {
     if state.settings.set(&key, &value) {
         let _ = app.emit("setting-changed", serde_json::json!({ "key": key, "value": value }));
+        if key.starts_with(crate::stream_overlay::ENABLED_KEY) {
+            crate::stream_overlay::sync(&app);
+        }
     }
 }
 
 #[tauri::command]
-fn clear_settings(state: tauri::State<'_, AppState>) {
+fn clear_settings(app: tauri::AppHandle, state: tauri::State<'_, AppState>) {
     state.settings.clear();
+    crate::stream_overlay::sync(&app);
 }
 
 #[tauri::command]
@@ -2191,6 +2229,7 @@ pub fn run() {
                 capture_suspended: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 overlay_lock: Arc::new(OverlayLock::default()),
                 account_seen: Mutex::new(None),
+                stream_overlay: crate::stream_overlay::Manager::default(),
             };
             let capture_suspended = state.capture_suspended.clone();
 
@@ -2201,6 +2240,7 @@ pub fn run() {
                     .set_before_reset(move || save_fights_before_reset(&handle));
             }
             crate::presence::spawn(app.handle().clone());
+            crate::stream_overlay::sync(app.handle());
 
             // Reopen the Details window if it was left enabled. Done here rather
             // than from JS because the backend already has settings loaded — the
@@ -2585,6 +2625,9 @@ pub fn run() {
             account_status,
             account_status_cached,
             discord_activity_available,
+            stream_overlay_status,
+            stream_overlay_configure,
+            stream_overlay_new_key,
             account_begin_link,
             account_sign_out,
             get_settings,
