@@ -771,12 +771,9 @@ impl DataStorage {
             let resolved_target = summon_resolver::resolve(target_id, &inner.summon_storage);
             if inner.known_player_ids.contains(&resolved_target) {
                 let dmg = pdp.total_damage() as i64;
-                for target_data in inner.target_combat.values_mut() {
-                    if let Some(actor_data) = target_data.actors.get_mut(&resolved_target) {
-                        actor_data.damage_received += dmg;
-                        actor_data.hits_received += 1;
-                        break;
-                    }
+                if let Some(actor_data) = fight_of(&mut inner, resolved_target, Some(actor_id)) {
+                    actor_data.damage_received += dmg;
+                    actor_data.hits_received += 1;
                 }
             }
             return;
@@ -798,12 +795,8 @@ impl DataStorage {
         if is_friendly_action(&inner, actor_id, target_id) {
             let heal_amount = pdp.total_damage();
             if heal_amount > 0 {
-                // Record party heal on the actor's data in all targets they appear in
-                for target_data in inner.target_combat.values_mut() {
-                    if let Some(actor_data) = target_data.actors.get_mut(&actor_id) {
-                        actor_data.party_heal += heal_amount as i64;
-                        break;
-                    }
+                if let Some(actor_data) = fight_of(&mut inner, actor_id, None) {
+                    actor_data.party_heal += heal_amount as i64;
                 }
                 // Also record per-skill so ally heals show in the HEAL view (the
                 // self-heal path does this via append_heal; mirror it for ally heals).
@@ -1825,6 +1818,23 @@ fn apply_pending_nickname(inner: &mut Inner, uid: i32) {
     }
 }
 
+/// Where healing or damage taken by `actor` counts: neither has a target of
+/// its own. The fight against `mob` when the actor is in it, else the target
+/// the actor hit last (ties to the lowest id), so it is never left to the
+/// map's order.
+fn fight_of(inner: &mut Inner, actor: i32, mob: Option<i32>) -> Option<&mut ActorCombatData> {
+    let fights = |tid: &i32| inner.target_combat.get(tid).is_some_and(|td| td.actors.contains_key(&actor));
+    let tid = mob.filter(fights).or_else(|| {
+        inner
+            .target_combat
+            .iter()
+            .filter_map(|(&tid, td)| td.actors.get(&actor).map(|a| (a.last_damage_time, std::cmp::Reverse(tid))))
+            .max()
+            .map(|(_, std::cmp::Reverse(tid))| tid)
+    })?;
+    inner.target_combat.get_mut(&tid)?.actors.get_mut(&actor)
+}
+
 fn is_friendly_action(inner: &Inner, actor_id: i32, target_id: i32) -> bool {
     let resolved_actor = summon_resolver::resolve(actor_id, &inner.summon_storage);
     let resolved_target = summon_resolver::resolve(target_id, &inner.summon_storage);
@@ -2224,6 +2234,30 @@ mod tests {
 
     fn dealt(s: &DataStorage, target: i32, actor: i32) -> i64 {
         s.get_combat_snapshot().get(&target).and_then(|t| t.actors.get(&actor)).map_or(0, |a| a.total_damage)
+    }
+
+    #[test]
+    fn damage_taken_and_party_heal_land_on_the_fight_they_belong_to() {
+        let s = DataStorage::new();
+        // You and a party member, on fifty mobs; mob 830 last.
+        for (i, t) in (800..850).filter(|&t| t != 830).chain([830]).enumerate() {
+            s.append_mob(t, 1);
+            s.append_damage(hit(100, t, 1_000 + i as i64, 500, false));
+            s.append_damage(hit(200, t, 1_000 + i as i64, 500, false));
+        }
+        let taken = |s: &DataStorage, t: i32| s.get_combat_snapshot_light()[&t].actors[&100].damage_received;
+        s.append_damage(with_skill(hit(810, 100, 3_000, 300, false), 1_200_001));
+        assert_eq!(taken(&s, 810), 300, "on the fight with the mob that hit you");
+
+        // A mob you never hit: the fight you were in last.
+        s.append_mob(900, 1);
+        s.append_damage(with_skill(hit(900, 100, 3_100, 70, false), 1_200_001));
+        assert_eq!(taken(&s, 830), 70);
+
+        s.append_damage(hit(200, 100, 3_200, 400, false));
+        let snapshot = s.get_combat_snapshot_light();
+        assert_eq!(snapshot[&830].actors[&200].party_heal, 400);
+        assert_eq!(snapshot.values().map(|t| t.actors[&200].party_heal).sum::<i64>(), 400);
     }
 
     #[test]
