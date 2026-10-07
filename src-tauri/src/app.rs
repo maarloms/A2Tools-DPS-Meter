@@ -2292,13 +2292,6 @@ pub fn run() {
             let npcap_available = platform::pcap::library_available();
             if !npcap_available {
                 tracing::error!("Npcap is not installed — packet capture disabled");
-                // Notify frontend to show install prompt
-                let handle_npcap = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    // Small delay so frontend has time to initialize
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    let _ = handle_npcap.emit("npcap-missing", ());
-                });
             }
 
             // Start capture pipeline
@@ -2307,6 +2300,9 @@ pub fn run() {
             let capturer = PcapCapturer::new(tx);
             if npcap_available {
                 capturer.start();
+            } else {
+                // Offer to install it, and start capturing once it is in.
+                crate::npcap_setup::offer(app.handle().clone(), capturer);
             }
 
             let mut dispatcher = CaptureDispatcher::new(

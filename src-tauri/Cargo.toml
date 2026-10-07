@@ -115,6 +115,10 @@ windows = { version = "0.59", features = [
     # DPAPI, for encrypting the account token at rest.
     "Win32_Security_Cryptography",
     "Win32_System_Threading",
+    # Npcap's folder on the DLL search path (SetDllDirectoryW).
+    "Win32_System_LibraryLoader",
+    # ShellExecuteExW, to run Npcap's installer elevated (its struct needs HKEY).
+    "Win32_System_Registry",
     # Screenshots: the folder picker (IFileOpenDialog) and the Pictures folder.
     "Win32_System_Com",
     "Win32_UI_Shell",

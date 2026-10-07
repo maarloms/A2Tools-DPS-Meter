@@ -38,6 +38,8 @@ mod presence;
 pub mod share;
 #[cfg(feature = "desktop")]
 pub mod stream_overlay;
+#[cfg(feature = "desktop")]
+mod npcap_setup;
 
 #[cfg(feature = "desktop")]
 mod app;
