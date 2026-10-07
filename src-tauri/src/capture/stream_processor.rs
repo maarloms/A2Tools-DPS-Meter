@@ -941,12 +941,13 @@ impl StreamProcessor {
                 self.data_storage.note_player_server(&sanitized, server);
                 // A byte, then level (u32). Confirmed by a level-up, 28
                 // then 29 (Naicha, 2026-10-04), and against the roster's
-                // levels for three other players.
-                let level = data
-                    .get(after + 7..after + 11)
+                // levels for three other players. Only in the layout whose
+                // class reads as one.
+                let level = job
+                    .and(data.get(after + 7..after + 11))
                     .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
                     .filter(|l| (1..=99).contains(l));
-                self.data_storage.note_self_profile(&sanitized, Some(job), level);
+                self.data_storage.note_self_profile(&sanitized, job, level);
             } else {
                 tracing::debug!("player record: '{}' -> entity {}", sanitized, id.value);
             }
@@ -2873,12 +2874,14 @@ enum UnicodeScript {
 }
 
 /// Your server (u16) and class (u32, the roster's encoding), which follow the
-/// name in a self record. Both must read as one.
-fn self_profile(data: &[u8], after: usize) -> Option<(u16, JobClass)> {
-    let rest = data.get(after..after + 6)?;
+/// name in a self record. The server must read as one; the class need not,
+/// as Amber1's record on Nezekan (2026-10-01) has other bytes there.
+fn self_profile(data: &[u8], after: usize) -> Option<(u16, Option<JobClass>)> {
+    let rest = data.get(after..after + 2)?;
     let server = u16::from_le_bytes([rest[0], rest[1]]);
-    let class = u32::from_le_bytes([rest[2], rest[3], rest[4], rest[5]]);
-    let job = JobClass::from_roster_class(class)?;
+    let job = data
+        .get(after + 2..after + 6)
+        .and_then(|b| JobClass::from_roster_class(u32::from_le_bytes([b[0], b[1], b[2], b[3]])));
     (1000..3000).contains(&server).then_some((server, job))
 }
 
