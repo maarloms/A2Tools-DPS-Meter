@@ -242,7 +242,6 @@ pub const ALLOWED_OPCODES: &[(&[u8; 2], &str)] = &[
     (&[0x04, 0x8D], "summon ownership"),
     (&[0x23, 0x36], "zone change"),
     (&[0x21, 0x36], "map load"),
-    (&[0x06, 0x38], "party scope"),
     (&[0x41, 0x36], "death / spawn"),
     (&[0x42, 0x36], "death (post 2026-06 opcode shift)"),
     (&[0x40, 0x36], "summon spawn"),
@@ -1192,7 +1191,7 @@ mod tests {
     }
 
     #[test]
-    fn map_loads_and_party_scope_records_are_kept_without_their_text() {
+    fn map_loads_are_kept_without_their_text_and_party_scope_is_not() {
         // Captured 2026-10-04: a party-scope record, a load into World_L_A
         // (1010), and a load naming a cutscene.
         let scope = hex("0f0638eab601b26c18000c00");
@@ -1202,7 +1201,9 @@ mod tests {
         // The first two in the prelude, the rest in the fight window.
         let packets = vec![at(0, &scope), at(0, &world), at(100_000, &cutscene), at(100_000, &scope)];
         let slice = build(&packets, 100_000, 110_000, &HashMap::new()).unwrap();
-        assert_eq!(slice.records.len(), 4);
+        // Party scope only feeds the loot owner, which a derivation never
+        // reads, and it made slices 30-50 % larger (2026-10-07, three bosses).
+        assert_eq!(slice.records.len(), 2);
         let kept: Vec<u8> = slice.records.iter().flat_map(|(_, r)| r.clone()).collect();
         assert!(kept.windows(4).any(|w| w == [0x9b, 0x8a, 0x01, 0x00]), "the map id survives");
         assert!(!kept.windows(8).any(|w| w == b"Cutscene"), "the text does not");
