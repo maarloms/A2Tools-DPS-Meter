@@ -2138,7 +2138,11 @@ impl StreamProcessor {
                 break;
             }
 
-            if actor_value != target_value {
+            if crate::entity::skill_group::restores_resource(exact_skill_code as i32) {
+                // MP (or another resource) restored, not HP: neither damage
+                // nor healing. A Water Spirit's attack sends one of these to
+                // its Spiritmaster (16990002, 20 MP), filed under 100011.
+            } else if actor_value != target_value {
                 let mut pdp = ParsedDamagePacket::new();
                 if let Some(ts) = self.override_timestamp {
                     pdp.set_timestamp(ts);
@@ -2878,6 +2882,42 @@ mod tests {
         let (members, complete, _) = parse_party_roster_at(&data, 2).expect("a roster");
         assert_eq!(members.len(), 2);
         assert!(complete, "vacant slots after the last member end the roster");
+    }
+
+    /// A Spiritmaster's spirits send `04 38` records to their owner on each
+    /// landed attack (2026-10-05 15:37). The Wind Spirit's (16990003) restores
+    /// 1.5 % HP: 103 of 6871. The Water Spirit's (16990002) restores 20 MP
+    /// (SkillEffect MpHeal 20), same layout; the game files it under 100011,
+    /// so it showed as "Fire Spirit: Basic Attack" healing. A self-cast MP
+    /// restore (15760007, 30 MP, 15:17:41) went in as a self-heal.
+    #[test]
+    fn mp_restores_are_not_healing() {
+        let (storage, mut p) = processor();
+        let mut hit = crate::entity::damage_packet::ParsedDamagePacket::new();
+        hit.set_timestamp(1_000);
+        hit.set_target_id(16720);
+        hit.set_actor_id(10137);
+        hit.set_skill_code(16040000);
+        hit.set_type(2);
+        hit.set_damage(500);
+        storage.append_damage(hit.clone());
+        hit.set_actor_id(2787);
+        storage.append_damage(hit);
+        storage.register_confirmed_summon_by_id(61001, 10137);
+        storage.register_confirmed_summon_by_id(49482, 10137);
+
+        assert!(feed(&mut p, "994f0400c9dc03333f03010602f7af446501000000ac52670100"));
+        assert!(feed(&mut p, "994f0400ca8203323f0301060293af446501000000ac52140100"));
+        assert!(feed(&mut p, "e3150400e315877af0005302c7dcef5d01000000865d1e0100"));
+
+        // This meter does not yet record a spirit's HP restore on its owner
+        // (the Wind Spirit's 103), so no heal is left at all: the self-cast
+        // 30 MP is gone, and nothing went in as damage either.
+        let heals = storage.get_heal_snapshot();
+        let healed: Vec<_> = heals.iter().flat_map(|(a, s)| s.iter().map(move |(k, v)| (*a, k.0, v.total_heal))).collect();
+        assert_eq!(healed, vec![]);
+        let snapshot = storage.get_combat_snapshot();
+        assert!(!snapshot.contains_key(&10137) && !snapshot.contains_key(&2787));
     }
 
     /// Damage records from a live capture (2026-10-04, target 30001, actor
