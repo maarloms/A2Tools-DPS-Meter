@@ -3370,6 +3370,27 @@ mod tests {
         p.parsing_damage(&packet, false, false)
     }
 
+    /// A Training Scarecrow's live HP (2026-10-07, entity 25839, whose spawn
+    /// came before the meter started): hit down to 1, it stops there and
+    /// comes back to full. That is how the meter knows it is a dummy without
+    /// the NPC code.
+    #[test]
+    fn a_dummy_whose_spawn_was_missed_is_known_by_its_hp() {
+        let (storage, mut p) = processor();
+        let hp = |p: &mut StreamProcessor, hp: &str| {
+            p.consume_stream(&hex(&format!("1400 8DEFC901 020100 {hp} 00000000").replace(' ', "")))
+        };
+        for reading in ["55E50000", "DF120000"] {
+            assert_eq!(hp(&mut p, reading), 17);
+        }
+        assert_eq!(storage.get_mob_current_hp(25839), Some(0x12DF));
+        assert!(!storage.is_hp_reset_dummy(25839), "hit, not yet at the floor");
+        hp(&mut p, "01000000");
+        assert!(!storage.is_hp_reset_dummy(25839), "at the floor: a mob about to die looks the same");
+        hp(&mut p, "8F380100");
+        assert!(storage.is_hp_reset_dummy(25839), "back up from 1 without dying");
+    }
+
     /// A Wind Spirit's Malicious Whirlwind ticks on after the spirit is
     /// unsummoned (2026-10-06 21:16, spirit 25676 of player 15740 on target
     /// 48776). The game's Damage Analyzer counted the two ticks before the

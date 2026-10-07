@@ -117,7 +117,11 @@ impl DpsCalculator {
     }
 
     pub fn set_all_targets_window_ms(&mut self, ms: i64) {
-        self.all_targets_window_ms = ms.clamp(10_000, 900_000);
+        let ms = ms.clamp(10_000, 900_000);
+        if ms != self.all_targets_window_ms {
+            self.last_damage_gen = -1;
+        }
+        self.all_targets_window_ms = ms;
     }
 
     pub fn mark_all_targets_saved(&mut self) {
@@ -638,13 +642,25 @@ impl DpsCalculator {
                 }
             }
             TargetSelectionMode::AllTargets => {
-                let all: HashSet<i32> = combat_data.keys().cloned().collect();
+                // The targets hit within the time range the settings offer
+                // ("All Targets time range"), counted back from the latest
+                // hit. The setting was never applied: every target since the
+                // last zone change stayed in, so a dungeon's first sub-boss
+                // went on being added to the second (2026-10-07).
+                let latest = combat_data.values().map(|td| td.last_damage_time).max().unwrap_or(0);
+                let all: HashSet<i32> = combat_data.iter()
+                    .filter(|(_, td)| td.last_damage_time >= latest - self.all_targets_window_ms)
+                    .map(|(&id, _)| id)
+                    .collect();
                 (all, "All Targets".to_string(), 0)
             }
             TargetSelectionMode::TrainTargets => {
+                // A dummy whose spawn the meter missed (it started next to
+                // it) has no NPC code; it is known by its HP instead.
                 let trains: HashSet<i32> = combat_data.keys()
-                    .filter(|&&tid| {
-                        mob_data.get(&tid).is_some_and(|&code| self.npc_lookup.is_training_dummy(code))
+                    .filter(|&&tid| match mob_data.get(&tid) {
+                        Some(&code) => self.npc_lookup.is_training_dummy(code),
+                        None => self.data_storage.is_hp_reset_dummy(tid),
                     })
                     .cloned()
                     .collect();
@@ -1869,5 +1885,61 @@ mod tests {
         assert_eq!(fight_dungeon(&npcs, 2701090, 0), 0);
         // Trash keeps the roster's.
         assert_eq!(fight_dungeon(&npcs, 2310219, 600011), 600011);
+    }
+
+    /// Train mode follows the dummies the NPC table names, and, for a dummy
+    /// whose spawn the meter never saw, the one its HP gave away. Before
+    /// that, a meter started next to the scarecrows showed nothing however
+    /// long the player hit them (2026-10-07).
+    #[test]
+    fn train_mode_shows_a_dummy_known_by_its_hp() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2259));
+        let npcs = Arc::new(NpcLookup::new());
+        npcs.load_from_json(r#"{"2400032": {"name": "Training Scarecrow", "isBoss": true, "isDummy": true},
+                                "2310401": {"name": "Phantasmal Lakshmi", "isBoss": true}}"#);
+        let mut calc = DpsCalculator::new(storage.clone(), Arc::new(SkillLookup::new()), npcs, Arc::new(PingTracker::new()));
+        calc.set_target_selection_mode("trainTargets");
+        // 600: a scarecrow spawned in view. 601: one spawned before the meter
+        // started. 602: a mob nobody named. 603: a boss whose HP behaved so.
+        storage.append_mob(600, 2400032);
+        storage.append_mob(603, 2310401);
+        for (target, at) in [(600, 1_000), (601, 1_100), (602, 1_200), (603, 1_300)] {
+            storage.append_damage(hit(2259, target, at));
+        }
+        for target in [601, 602, 603] {
+            storage.set_mob_current_hp(target, 1);
+        }
+        assert_eq!(calc.get_dps().detail_target_ids, vec![600]);
+
+        for target in [601, 603] {
+            storage.set_mob_current_hp(target, 119_700);
+        }
+        storage.append_damage(hit(2259, 601, 1_400));
+        let shown = calc.get_dps();
+        assert_eq!(shown.detail_target_ids, vec![600, 601]);
+        assert_eq!(shown.map[&2259].amount, 1_500.0);
+    }
+
+    /// All Targets keeps the targets hit within its time range (Settings),
+    /// counted back from the latest hit. The setting was never applied, so a
+    /// dungeon's first sub-boss went on being added to the second.
+    #[test]
+    fn all_targets_keeps_its_time_range() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(2259));
+        let mut calc = meter(&storage);
+        calc.set_target_selection_mode("allTargets");
+        storage.append_damage(hit(2259, 50_000, 1_000));
+        storage.append_damage(hit(2259, 50_000, 64_000));
+        storage.append_damage(hit(2259, 60_000, 138_000));
+        // The default two minutes: the first boss's last hit is 74 s back.
+        assert_eq!(calc.get_dps().detail_target_ids, vec![50_000, 60_000]);
+        calc.set_all_targets_window_ms(30_000);
+        let shown = calc.get_dps();
+        assert_eq!(shown.detail_target_ids, vec![60_000]);
+        assert_eq!(shown.map[&2259].amount, 500.0);
+        storage.append_damage(hit(2259, 50_000, 140_000));
+        assert_eq!(calc.get_dps().detail_target_ids, vec![50_000, 60_000]);
     }
 }

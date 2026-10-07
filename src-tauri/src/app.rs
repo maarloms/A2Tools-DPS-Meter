@@ -536,6 +536,15 @@ fn get_settings(state: tauri::State<'_, AppState>) -> std::collections::HashMap<
 /// "Round DPS" would appear to do nothing until the app restarted. Only real
 /// changes are emitted (see `Settings::set`), so the originating window's echo
 /// stops here rather than bouncing between windows.
+/// The All Targets time range (Settings), in milliseconds.
+const ALL_TARGETS_WINDOW_KEY: &str = "dpsMeter.allTargetsWindowMs";
+
+fn apply_all_targets_window(state: &AppState, value: &str) {
+    if let Ok(ms) = value.trim().parse::<i64>() {
+        state.dps_calculator.lock().set_all_targets_window_ms(ms);
+    }
+}
+
 #[tauri::command]
 fn update_settings(
     app: tauri::AppHandle,
@@ -544,6 +553,9 @@ fn update_settings(
     value: String,
 ) {
     if state.settings.set(&key, &value) {
+        if key == ALL_TARGETS_WINDOW_KEY {
+            apply_all_targets_window(&state, &value);
+        }
         let _ = app.emit("setting-changed", serde_json::json!({ "key": key, "value": value }));
         if key.starts_with(crate::stream_overlay::ENABLED_KEY) {
             crate::stream_overlay::sync(&app);
@@ -2232,7 +2244,7 @@ pub fn run() {
             let ping_tracker = Arc::new(PingTracker::with_perf_clock(platform::clock::perf_clock()));
             let port_detector = Arc::new(CombatPortDetector::new());
 
-            let dps_calculator = DpsCalculator::new(
+            let mut dps_calculator = DpsCalculator::new(
                 data_storage.clone(),
                 skill_lookup.clone(),
                 npc_lookup.clone(),
@@ -2240,6 +2252,9 @@ pub fn run() {
             );
 
             let settings = Settings::new(app_data_dir.clone());
+            if let Some(ms) = settings.get(ALL_TARGETS_WINDOW_KEY).and_then(|v| v.trim().parse::<i64>().ok()) {
+                dps_calculator.set_all_targets_window_ms(ms);
+            }
 
             // Load logging settings from saved state
             if settings.get("dpsMeter.debugLoggingEnabled").as_deref() == Some("true") {

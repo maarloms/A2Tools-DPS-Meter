@@ -437,6 +437,15 @@ struct Inner {
     /// Training dummies (scarecrows, punching bags) among the entities spawned,
     /// from the NPC table. Damage on them follows `held_dot_ticks`.
     training_dummy_ids: HashSet<i32>,
+    /// Entities whose live HP was seen at exactly 1, the floor a training
+    /// dummy stops at instead of dying.
+    hp_floored_ids: HashSet<i32>,
+    /// Entities that came back up from that floor without dying: training
+    /// dummies, for those whose spawn (and with it the NPC code) the meter
+    /// never saw. Town dummies are spawned once, so a meter started, or
+    /// restarted, next to them never learned what they were, and Train mode
+    /// showed nothing however long the player hit them (2026-10-07).
+    hp_reset_dummy_ids: HashSet<i32>,
     /// On a training dummy, DoT ticks that landed after their actor's latest
     /// direct hit, keyed (target, actor). They are counted when that actor
     /// hits directly again; if the player has stopped attacking, they never
@@ -519,6 +528,8 @@ impl DataStorage {
                 despawned_summon_ids: HashSet::new(),
                 boss_entity_ids: HashSet::new(),
                 training_dummy_ids: HashSet::new(),
+                hp_floored_ids: HashSet::new(),
+                hp_reset_dummy_ids: HashSet::new(),
                 held_dot_ticks: HashMap::new(),
                 has_boss_in_segment: false,
                 current_target: 0,
@@ -966,6 +977,9 @@ impl DataStorage {
     pub fn append_mob(&self, mid: i32, code: i32) {
         let mut inner = self.inner.write();
         inner.mob_storage.insert(mid, code);
+        // A spawn names the NPC: the table says what it is from here on.
+        inner.hp_floored_ids.remove(&mid);
+        inner.hp_reset_dummy_ids.remove(&mid);
 
         // NPC unclassification: if this entity was previously classified as a player
         // (damage with player-band skills arrived before the 0x3640 spawn packet),
@@ -988,7 +1002,9 @@ impl DataStorage {
     }
 
     pub fn mark_entity_dead(&self, entity_id: i32) {
-        self.inner.write().dead_entity_ids.insert(entity_id);
+        let mut inner = self.inner.write();
+        inner.dead_entity_ids.insert(entity_id);
+        inner.hp_floored_ids.remove(&entity_id);
     }
 
     /// `id` left the world. Only a linked summon is marked: see
@@ -1353,10 +1369,25 @@ impl DataStorage {
         }
         let mut inner = self.inner.write();
         inner.mob_current_hp.insert(id, hp);
+        if hp == 1 {
+            inner.hp_floored_ids.insert(id);
+        } else if hp > 1
+            && inner.hp_floored_ids.contains(&id)
+            && !inner.dead_entity_ids.contains(&id)
+        {
+            inner.hp_reset_dummy_ids.insert(id);
+        }
         let max = inner.mob_hp_data.entry(id).or_insert(0);
         if hp > *max {
             *max = hp;
         }
+    }
+
+    /// Whether `id` behaved as a training dummy does: its HP stopped at 1 and
+    /// came back up, without it dying. Only for an entity whose NPC code is
+    /// unknown is this the answer; one whose spawn was seen goes by the table.
+    pub fn is_hp_reset_dummy(&self, id: i32) -> bool {
+        self.inner.read().hp_reset_dummy_ids.contains(&id)
     }
 
     pub fn get_mob_current_hp(&self, id: i32) -> Option<i32> {
@@ -1453,6 +1484,8 @@ impl DataStorage {
         inner.has_boss_in_segment = false;
         inner.mob_hp_data.clear();
         inner.mob_current_hp.clear();
+        inner.hp_floored_ids.clear();
+        inner.hp_reset_dummy_ids.clear();
         inner.heal_storage.clear();
         inner.current_target = 0;
     }
@@ -1470,6 +1503,8 @@ impl DataStorage {
         inner.has_boss_in_segment = false;
         inner.mob_hp_data.clear();
         inner.mob_current_hp.clear();
+        inner.hp_floored_ids.clear();
+        inner.hp_reset_dummy_ids.clear();
         inner.heal_storage.clear();
         inner.current_target = 0;
     }
@@ -2467,5 +2502,38 @@ mod tests {
         assert_eq!(s.local_player_id(), Some(4099));
         assert!(!s.note_loot_owner(900, 1454, "ApexZ"));
         assert_eq!(who(&s), (Some(4099), Some("Misti".into()), false));
+    }
+
+    /// A dummy is one whose HP came back up from 1; a mob that died on the
+    /// way, or one whose spawn said what it is, is not.
+    #[test]
+    fn hp_back_up_from_the_floor_marks_a_dummy() {
+        let s = DataStorage::new();
+        for (id, hp) in [(500, 40_000), (500, 1), (500, 119_700)] {
+            s.set_mob_current_hp(id, hp);
+        }
+        assert!(s.is_hp_reset_dummy(500));
+
+        // Died at the floor; the id later reused by something at full HP.
+        s.set_mob_current_hp(501, 1);
+        s.mark_entity_dead(501);
+        s.set_mob_current_hp(501, 90_000);
+        assert!(!s.is_hp_reset_dummy(501));
+
+        // Never at 1: a heal or a phase is not a dummy.
+        for hp in [50_000, 20_000, 60_000] {
+            s.set_mob_current_hp(502, hp);
+        }
+        assert!(!s.is_hp_reset_dummy(502));
+
+        // A spawn names the NPC, and the table decides from then on.
+        s.append_mob(500, 2_300_401);
+        assert!(!s.is_hp_reset_dummy(500));
+
+        s.set_mob_current_hp(503, 1);
+        s.set_mob_current_hp(503, 2);
+        assert!(s.is_hp_reset_dummy(503));
+        s.flush_combat_only();
+        assert!(!s.is_hp_reset_dummy(503), "a zone change: ids may name other entities now");
     }
 }
