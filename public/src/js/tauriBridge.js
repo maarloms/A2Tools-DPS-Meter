@@ -12,6 +12,9 @@
 
   // The backend enables compositor resizing only on GNOME.
   const isLinux = document.documentElement.classList.contains("linux");
+  // Native startup policy is independent of the webview's user agent.
+  const loadsHidden = window.__A2_WINDOW_STARTUP__?.loadsHidden === true;
+  const reusesSettings = window.__A2_WINDOW_STARTUP__?.reusesSettings === true;
   let compositorResize = isLinux ? null : false;
   const compositorResizeReady = isLinux ? invoke("compositor_resize_supported")
     .then((supported) => {
@@ -113,7 +116,7 @@
       }
     };
     const scheduleReveal = () => requestAnimationFrame(() => requestAnimationFrame(reveal));
-    if (!(isLinux && viewMode === "settings")) {
+    if (!(loadsHidden && viewMode === "settings")) {
       if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", scheduleReveal, { once: true });
       } else {
@@ -134,17 +137,26 @@
   let cachedAppVersion = "";     // populated on startup from Tauri backend
   let lastSkillDetailsIssue = "";
   let captureSuspended = false;  // the suspend button's state; the backend's is the truth
-  let settingsActive = true;
-  let settingsResync = null;
+  // null awaits the first show; false is an explicitly paused form.
+  let settingsActive = viewMode === "settings" && loadsHidden ? null : true;
+  let settingsLifecycleGeneration = 0;
+  let settingsReadId = 0;
+  let settingsReadPromise = null;
+  let settingsRevision = 0;
+  const settingsKeyRevisions = new Map();
+  const cacheSetting = (key, value) => {
+    settingsKeyRevisions.set(key, ++settingsRevision);
+    settingsCache[key] = String(value);
+    try { localStorage.setItem(key, String(value)); } catch {}
+  };
   // Linux keeps Settings when it is closed. Shown again, it resumes; not every
   // change is broadcast as setting-changed, so the backend is read again.
-  const resumeSettings = () => {
+  const resumeSettings = ({ resync = true } = {}) => {
     if (viewMode !== "settings" || settingsActive) return;
     settingsActive = true;
     startStatusPolling();
-    settingsResync ||= loadSettings().then(() => {
-      settingsResync = null;
-      if (settingsActive) window._dpsApp?.syncSettingsForm?.();
+    if (resync && reusesSettings) loadSettings().then((applied) => {
+      if (applied && settingsActive) window._dpsApp?.syncSettingsForm?.();
     });
   };
   let devicesLoading = null;
@@ -175,18 +187,42 @@
 
   // Load settings from Rust backend and merge with localStorage.
   // localStorage acts as the synchronous fallback for first reads before invoke resolves.
-  const loadSettings = () => invoke("get_settings").then((s) => {
-    if (s && typeof s === "object") {
-      // Merge backend settings into cache (backend is authoritative)
-      settingsCache = s;
+  const loadSettings = () => {
+    const readId = ++settingsReadId;
+    const revision = settingsRevision;
+    const pending = invoke("get_settings").then((s) => {
+      if (readId !== settingsReadId) return false;
       settingsLoaded = true;
-      // Also sync to localStorage so future reads before invoke are accurate
-      for (const [k, v] of Object.entries(s)) {
-        try { localStorage.setItem(k, v); } catch {}
+      if (!s || typeof s !== "object" || Array.isArray(s)) return false;
+      const merged = { ...s };
+      // An event or local edit after this read began is newer than its snapshot.
+      for (const [key, changed] of settingsKeyRevisions) {
+        if (changed > revision) merged[key] = settingsCache[key];
       }
-    }
-  }).catch(() => { settingsLoaded = true; });
-  window.a2SettingsReady = loadSettings();
+      for (const key of Object.keys(settingsCache)) {
+        if (!(key in merged)) {
+          try { localStorage.removeItem(key); } catch {}
+        }
+      }
+      settingsCache = merged;
+      for (const [key, value] of Object.entries(merged)) {
+        try { localStorage.setItem(key, value); } catch {}
+      }
+      return true;
+    }).catch(() => {
+      if (readId === settingsReadId) settingsLoaded = true;
+      return false;
+    });
+    settingsReadPromise = pending;
+    return pending;
+  };
+  loadSettings();
+  window.a2SettingsReady = (async () => {
+    // A reopen during startup can supersede the initial read.
+    let pending;
+    do { pending = settingsReadPromise; await pending; }
+    while (pending !== settingsReadPromise);
+  })();
 
   // --- DPS data polling via events ---
   // The Rust backend emits "dps-update" every 500ms.
@@ -218,8 +254,7 @@
     const key = event?.payload?.key;
     const value = event?.payload?.value;
     if (typeof key !== "string") return;
-    settingsCache[key] = String(value);
-    try { localStorage.setItem(key, String(value)); } catch {}
+    cacheSetting(key, value);
     window._dpsApp?.applyRemoteSettingChange?.(key, String(value));
   });
 
@@ -231,13 +266,15 @@
 
   // Settings was asked to open while already open; check the account again
   // behind what it shows.
-  listen("settings-shown", () => {
+  const settingsShownSubscription = listen("settings-shown", () => {
+    if (viewMode === "settings") ++settingsLifecycleGeneration;
     window._dpsApp?.refreshAccountPanel?.();
     resumeSettings();
   });
-  if (viewMode === "settings") listen("settings-hidden", () => {
+  const settingsHiddenSubscription = viewMode === "settings" ? listen("settings-hidden", () => {
     window.dispatchEvent(new Event("settings-hidden"));
-  });
+  }) : undefined;
+  const settingsLifecycleReady = Promise.all([settingsShownSubscription, settingsHiddenSubscription]);
 
   // The lock hotkey toggled the click-through lock; the page follows.
   listen("overlay-lock-changed", (event) => {
@@ -406,7 +443,7 @@
     },
     toolWindowReady(label) {
       // Linux Settings loads hidden; notifyUiReady reveals it once the form is ready.
-      if (isLinux && label === "settings") return Promise.resolve();
+      if (loadsHidden && label === "settings") return Promise.resolve();
       // Reveal from the window's own webview thread. Calling show() on the Rust
       // side from a spawned task did not take effect — the window stayed created
       // but unmapped — so the window shows itself and the backend call is only
@@ -421,14 +458,18 @@
       return invoke("tool_window_ready", { label: String(label) }).catch(() => {});
     },
     async notifyUiReady() {
-      if (!isLinux) return;
+      if (!loadsHidden) return;
       if (viewMode === "settings") {
+        await settingsLifecycleReady;
+        const generation = settingsLifecycleGeneration;
         // Lay out the translated form before mapping the native window.
         document.querySelector(".settingsPanel")?.getBoundingClientRect();
         // The backend shows it only if it is still wanted: a Close may have
         // come first, and then paused the form.
         const shown = await invoke("tool_window_ready", { label: "settings" }).catch(() => false);
-        if (shown) resumeSettings();
+        if (generation !== settingsLifecycleGeneration) return;
+        if (shown) resumeSettings({ resync: settingsActive === false });
+        else window.dispatchEvent(new Event("settings-hidden"));
         return;
       }
       if (viewMode !== "main") return;
@@ -441,9 +482,8 @@
       return settingsCache[key] ?? localStorage.getItem(key);
     },
     setSetting(key, value) {
-      settingsCache[key] = String(value);
       // A full storage quota must not keep the setting from the backend.
-      try { localStorage.setItem(key, String(value)); } catch {}
+      cacheSetting(key, value);
       invoke("update_settings", { key, value: String(value) }).catch(() => {});
       // Reload backend i18n data when language changes
       if (key === "dpsMeter.language") {
@@ -451,7 +491,10 @@
       }
     },
     clearAllSettings() {
-      localStorage.clear();
+      ++settingsReadId;
+      ++settingsRevision;
+      settingsKeyRevisions.clear();
+      try { localStorage.clear(); } catch {}
       settingsCache = {};
       invoke("clear_settings").catch(() => {});
     },
@@ -851,7 +894,9 @@
   };
   // A repeat without a show in between is ignored.
   if (viewMode === "settings") window.addEventListener("settings-hidden", () => {
-    if (!settingsActive) return;
+    ++settingsLifecycleGeneration;
+    window._dpsApp?.invalidateStreamOverlaySettings?.();
+    if (settingsActive === false) return;
     settingsActive = false;
     clearInterval(statusTimer);
     statusTimer = null;
@@ -859,7 +904,7 @@
     window._dpsApp?.closeSupportModal?.();
     document.querySelectorAll(".settingsDropdownMenu.isOpen").forEach(menu => menu.classList.remove("isOpen"));
   });
-  startStatusPolling();
+  if (viewMode !== "settings" || settingsActive) startStatusPolling();
 
   // ===== Dynamic window resizing =====
   const PANEL_WIDTH = 1540;

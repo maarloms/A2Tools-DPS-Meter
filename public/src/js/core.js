@@ -3886,12 +3886,14 @@ class DpsApp {
   refreshSettingsStatus() {
     const title = window.javaBridge?.getAion2WindowTitle?.();
     this.aionRunning = typeof title === "string" && title.trim().length > 0;
+    if (this.aionRunning) this.syncCharacterNameFromGame();
     this.refreshConnectionInfo();
   }
 
   // A reused Settings window is shown again without start(). Re-read the form
   // from stored settings; the controls keep the handlers setupSettingsPanel wired.
   syncSettingsForm() {
+    this.refreshStreamOverlaySettings();
     const get = (name) => this.safeGetSetting(this.storageKeys[name]);
     const isSet = (value) => value !== null && value !== undefined && String(value).trim() !== "";
     const storedName = this.safeGetStorage(this.storageKeys.userName);
@@ -5245,6 +5247,7 @@ class DpsApp {
   // another PC. Off unless turned on. The backend owns the server and its key;
   // this shows what it reports and passes the toggle and port through.
   initStreamOverlaySettings() {
+    if (this._streamOverlaySettings) return;
     const group = document.querySelector(".streamOverlayGroup");
     const bridge = window.javaBridge;
     if (!group || typeof bridge?.streamOverlayStatus !== "function") return;
@@ -5258,6 +5261,8 @@ class DpsApp {
     if (!checkbox || !details || !portInput || !newKeyBtn || !urlsEl || !statusEl) return;
     const t = (key, fallback) => window.i18n?.t?.(key, fallback) ?? fallback;
     let lastPort = 18731;
+    let requestSequence = 0;
+    let mutation = Promise.resolve();
 
     const copy = async (input, button) => {
       let ok = false;
@@ -5332,11 +5337,36 @@ class DpsApp {
       statusEl.textContent = typeof err === "string" ? err : err?.message || String(err);
     };
 
+    const request = (work, { mutate = false } = {}) => {
+      const sequence = ++requestSequence;
+      // A refresh must see completed changes, and rapid changes keep their order.
+      const pending = mutation.catch(() => {}).then(work);
+      if (mutate) mutation = pending;
+      return pending.then((status) => {
+        if (sequence !== requestSequence) return;
+        group.style.display = "";
+        show(status);
+        if (nameInput && document.activeElement !== nameInput) {
+          nameInput.value = this.safeGetSetting("dpsMeter.streamOverlayName") || "";
+        }
+      }).catch((error) => {
+        if (sequence === requestSequence) fail(error);
+      });
+    };
+    this._streamOverlaySettings = {
+      refresh: () => request(() => bridge.streamOverlayStatus()),
+      invalidate: () => { ++requestSequence; },
+    };
+    if (window.A2_VIEW === "settings") window.addEventListener("settings-hidden", () => {
+      this.invalidateStreamOverlaySettings();
+    });
+
     const apply = () => {
       let port = Number.parseInt(portInput.value, 10);
       const valid = Number.isInteger(port) && port >= 1024 && port <= 65535;
       if (!valid) {
         if (checkbox.checked) {
+          ++requestSequence;
           portInput.classList.add("isInvalid");
           statusEl.textContent = t(
             "settings.streamOverlay.portInvalid",
@@ -5346,7 +5376,8 @@ class DpsApp {
         }
         port = lastPort;
       }
-      Promise.resolve(bridge.streamOverlayConfigure(checkbox.checked, port)).then(show, fail);
+      const enabled = checkbox.checked;
+      request(() => bridge.streamOverlayConfigure(enabled, port), { mutate: true });
     };
 
     checkbox.addEventListener("change", apply);
@@ -5367,15 +5398,18 @@ class DpsApp {
       });
     }
     newKeyBtn.addEventListener("click", () => {
-      Promise.resolve(bridge.streamOverlayNewKey()).then(show, fail);
+      request(() => bridge.streamOverlayNewKey(), { mutate: true });
     });
 
-    Promise.resolve(bridge.streamOverlayStatus())
-      .then((status) => {
-        group.style.display = "";
-        show(status);
-      })
-      .catch(() => {});
+    this.refreshStreamOverlaySettings();
+  }
+
+  refreshStreamOverlaySettings() {
+    return this._streamOverlaySettings?.refresh();
+  }
+
+  invalidateStreamOverlaySettings() {
+    this._streamOverlaySettings?.invalidate();
   }
 
   maybeShowDiscordPromo() {

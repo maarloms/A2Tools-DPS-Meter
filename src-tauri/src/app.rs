@@ -2177,6 +2177,11 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .append_invoke_initialization_script(format!(
+            "window.__A2_WINDOW_STARTUP__ = {{loadsHidden:{},reusesSettings:{}}};",
+            platform::window_startup::loads_hidden(),
+            platform::window_startup::reuses_settings(),
+        ))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         // Closing the meter quits, even with Details, History or a kept

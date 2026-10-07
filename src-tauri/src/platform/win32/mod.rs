@@ -13,4 +13,5 @@ pub mod shell;
 pub mod updater;
 pub mod window;
 pub mod window_detector;
+#[path = "../unsupported/window_startup.rs"]
 pub mod window_startup;

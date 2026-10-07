@@ -87,7 +87,7 @@ test('the Linux meter reveals itself only after its native size has been applied
   const calls = [];
   const pendingSize = new Promise(resolve => { sized = resolve; });
   const ready = vm.runInNewContext(`({${readyMethod}}).notifyUiReady`, {
-    viewMode: 'main', isLinux: true,
+    viewMode: 'main', loadsHidden: true,
     updateWindowSize: () => pendingSize,
     invoke: async command => calls.push(command),
   });
@@ -100,9 +100,9 @@ test('the Linux meter reveals itself only after its native size has been applied
 });
 
 test('tool windows and other platforms keep their existing native reveal behavior', async () => {
-  for (const [viewMode, isLinux] of [['details', true], ['history', true], ['settings', false], ['main', false]]) {
+  for (const [viewMode, loadsHidden] of [['details', true], ['history', true], ['settings', false], ['main', false]]) {
     const ready = vm.runInNewContext(`({${readyMethod}}).notifyUiReady`, {
-      viewMode, isLinux,
+      viewMode, loadsHidden,
       updateWindowSize: () => { throw new Error('unexpected resize'); },
       invoke: () => { throw new Error('unexpected reveal'); },
     });
@@ -114,27 +114,33 @@ test('Linux settings lays out its form and reveals without waiting for hidden an
   for (const shown of [true, false]) {
     const calls = [];
     const ready = vm.runInNewContext(`({${readyMethod}}).notifyUiReady`, {
-      viewMode: 'settings', isLinux: true,
+      viewMode: 'settings', loadsHidden: true, settingsActive: null,
+      settingsLifecycleReady: Promise.resolve(), settingsLifecycleGeneration: 0,
+      Event, window: { dispatchEvent: event => calls.push(event.type) },
       document: { querySelector: () => ({ getBoundingClientRect: () => calls.push('layout') }) },
       invoke: async (command, args) => { calls.push(`${command}:${args.label}`); return shown; },
       resumeSettings: () => calls.push('resume'),
     });
     await ready();
-    assert.deepEqual(calls, ['layout', 'tool_window_ready:settings', ...(shown ? ['resume'] : [])]);
+    assert.deepEqual(calls, ['layout', 'tool_window_ready:settings', shown ? 'resume' : 'settings-hidden']);
   }
 });
 
 function setupBridge({
   view = 'settings', linux = true, discover, title = null, shown = true,
-  now = () => 0, setItem = () => {},
+  loadsHidden = linux, reusesSettings = linux,
+  now = () => 0, setItem = () => {}, getSettings = () => ({}), nativeListen,
+  storage = {},
 } = {}) {
   const calls = [];
   const listeners = new Map();
   const events = new Map();
   const timers = new Map();
+  const stored = new Map(Object.entries(storage));
   let timerId = 0;
   const window = {
     __A2_VIEW__: view, location: { search: '' },
+    __A2_WINDOW_STARTUP__: { loadsHidden, reusesSettings },
     addEventListener(name, handler) {
       const handlers = events.get(name) || [];
       handlers.push(handler);
@@ -146,10 +152,14 @@ function setupBridge({
         calls.push({ command, args });
         if (command === 'get_available_devices' && discover) return discover();
         if (command === 'get_aion2_window_title') return Promise.resolve(title);
-        if (command === 'tool_window_ready') return Promise.resolve(shown);
-        return Promise.resolve(command === 'get_settings' ? {} : null);
+        if (command === 'tool_window_ready') return Promise.resolve(typeof shown === 'function' ? shown() : shown);
+        if (command === 'get_settings') return Promise.resolve(getSettings());
+        return Promise.resolve(null);
       } },
-      event: { listen: (name, handler) => listeners.set(name, handler) },
+      event: { listen: (name, handler) => {
+        listeners.set(name, handler);
+        return nativeListen ? nativeListen(name) : Promise.resolve(() => {});
+      } },
       opener: { open() {} },
       window: { getCurrentWindow: () => ({ label: view, show: () => calls.push({ command: 'show' }), setFocus() {} }) },
     },
@@ -164,18 +174,224 @@ function setupBridge({
   class ClockDate extends Date { static now() { return now(); } }
   vm.runInNewContext(bridge, {
     window, document, navigator: { userAgent: '' }, URLSearchParams, Event, Date: ClockDate,
-    localStorage: { setItem, getItem: () => null }, console: { log() {}, warn() {}, error() {} },
+    localStorage: {
+      setItem: (key, value) => { setItem(key, value); stored.set(key, String(value)); },
+      getItem: key => stored.get(key) ?? null,
+      removeItem: key => stored.delete(key), clear: () => stored.clear(),
+    }, console: { log() {}, warn() {}, error() {} },
     setTimeout() {}, requestAnimationFrame() {}, MutationObserver: class { observe() {} },
     setInterval: callback => { timers.set(++timerId, callback); return timerId; },
     clearInterval: id => timers.delete(id),
   });
-  return { window, document, calls, timers, listeners };
+  return { window, document, calls, timers, listeners, stored };
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+test('native startup policy controls lifecycle even when the browser platform differs', async () => {
+  const hidden = setupBridge({ linux: false, loadsHidden: true, reusesSettings: true });
+  assert.equal(hidden.timers.size, 0);
+  await hidden.window.javaBridge.toolWindowReady('settings');
+  assert.ok(!hidden.calls.some(call => call.command === 'show' || call.command === 'tool_window_ready'));
+  await hidden.window.javaBridge.notifyUiReady();
+  assert.equal(hidden.timers.size, 1);
+  assert.equal(hidden.calls.filter(call => call.command === 'get_settings').length, 1);
+  hidden.listeners.get('settings-hidden')();
+  hidden.listeners.get('settings-shown')();
+  await settle();
+  assert.equal(hidden.calls.filter(call => call.command === 'get_settings').length, 2);
+
+  const visible = setupBridge({ linux: true, loadsHidden: false, reusesSettings: false });
+  await visible.window.javaBridge.toolWindowReady('settings');
+  assert.ok(visible.calls.some(call => call.command === 'show'));
+  const reads = visible.calls.length;
+  await visible.window.javaBridge.notifyUiReady();
+  assert.equal(visible.calls.length, reads);
+});
+
+test('a close before bridge installation pauses polling and the next opening re-reads settings', async () => {
+  let values = { 'dpsMeter.playerLimit': '6' };
+  const app = setupBridge({ shown: false, getSettings: () => values });
+  let formSyncs = 0, modalCloses = 0;
+  app.window._dpsApp = { syncSettingsForm: () => formSyncs++, closeSupportModal: () => modalCloses++ };
+  await app.window.javaBridge.notifyUiReady();
+  await settle();
+  assert.equal(app.timers.size, 0);
+  assert.equal(modalCloses, 1);
+  assert.ok(!app.calls.some(call => call.command === 'get_capture_status'));
+  values = { 'dpsMeter.playerLimit': '12' };
+  app.listeners.get('settings-shown')();
+  app.listeners.get('settings-shown')();
+  await settle();
+  assert.equal(app.timers.size, 1);
+  assert.equal(formSyncs, 1);
+  assert.equal(app.window.javaBridge.getSetting('dpsMeter.playerLimit'), '12');
+  assert.equal(app.calls.filter(call => call.command === 'get_settings').length, 2);
+});
+
+test('a late successful readiness reply cannot restart a closed settings window', async () => {
+  const reply = deferred();
+  const app = setupBridge({ shown: () => reply.promise });
+  const ready = app.window.javaBridge.notifyUiReady();
+  await settle();
+  assert.ok(app.calls.some(call => call.command === 'tool_window_ready'));
+  app.listeners.get('settings-hidden')();
+  reply.resolve(true);
+  await ready;
+  assert.equal(app.timers.size, 0);
+  assert.ok(!app.calls.some(call => call.command === 'get_capture_status'));
+  app.listeners.get('settings-shown')();
+  assert.equal(app.timers.size, 1);
+});
+
+test('a late refused readiness reply cannot pause a newly opened settings window', async () => {
+  const reply = deferred();
+  const app = setupBridge({ shown: () => reply.promise });
+  let formSyncs = 0;
+  app.window._dpsApp = { syncSettingsForm: () => formSyncs++ };
+  const ready = app.window.javaBridge.notifyUiReady();
+  await settle();
+  app.listeners.get('settings-hidden')();
+  app.listeners.get('settings-shown')();
+  reply.resolve(false);
+  await ready;
+  await settle();
+  assert.equal(app.timers.size, 1);
+  assert.equal(formSyncs, 1);
+});
+
+test('readiness waits for both lifecycle subscriptions before asking the backend to show', async () => {
+  const shown = deferred(), hidden = deferred();
+  const app = setupBridge({ nativeListen: name => {
+    if (name === 'settings-shown') return shown.promise;
+    if (name === 'settings-hidden') return hidden.promise;
+    return Promise.resolve(() => {});
+  } });
+  const ready = app.window.javaBridge.notifyUiReady();
+  await settle();
+  assert.ok(!app.calls.some(call => call.command === 'tool_window_ready'));
+  shown.resolve(() => {});
+  await settle();
+  assert.ok(!app.calls.some(call => call.command === 'tool_window_ready'));
+  hidden.resolve(() => {});
+  await ready;
+  assert.equal(app.calls.filter(call => call.command === 'tool_window_ready').length, 1);
+  assert.equal(app.timers.size, 1);
+});
+
+test('a native fallback activation before UI readiness starts polling once and resyncs the form', async () => {
+  const reply = deferred();
+  const app = setupBridge({ shown: () => reply.promise });
+  let formSyncs = 0;
+  app.window._dpsApp = { syncSettingsForm: () => formSyncs++ };
+  const ready = app.window.javaBridge.notifyUiReady();
+  await settle();
+  assert.equal(app.timers.size, 0);
+  app.listeners.get('settings-shown')();
+  app.listeners.get('settings-shown')();
+  reply.resolve(true);
+  await ready;
+  await settle();
+  assert.equal(app.timers.size, 1);
+  assert.equal(formSyncs, 1);
+  assert.equal(app.calls.filter(call => call.command === 'get_settings').length, 2);
+  assert.equal(app.calls.filter(call => call.command === 'get_capture_status').length, 1);
+});
+
+test('a duplicate shown event does not cancel the settings read needed by the first opening', async () => {
+  const pending = deferred();
+  let reads = 0, formSyncs = 0;
+  const app = setupBridge({ getSettings: () => ++reads === 1 ? {} : pending.promise });
+  app.window._dpsApp = { syncSettingsForm: () => formSyncs++ };
+  await app.window.javaBridge.notifyUiReady();
+  app.listeners.get('settings-hidden')();
+  app.listeners.get('settings-shown')();
+  app.listeners.get('settings-shown')();
+  pending.resolve({ 'dpsMeter.playerLimit': '12' });
+  await settle();
+  assert.equal(reads, 2);
+  assert.equal(formSyncs, 1);
+  assert.equal(app.timers.size, 1);
+});
+
+test('a settings reply received while closed updates the cache but does not touch the form', async () => {
+  const pending = deferred();
+  let reads = 0, formSyncs = 0;
+  const app = setupBridge({ getSettings: () => ++reads === 1 ? {} : pending.promise });
+  app.window._dpsApp = { syncSettingsForm: () => formSyncs++ };
+  await app.window.javaBridge.notifyUiReady();
+  app.listeners.get('settings-hidden')();
+  app.listeners.get('settings-shown')();
+  app.listeners.get('settings-hidden')();
+  pending.resolve({ 'dpsMeter.playerLimit': '12' });
+  await settle();
+  assert.equal(formSyncs, 0);
+  assert.equal(app.timers.size, 0);
+  assert.equal(app.window.javaBridge.getSetting('dpsMeter.playerLimit'), '12');
+});
+
+test('an older settings response cannot replace the latest reopen snapshot', async () => {
+  const initial = deferred(), reopened = deferred();
+  let reads = 0;
+  const app = setupBridge({ getSettings: () => ++reads === 1 ? initial.promise : reopened.promise });
+  app.listeners.get('settings-shown')();
+  reopened.resolve({ 'dpsMeter.playerLimit': '12' });
+  await settle();
+  assert.equal(app.window.javaBridge.getSetting('dpsMeter.playerLimit'), '12');
+  initial.resolve({ 'dpsMeter.playerLimit': '6' });
+  await app.window.a2SettingsReady;
+  await settle();
+  assert.equal(app.window.javaBridge.getSetting('dpsMeter.playerLimit'), '12');
+  assert.equal(app.stored.get('dpsMeter.playerLimit'), '12');
+});
+
+test('startup awaits a settings read that supersedes the initial pending read', async () => {
+  const initial = deferred(), reopened = deferred();
+  let reads = 0, ready = false;
+  const app = setupBridge({ getSettings: () => ++reads === 1 ? initial.promise : reopened.promise });
+  app.window.a2SettingsReady.then(() => { ready = true; });
+  app.listeners.get('settings-shown')();
+  initial.resolve({ 'dpsMeter.playerLimit': '6' });
+  await settle();
+  assert.equal(ready, false);
+  reopened.resolve({ 'dpsMeter.playerLimit': '12' });
+  await app.window.a2SettingsReady;
+  assert.equal(app.window.javaBridge.getSetting('dpsMeter.playerLimit'), '12');
+});
+
+test('pending snapshots preserve newer local edits and setting-changed events per key', async () => {
+  const pending = deferred();
+  const app = setupBridge({ getSettings: () => pending.promise });
+  app.window.javaBridge.setSetting('dpsMeter.playerLimit', '12');
+  app.listeners.get('setting-changed')({ payload: { key: 'dpsMeter.roundDps', value: 'false' } });
+  pending.resolve({ 'dpsMeter.playerLimit': '6', 'dpsMeter.roundDps': 'true', 'dpsMeter.theme': 'frost' });
+  await app.window.a2SettingsReady;
+  assert.equal(app.window.javaBridge.getSetting('dpsMeter.playerLimit'), '12');
+  assert.equal(app.window.javaBridge.getSetting('dpsMeter.roundDps'), 'false');
+  assert.equal(app.window.javaBridge.getSetting('dpsMeter.theme'), 'frost');
+});
+
+test('clearing settings invalidates pending snapshots and does not repopulate localStorage', async () => {
+  const pending = deferred();
+  const app = setupBridge({ getSettings: () => pending.promise, storage: { 'dpsMeter.playerLimit': '6' } });
+  app.window.javaBridge.clearAllSettings();
+  pending.resolve({ 'dpsMeter.playerLimit': '12' });
+  await app.window.a2SettingsReady;
+  assert.equal(app.window.javaBridge.getSetting('dpsMeter.playerLimit'), null);
+  assert.equal(app.stored.size, 0);
+  assert.ok(app.calls.some(call => call.command === 'clear_settings'));
+});
+
 test('hidden settings stops status polling; showing it again resumes one timer and re-reads the form', async () => {
   const app = setupBridge();
+  assert.equal(app.timers.size, 0);
+  await app.window.javaBridge.notifyUiReady();
   assert.equal(app.timers.size, 1);
   assert.ok(!app.listeners.has('dps-update'));
   assert.ok(!app.listeners.has('ping-update'));
@@ -257,6 +473,7 @@ test('settings reports whether the game runs after each status read, but not whi
   const app = setupBridge({ title: 'AION2 | Hero' });
   const titles = [];
   app.window._dpsApp = { refreshSettingsStatus: () => titles.push(app.window.javaBridge.getAion2WindowTitle()) };
+  await app.window.javaBridge.notifyUiReady();
   await settle();
   assert.deepEqual(titles, ['AION2 | Hero']);
   app.listeners.get('settings-hidden')();
@@ -293,6 +510,63 @@ test('the settings window shows "detecting" while the game runs without a port',
   window.javaBridge.getAion2WindowTitle = () => null;
   app.refreshSettingsStatus();
   assert.equal(app.lockedPort.textContent, 'Auto');
+});
+
+function setupCharacterStatus(info, { focused = false, running = true } = {}) {
+  const stored = new Map([['dpsMeter.userName', 'Previous']]);
+  const input = { value: focused ? 'Draft name' : 'Previous' };
+  const document = { readyState: 'loading', activeElement: focused ? input : null, addEventListener() {} };
+  const window = {
+    A2_VIEW: 'settings', addEventListener() {},
+    dpsData: { getDpsData: () => assert.fail('settings fetched combat data') },
+    javaBridge: {
+      getAion2WindowTitle: () => running ? 'AION2' : null,
+      getConnectionInfo: () => JSON.stringify(info),
+      resetDps: () => assert.fail('settings reset the fight'),
+      setCharacterName: () => assert.fail('settings re-sent the character name'),
+    },
+  };
+  vm.runInNewContext(core, {
+    window, document,
+    localStorage: { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) },
+  });
+  const app = window.dpsApp;
+  app.USER_NAME = 'Previous';
+  app.characterNameInput = input;
+  app.lockedIp = { textContent: '' };
+  app.lockedPort = { textContent: '', classList: { remove() {} } };
+  app.refreshSettingsStatus();
+  return { app, input, stored };
+}
+
+test('settings status quietly adopts a switched character name without fetching or resetting combat', () => {
+  const fixture = setupCharacterStatus({ characterName: 'Current', characterNameFromGame: true, localPlayerId: 9 });
+  assert.equal(fixture.app.USER_NAME, 'Current');
+  assert.equal(fixture.input.value, 'Current');
+  assert.equal(fixture.stored.get('dpsMeter.userName'), 'Current');
+  assert.equal(fixture.app.getRecentLocalIdForName('Current'), 9);
+  assert.equal(fixture.app.meterUI, undefined);
+  assert.equal(fixture.app._pollTimer, null);
+});
+
+test('settings status does not overwrite a character name currently being edited', () => {
+  const fixture = setupCharacterStatus({ characterName: 'Current', characterNameFromGame: true }, { focused: true });
+  assert.equal(fixture.app.USER_NAME, 'Current');
+  assert.equal(fixture.input.value, 'Draft name');
+});
+
+test('settings status retains a manual name until the game supplies a confirmed one', () => {
+  const fixture = setupCharacterStatus({ characterName: 'Unconfirmed', characterNameFromGame: false });
+  assert.equal(fixture.app.USER_NAME, 'Previous');
+  assert.equal(fixture.input.value, 'Previous');
+  assert.equal(fixture.stored.get('dpsMeter.userName'), 'Previous');
+});
+
+test('an unnamed tutorial character does not erase the last saved real name', () => {
+  const fixture = setupCharacterStatus({ characterName: '', characterNameFromGame: true });
+  assert.equal(fixture.app.USER_NAME, '');
+  assert.equal(fixture.input.value, '');
+  assert.equal(fixture.stored.get('dpsMeter.userName'), 'Previous');
 });
 
 test('hiding settings runs its pause once per close, and only the settings window listens', () => {
