@@ -2187,7 +2187,6 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri::plugin::Builder::<_, ()>::new("settings-persistence")
             .on_event(|app, event| {
                 // Flush before normal exit or restart, with Exit as a final safeguard.
@@ -2196,6 +2195,7 @@ pub fn run() {
                 }
             })
             .build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // Resolve data directory
             let app_data_dir = app.path().app_data_dir()
