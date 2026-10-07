@@ -23,9 +23,11 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Weak};
 
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -577,6 +579,31 @@ fn write_meta(app_data_dir: &Path, id: &str, meta: &SliceMeta) {
     }
 }
 
+// Serialize a metadata read/modify/write for its own file, without making
+// unrelated fights or settings wait, and never across a network request.
+static META_LOCKS: LazyLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn update_meta(app_data_dir: &Path, id: &str, update: impl FnOnce(&mut SliceMeta)) {
+    let lock = {
+        let mut locks = META_LOCKS.lock();
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        let entry = locks.entry(meta_path(app_data_dir, id)).or_default();
+        match entry.upgrade() {
+            Some(lock) => lock,
+            None => {
+                let lock = Arc::new(Mutex::new(()));
+                *entry = Arc::downgrade(&lock);
+                lock
+            }
+        }
+    };
+    let _updating = lock.lock();
+    let mut meta = read_meta(app_data_dir, id);
+    update(&mut meta);
+    write_meta(app_data_dir, id, &meta);
+}
+
 /// Every name the meter has resolved, which is what the blinder must remove.
 pub fn names_from(storage: &DataStorage) -> NameMap {
     let mut names = NameMap::new();
@@ -613,9 +640,8 @@ pub fn save_slice(
     let dir = slices_dir(app_data_dir);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     crate::atomic_file::write(&slice_path(app_data_dir, &record.id), &compressed).map_err(|e| e.to_string())?;
-    let mut meta = read_meta(app_data_dir, &record.id);
-    meta.uploader_actor_id = uploader_in(record, storage.local_player_id(), storage.local_character_name());
-    write_meta(app_data_dir, &record.id, &meta);
+    let uploader = uploader_in(record, storage.local_player_id(), storage.local_character_name());
+    update_meta(app_data_dir, &record.id, |meta| meta.uploader_actor_id = uploader);
     Ok(compressed.len())
 }
 
@@ -643,8 +669,11 @@ pub fn forget_slice(app_data_dir: &Path, id: &str) {
 pub fn prune_slices(app_data_dir: &Path) {
     let Ok(rd) = std::fs::read_dir(slices_dir(app_data_dir)) else { return };
     for entry in rd.filter_map(|e| e.ok()) {
+        if !entry.file_type().is_ok_and(|kind| kind.is_file()) { continue; }
         let name = entry.file_name().to_string_lossy().to_string();
-        let id = name.trim_end_matches(".tmp").trim_end_matches(".a2es.gz").trim_end_matches(".json");
+        // Only completed files belong to pruning. A legacy or pid/counter
+        // temporary may still be in use, including by another meter process.
+        let Some(id) = name.strip_suffix(".a2es.gz").or_else(|| name.strip_suffix(".json")) else { continue };
         if !app_data_dir.join("history").join(format!("{id}.json")).exists() {
             let _ = std::fs::remove_file(entry.path());
         }
@@ -685,19 +714,18 @@ const KEYRING_RETRY_MINUTES: i64 = 5;
 /// the failure is one waiting cannot fix (not signed in, a refused fight),
 /// or the retries are used up. A locked keyring uses up no retries.
 pub fn note_auto_upload_failure(app_data_dir: &Path, id: &str, failure: &UploadFailure, now_ms: i64) {
-    let mut meta = read_meta(app_data_dir, id);
-    if failure.keyring_locked {
-        meta.auto_attempts = meta.auto_attempts.max(1);
-        meta.retry_at_ms = now_ms + KEYRING_RETRY_MINUTES * 60_000;
-        write_meta(app_data_dir, id, &meta);
-        return;
-    }
-    meta.auto_attempts += 1;
-    match AUTO_RETRY_MINUTES.get(meta.auto_attempts as usize - 1) {
-        Some(minutes) if failure.retryable => meta.retry_at_ms = now_ms + minutes * 60_000,
-        _ => meta.gave_up = true,
-    }
-    write_meta(app_data_dir, id, &meta);
+    update_meta(app_data_dir, id, |meta| {
+        if failure.keyring_locked {
+            meta.auto_attempts = meta.auto_attempts.max(1);
+            meta.retry_at_ms = now_ms + KEYRING_RETRY_MINUTES * 60_000;
+            return;
+        }
+        meta.auto_attempts += 1;
+        match AUTO_RETRY_MINUTES.get(meta.auto_attempts as usize - 1) {
+            Some(minutes) if failure.retryable => meta.retry_at_ms = now_ms + minutes * 60_000,
+            _ => meta.gave_up = true,
+        }
+    });
 }
 
 /// Fights whose automatic upload failed and is due to be tried again.
@@ -873,11 +901,11 @@ pub async fn upload_detailed(
     if status.is_success() {
         let result: UploadResult = serde_json::from_value(reply)
             .map_err(|_| UploadFailure::retry("Unexpected reply from a2tools.app."))?;
-        let mut meta = meta;
-        meta.url = Some(result.url.clone());
-        meta.visibility = Some(result.visibility.clone());
         let _ = std::fs::create_dir_all(slices_dir(app_data_dir));
-        write_meta(app_data_dir, &record.id, &meta);
+        update_meta(app_data_dir, &record.id, |meta| {
+            meta.url = Some(result.url.clone());
+            meta.visibility = Some(result.visibility.clone());
+        });
         return Ok(result);
     }
     let code = status.as_u16();
@@ -996,6 +1024,70 @@ mod upload_tests {
     }
 
     #[test]
+    fn updating_an_uploader_and_a_retry_preserves_both_without_blocking_other_fights() {
+        let dir = std::env::temp_dir().join(format!("a2t-meta-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(slices_dir(&dir)).unwrap();
+        write_meta(&dir, "f1", &SliceMeta {
+            visibility: Some("unlisted".into()), ..Default::default()
+        });
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let first_dir = dir.clone();
+        let first = std::thread::spawn(move || update_meta(&first_dir, "f1", |meta| {
+            meta.uploader_actor_id = Some(9);
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        }));
+        started_rx.recv().unwrap();
+        let retry_dir = dir.clone();
+        let retry = std::thread::spawn(move || {
+            note_auto_upload_failure(&retry_dir, "f1", &UploadFailure::retry("offline"), 1_000);
+        });
+        let other_dir = dir.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let other = std::thread::spawn(move || {
+            update_meta(&other_dir, "f2", |meta| meta.uploader_actor_id = Some(10));
+            done_tx.send(()).unwrap();
+        });
+        let independent = done_rx.recv_timeout(std::time::Duration::from_secs(2));
+        release_tx.send(()).unwrap();
+        first.join().unwrap();
+        retry.join().unwrap();
+        other.join().unwrap();
+        independent.expect("metadata for another fight waited");
+        let meta = read_meta(&dir, "f1");
+        assert_eq!(meta.uploader_actor_id, Some(9));
+        assert_eq!(meta.visibility.as_deref(), Some("unlisted"));
+        assert_eq!(meta.auto_attempts, 1);
+        assert_eq!(meta.retry_at_ms, 61_000);
+        assert_eq!(read_meta(&dir, "f2").uploader_actor_id, Some(10));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn concurrent_upload_failures_do_not_lose_retry_attempts() {
+        let dir = std::env::temp_dir().join(format!("a2t-meta-retries-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(slices_dir(&dir)).unwrap();
+        write_meta(&dir, "f1", &SliceMeta { uploader_actor_id: Some(5), ..Default::default() });
+        let start = std::sync::Barrier::new(8);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    start.wait();
+                    note_auto_upload_failure(&dir, "f1", &UploadFailure::retry("offline"), 1_000);
+                });
+            }
+        });
+        let meta = read_meta(&dir, "f1");
+        assert_eq!(meta.auto_attempts, 8);
+        assert!(meta.gave_up);
+        assert_eq!(meta.uploader_actor_id, Some(5));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn auto_upload_waits_for_the_end_and_fires_once() {
         let dir = std::env::temp_dir().join(format!("a2t-auto-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1040,12 +1132,31 @@ mod upload_tests {
         assert_eq!(status["auto_1_2"].url.as_deref(), Some("https://a2tools.app/logs/abc"));
         assert!(status["auto_3_4"].has_slice && status["auto_3_4"].url.is_none());
 
-        // A slice whose fight is gone is removed; one whose fight exists stays.
+        // An orphaned completed slice is removed; temporary files are left
+        // alone because pruning cannot prove that their writer has stopped.
+        let leftover = slices_dir(&dir).join("auto_1_2.a2es.gz.7.0.tmp");
+        std::fs::write(&leftover, b"x").unwrap();
+        let legacy = slices_dir(&dir).join("auto_1_2.json.tmp");
+        std::fs::write(&legacy, b"x").unwrap();
+        let unknown = slices_dir(&dir).join("unrelated.txt");
+        std::fs::write(&unknown, b"x").unwrap();
+        let directory = slices_dir(&dir).join("unrelated.json");
+        std::fs::create_dir(&directory).unwrap();
         std::fs::create_dir_all(dir.join("history")).unwrap();
         std::fs::write(dir.join("history").join("auto_3_4.json"), b"{}").unwrap();
+        let dotted = "fight.json.extra";
+        std::fs::write(slice_path(&dir, dotted), b"x").unwrap();
+        write_meta(&dir, dotted, &SliceMeta::default());
+        std::fs::write(dir.join("history").join(format!("{dotted}.json")), b"{}").unwrap();
         prune_slices(&dir);
         let status = share_status(&dir);
         assert!(!status.contains_key("auto_1_2"));
+        assert!(leftover.exists());
+        assert!(legacy.exists());
+        assert!(unknown.exists());
+        assert!(directory.is_dir());
+        assert!(slice_path(&dir, dotted).exists());
+        assert!(meta_path(&dir, dotted).exists());
         assert!(status.contains_key("auto_3_4"));
         let _ = std::fs::remove_dir_all(&dir);
     }

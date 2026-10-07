@@ -59,6 +59,9 @@ pub struct AppState {
     pub ping_tracker: Arc<PingTracker>,
     pub port_detector: Arc<CombatPortDetector>,
     pub fight_history: FightHistoryManager,
+    /// Order fight snapshots and their writes together. Settings never take
+    /// this lock; the calculator guard is released before disk work.
+    pub fight_save: Mutex<()>,
     pub settings: Settings,
     pub skill_lookup: Arc<SkillLookup>,
     pub npc_lookup: Arc<NpcLookup>,
@@ -209,7 +212,9 @@ async fn get_fight_history(app: tauri::AppHandle) -> Result<Vec<FightSummary>, S
 #[tauri::command]
 async fn save_fight(app: tauri::AppHandle, record: FightRecord) -> Result<(), String> {
     crate::blocking::HISTORY.run(move || {
-        app.state::<AppState>().fight_history.save_fight(&record)
+        let state = app.state::<AppState>();
+        let _saving = state.fight_save.lock();
+        state.fight_history.save_fight(&record)
     }).await?
 }
 
@@ -242,6 +247,7 @@ async fn delete_fight(app: tauri::AppHandle, id: String) -> Result<(), String> {
     }
     crate::blocking::HISTORY.run(move || {
         let state = app.state::<AppState>();
+        let _saving = state.fight_save.lock();
         share::forget_slice(&state.app_data_dir, &id);
         state.fight_history.delete_fight(&id)
     }).await?
@@ -327,6 +333,7 @@ fn save_fight_records(app: &tauri::AppHandle, state: &AppState, records: Vec<Fig
 /// kill lost everything since the last 30-second save (issue #19).
 fn save_fights_before_reset(app: &tauri::AppHandle) {
     let Some(state) = app.try_state::<AppState>() else { return };
+    let _saving = state.fight_save.lock();
     if state.data_storage.damage_generation() <= 0 {
         return;
     }
@@ -2032,8 +2039,8 @@ async fn replay_file(state: tauri::State<'_, AppState>, file_path: String) -> Re
 
     // Force snapshot boss fights from the replay
     {
-        let mut calc = state.dps_calculator.lock();
-        let records = calc.snapshot_boss_fights_force();
+        let _saving = state.fight_save.lock();
+        let records = state.dps_calculator.lock().snapshot_boss_fights_force();
         let mut sorted = records;
         sorted.sort_by(|a, b| b.total_damage.cmp(&a.total_damage));
         for record in sorted.iter().take(10) {
@@ -2044,7 +2051,7 @@ async fn replay_file(state: tauri::State<'_, AppState>, file_path: String) -> Re
             }
         }
         // Mark all targets as saved so the periodic auto-save loop doesn't re-process them
-        calc.mark_all_targets_saved();
+        state.dps_calculator.lock().mark_all_targets_saved();
     }
 
     count
@@ -2248,6 +2255,7 @@ pub fn run() {
                 ping_tracker: ping_tracker.clone(),
                 port_detector: port_detector.clone(),
                 fight_history: FightHistoryManager::new(app_data_dir.clone()),
+                fight_save: Mutex::new(()),
                 settings,
                 skill_lookup: skill_lookup.clone(),
                 npc_lookup: npc_lookup.clone(),
@@ -2573,6 +2581,7 @@ pub fn run() {
                     let handle = handle_save.clone();
                     if let Err(error) = crate::blocking::HISTORY.run(move || {
                         let Some(state) = handle.try_state::<AppState>() else { return };
+                        let _saving = state.fight_save.lock();
                         if state.data_storage.damage_generation() > 0 {
                             let records = state.dps_calculator.try_lock()
                                 .map(|mut calc| calc.snapshot_boss_fights());
