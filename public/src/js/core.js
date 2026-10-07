@@ -924,13 +924,30 @@ class DpsApp {
     }
   }
 
+  getHoverTooltipSnapshot() {
+    // The bridge can receive a DPS event before fetchDps processes it. Use the
+    // same source as getBattleDetail, including while meter rendering is paused.
+    if (typeof window.dpsData?.getDpsData !== "function") return this.lastJson;
+    return window.dpsData.getDpsData();
+  }
+
+  getHoverTooltipTargetContext(raw = this.getHoverTooltipSnapshot()) {
+    const snapshot = this.safeParseJSON(raw, {});
+    const targetIds = Array.isArray(snapshot.detailTargetIds)
+      ? [...new Set(snapshot.detailTargetIds.map(Number).filter((id) => Number.isFinite(id) && id > 0))].sort((a, b) => a - b)
+      : [];
+    return JSON.stringify([snapshot.targetMode, snapshot.targetId, targetIds]);
+  }
+
   applyHoverTooltip(row, { forceRefresh = false, keepContent = false } = {}) {
     const rowId = Number(row?.id);
     if (!Number.isFinite(rowId) || rowId <= 0) return;
     const rowEl = this.elList?.querySelector?.(`.item[data-row-id="${rowId}"]`);
     if (!rowEl) return;
 
-    const cached = this.hoverTooltipCacheByRowId.get(rowId);
+    const snapshot = this.getHoverTooltipSnapshot();
+    const stored = this.hoverTooltipCacheByRowId.get(rowId);
+    const cached = stored?.snapshot === snapshot ? stored : null;
     if (cached) {
       this.renderHoverTooltip(cached, row, rowEl);
       if (!forceRefresh) return;
@@ -938,7 +955,12 @@ class DpsApp {
 
     if (!cached && !keepContent) this.renderHoverTooltip({ skills: [], state: "loading" }, row, rowEl);
     if (this.hoverTooltipPendingRowIds.has(rowId)) {
-      return;
+      const pending = this.hoverTooltipRequestSeqByRowId.get(rowId);
+      if (pending?.snapshot === snapshot) return;
+      // A re-entry after a new snapshot must not revive an older row or target
+      // set. Its native work still finishes before the queued replacement.
+      this.hoverTooltipRequestSeqByRowId.delete(rowId);
+      this.hoverTooltipPendingRowIds.delete(rowId);
     }
     // One summary at a time, latest row wins: rows swept past would otherwise
     // keep fanning out into the shared native work queue.
@@ -948,32 +970,47 @@ class DpsApp {
     }
     this.hoverTooltipInFlight = true;
     // Identity tokens cannot collide with a new request after reset/target change.
-    const requestSeq = {};
+    const requestSeq = { snapshot, targetContext: this.getHoverTooltipTargetContext(snapshot) };
     this.hoverTooltipRequestSeqByRowId.set(rowId, requestSeq);
     this.hoverTooltipPendingRowIds.add(rowId);
 
     this.getDetails(row, { maxSkills: 5, showSkillIcons: false, summaryOnly: true })
       .then((details) => {
-        if (this.hoverTooltipRequestSeqByRowId.get(rowId) !== requestSeq) return;
+        if (this.hoverTooltipRequestSeqByRowId.get(rowId) !== requestSeq
+          || requestSeq.targetContext !== this.getHoverTooltipTargetContext()) return;
         this.hoverTooltipPendingRowIds.delete(rowId);
-        const lightweightDetails = { skills: Array.isArray(details?.skills) ? details.skills.slice(0, 5) : [] };
+        const lightweightDetails = { skills: Array.isArray(details?.skills) ? details.skills.slice(0, 5) : [], snapshot };
         this.hoverTooltipCacheByRowId.set(rowId, lightweightDetails);
         if (this.hoveredDetailsRowId !== rowId || this.hoverTooltipDismissed) return;
-        this.renderHoverTooltip(lightweightDetails, row, rowEl);
+        // Damage updates within the same target set can continue while a slow
+        // request finishes. Keep the current row's totals without restarting it.
+        const currentRow = this.latestRowsById?.get(String(rowId)) || row;
+        this.renderHoverTooltip(lightweightDetails, currentRow, rowEl);
       })
       .catch((error) => {
-        if (this.hoverTooltipRequestSeqByRowId.get(rowId) !== requestSeq) return;
+        if (this.hoverTooltipRequestSeqByRowId.get(rowId) !== requestSeq
+          || requestSeq.targetContext !== this.getHoverTooltipTargetContext()) return;
         this.hoverTooltipPendingRowIds.delete(rowId);
         if (this.hoveredDetailsRowId !== rowId || this.hoverTooltipDismissed) return;
         window.javaBridge?.logToDebug?.(`Hover skill details failed: ${error?.message || error}`);
         this.renderHoverTooltip({ skills: [], state: "error" }, row, rowEl);
       })
       .finally(() => {
+        if (this.hoverTooltipRequestSeqByRowId.get(rowId) === requestSeq) {
+          this.hoverTooltipRequestSeqByRowId.delete(rowId);
+          this.hoverTooltipPendingRowIds.delete(rowId);
+        }
         this.hoverTooltipInFlight = false;
-        const next = this.hoverTooltipQueued;
+        let next = this.hoverTooltipQueued;
         this.hoverTooltipQueued = null;
+        if (!next && requestSeq.targetContext !== this.getHoverTooltipTargetContext()
+          && this.hoveredDetailsRowId === rowId && !this.hoverTooltipDismissed) {
+          const currentRow = this.latestRowsById?.get(String(rowId));
+          if (currentRow) next = { row: currentRow, forceRefresh: true };
+        }
         if (next && Number(next.row?.id) === this.hoveredDetailsRowId && !this.hoverTooltipDismissed) {
-          this.applyHoverTooltip(next.row, { forceRefresh: next.forceRefresh, keepContent: true });
+          const currentRow = this.latestRowsById?.get(String(next.row.id)) || next.row;
+          this.applyHoverTooltip(currentRow, { forceRefresh: next.forceRefresh, keepContent: true });
         }
       });
   }

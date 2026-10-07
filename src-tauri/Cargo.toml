@@ -42,6 +42,7 @@ desktop = [
     "dep:gtk",
     "dep:webkit2gtk",
     "dep:x11-dl",
+    "dep:libc",
 ]
 
 # Both binaries are declared rather than left to auto-discovery, so adding the
@@ -112,6 +113,8 @@ windows = { version = "0.59", features = [
     "Win32_System_DataExchange",
     "Win32_System_Memory",
     "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
     # DPAPI, for encrypting the account token at rest.
     "Win32_Security_Cryptography",
     "Win32_System_Threading",
@@ -132,6 +135,8 @@ windows = { version = "0.59", features = [
 # Secret Service D-Bus API. async-io matches the zbus the opener plugin
 # already brings in, so this adds no second D-Bus stack.
 [target.'cfg(target_os = "linux")'.dependencies]
+# Already in the dependency tree; use its Linux permission and ACL bindings.
+libc = { version = "0.2", optional = true }
 secret-service = { version = "5.2", features = ["rt-async-io-crypto-rust"], optional = true }
 # Native dialogs (the update prompt, errors). The same GTK Tauri runs on.
 gtk = { version = "0.18", optional = true }

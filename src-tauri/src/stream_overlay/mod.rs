@@ -343,6 +343,7 @@ mod tests {
         assert!(manager.local_addr().is_none());
         assert!(std::net::TcpStream::connect(addr).is_err(), "the port is closed when off");
 
+        settings.flush().unwrap();
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -364,6 +365,7 @@ mod tests {
         assert!(status.running && status.error.is_none());
         settings.set(ENABLED_KEY, "false");
         manager.sync(&settings, || test_hooks("{}"));
+        settings.flush().unwrap();
         let _ = std::fs::remove_dir_all(dir);
     }
 

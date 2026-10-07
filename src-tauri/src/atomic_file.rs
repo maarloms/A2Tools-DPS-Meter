@@ -1,7 +1,7 @@
 //! Replace a file so that a crash, a kill or an exit mid-write leaves either
 //! the old content or the new one, never a truncated file.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -38,11 +38,7 @@ fn create_temporary(path: &Path) -> io::Result<(PathBuf, File)> {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         let temporary = path.with_file_name(temporary_name);
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-        {
+        match crate::platform::atomic_file::create_new_private(&temporary) {
             Ok(file) => return Ok((temporary, file)),
             // A leftover from a previous process with the same pid is not ours.
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -57,8 +53,11 @@ fn write_with(
     mut rename: impl FnMut(&Path, &Path) -> io::Result<()>,
     mut sleep: impl FnMut(Duration),
 ) -> io::Result<()> {
+    let permissions = crate::platform::atomic_file::replacement_permissions(path)?;
     let (temporary, mut file) = create_temporary(path)?;
-    let written = file.write_all(contents);
+    let written = file.write_all(contents).and_then(|_| {
+        crate::platform::atomic_file::apply_permissions(&temporary, &file, &permissions)
+    });
     drop(file);
     if let Err(error) = written {
         let _ = std::fs::remove_file(&temporary);
@@ -67,7 +66,10 @@ fn write_with(
     let mut result = rename(&temporary, path);
     // Give an antivirus/indexer a bounded half second to release the file.
     for delay_ms in RENAME_DELAYS_MS {
-        if result.is_ok() {
+        if !result
+            .as_ref()
+            .is_err_and(|error| crate::platform::atomic_file::rename_retryable(error, path))
+        {
             break;
         }
         sleep(Duration::from_millis(delay_ms));
@@ -144,7 +146,7 @@ mod tests {
             b"lost",
             |_, _| {
                 Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
+                    io::ErrorKind::WouldBlock,
                     "held by a reader",
                 ))
             },
@@ -155,6 +157,50 @@ mod tests {
         assert_eq!(waited, Duration::from_millis(500));
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn permanent_rename_errors_fail_without_sleeping_or_losing_the_old_file() {
+        let dir = directory("permanent");
+        let path = dir.join("settings.json");
+        write(&path, b"previous").unwrap();
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::InvalidInput,
+            io::ErrorKind::NotFound,
+        ] {
+            let (mut attempts, mut sleeps) = (0, 0);
+            assert!(write_with(
+                &path,
+                b"lost",
+                |_, _| {
+                    attempts += 1;
+                    Err(io::Error::new(kind, "permanent failure"))
+                },
+                |_| sleeps += 1
+            )
+            .is_err());
+            assert_eq!(attempts, 1);
+            assert_eq!(sleeps, 0);
+            assert_eq!(std::fs::read(&path).unwrap(), b"previous");
+            assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_directory_target_is_refused_before_creating_a_temporary() {
+        let dir = directory("directory");
+        let path = dir.join("settings.json");
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(
+            write(&path, b"private").unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert!(path.is_dir());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -169,7 +215,7 @@ mod tests {
             |from, to| {
                 if elapsed.get() < Duration::from_millis(200) {
                     Err(io::Error::new(
-                        io::ErrorKind::PermissionDenied,
+                        io::ErrorKind::WouldBlock,
                         "held by a reader",
                     ))
                 } else {

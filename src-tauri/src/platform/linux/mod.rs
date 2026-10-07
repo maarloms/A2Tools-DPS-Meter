@@ -9,6 +9,8 @@
 //! until it is ported here.
 
 pub mod admin;
+#[path = "../unsupported/atomic_file.rs"]
+pub mod atomic_file;
 pub mod clock;
 pub mod dialog;
 pub mod pcap;
