@@ -24,7 +24,8 @@ const MODES = [
 function render() {
   const row = (b) => {
     const mode = b.mode ?? "auto";
-    return `<tr class="${b.hidden ? "dim" : ""}"><td><b>${esc(b.boss)}</b>${b.hidden ? ' <span class="badge">ausgeblendet</span>' : ""}</td>
+    return `<tr class="${b.hidden || b.field ? "dim" : ""}"><td><b>${esc(b.boss)}</b>${b.hidden ? ' <span class="badge">ausgeblendet</span>' : ""}${
+      b.field ? ' <span class="badge">Feldboss</span>' : ""}</td>
       <td class="num">${fmtShort(b.maxHp)}</td><td class="num">${fmtNum(b.fights)}</td>
       <td class="num">${b.lastMs ? ago(b.lastMs) : "–"}</td>
       <td class="num"><div class="seg" role="group" aria-label="${esc(b.boss)}">${MODES.map(
@@ -35,8 +36,9 @@ function render() {
   view.innerHTML = `<div class="page">
     ${pageHead("Bosse", "Welche Bosse in Kämpfen, Übersicht, Vergleich und Rekorden zählen")}
     <section class="card">
-      <p class="muted"><b>Auto</b>: Bosse ab ${fmtShort(data.minHp)} HP zählen (Dungeon-, Feld- und Event-Bosse), kleinere wie Quest-Minibosse
-        werden ausgeblendet. Mit <b>Zeigen</b> oder <b>Aus</b> legst du einen Boss fest. Gelöscht wird nichts – in der Kampfliste
+      <p class="muted"><b>Auto</b>: Bosse ab ${fmtShort(data.minHp)} HP zählen (Dungeon- und Event-Bosse), kleinere wie Quest-Minibosse
+        werden ausgeblendet. <b>Feldbosse</b> (ab ${fmtNum(data.fieldActors ?? 100)} Beteiligten) stehen in der Kampfliste, zählen aber nicht in
+        Vergleich, Bestenliste und Rekorden – dort sieht jedes Meter nur einen Bruchteil des Schadens. Mit <b>Zeigen</b> oder <b>Aus</b> legst du einen Boss fest. Gelöscht wird nichts – in der Kampfliste
         zeigt „Alle Bosse“ auch die ausgeblendeten.</p>
       <div class="table-wrap"><table class="tbl"><thead><tr><th>Boss</th><th class="num">Max-HP</th><th class="num">Kämpfe</th><th class="num">Zuletzt</th><th class="num">Zählt</th></tr></thead>
         <tbody>${list.map(row).join("") || '<tr><td colspan="5" class="muted">Noch keine Kämpfe.</td></tr>'}</tbody></table></div>

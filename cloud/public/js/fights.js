@@ -60,7 +60,7 @@ export function renderFights() {
       const shown = [...mine, ...rest.slice(0, 3)];
       const more = rest.length - Math.min(rest.length, 3);
       return `<a class="fight" href="#/fight/${f.id}">
-        <div class="fight-main"><div class="fight-boss">${esc(f.boss)}${f.isTrain ? ' <span class="badge">Training</span>' : ""}</div>
+        <div class="fight-main"><div class="fight-boss">${esc(f.boss)}${f.isTrain ? ' <span class="badge">Training</span>' : ""}${f.field ? ' <span class="badge" title="Zählt nicht in Vergleich, Bestenliste und Rekorden">Feldboss</span>' : ""}</div>
           <div class="muted small">${fmtDate(f.startMs)} · ${fmtTime(f.durationMs)}${f.dungeonId ? ` · ${esc(dungeonName(f.dungeonId))}` : ""}${f.killed ? ' · <span class="kill">besiegt</span>' : ""}${
             f.records?.length ? ` · <span class="rec" title="${esc(f.records.map((r) => `${r.name}: ${recordText(r)}`).join(", "))}">🏆 Rekord</span>` : ""
           }</div></div>

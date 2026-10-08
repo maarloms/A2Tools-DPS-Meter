@@ -189,7 +189,7 @@ async function remerge(db: D1Database, room: string, encounterId: string, known:
       ),
     db.prepare("DELETE FROM player_stats WHERE encounter_id = ?1").bind(encounterId),
   ];
-  if (!s.isTrain) stmts.push(upsertBoss(db, room, s.mobCode, s.boss, s.maxHp));
+  if (!s.isTrain) stmts.push(upsertBoss(db, room, s.mobCode, s.boss, s.maxHp, s.actorCount));
   for (const p of statRows) {
     stmts.push(
       db
@@ -221,7 +221,7 @@ async function remerge(db: D1Database, room: string, encounterId: string, known:
 async function newRecords(db: D1Database, room: string, encounterId: string, d: EncounterDetail, known: string[]): Promise<RecordHit[]> {
   const s = d.summary;
   if (s.isTrain || s.durationMs < RECORD_MIN_MS) return [];
-  if (await isHidden(db, room, s.mobCode)) return []; // Quest-Miniboss o. ä.: kein Rekord-Banner
+  if (await isHidden(db, room, s.mobCode)) return []; // Quest-Miniboss, Feldboss: kein Rekord-Banner
   const knownLc = new Set(known.map((n) => n.toLowerCase()));
   const peaks = peaksOf(d);
   const out: RecordHit[] = [];
@@ -301,6 +301,31 @@ export async function backfillStats(db: D1Database, room: string, limit = 100): 
     .bind(room)
     .first<{ n: number }>();
   return { updated: ids.length, remaining: left?.n ?? 0 };
+}
+
+/**
+ * Kaempfe, deren Zusammenfuehrung aus einer aelteren MERGE_VERSION stammt,
+ * neu zusammenfuehren (sonst passiert das erst beim Oeffnen, und
+ * Bestenliste/Vergleich rechnen bis dahin mit alten Werten).
+ * Die aeltesten zuerst; neu zusammengefuehrte rutschen per updated_at ans Ende.
+ */
+export async function remergeStale(db: D1Database, room: string, known: string[], limit = 20, now = Date.now()): Promise<{ remerged: number; done: boolean }> {
+  const rows = (
+    await db
+      .prepare(
+        `SELECT e.id, e.detail FROM encounters e WHERE e.room = ?1 ORDER BY e.updated_at LIMIT ?2`,
+      )
+      .bind(room, limit)
+      .all<{ id: string; detail: string }>()
+  ).results;
+  let remerged = 0;
+  for (const r of rows) {
+    const d = await unpackJson<EncounterDetail>(r.detail);
+    if ((d.v ?? 2) >= MERGE_VERSION) continue;
+    await remerge(db, room, r.id, known, now);
+    remerged++;
+  }
+  return { remerged, done: remerged === 0 };
 }
 
 /**

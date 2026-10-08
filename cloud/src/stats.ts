@@ -5,8 +5,8 @@
 
 import { Env } from "./auth";
 import { activeMembers, fixedMembers, listMembers, setHidden } from "./members";
-import { backfillStats, mergeDuplicates } from "./store";
-import { listBosses, relevant, setBossMode } from "./bosses";
+import { backfillStats, mergeDuplicates, remergeStale } from "./store";
+import { isField, listBosses, listed, relevant, setBossMode } from "./bosses";
 import { listChecklist, patchChecklist } from "./checklist";
 
 const DAY = 86_400_000;
@@ -39,6 +39,9 @@ const BOSS = "(?7 IS NULL OR (ps.mob_code = ?7 AND ps.dungeon_id = ?8))";
 const REL_PS = relevant("ps");
 const REL_E = relevant("e");
 const REL_BARE = relevant("player_stats");
+/** Kampflisten: auch Feldbosse (gekennzeichnet), die nicht in der Statistik zählen */
+const LIST_E = listed("e");
+const FIELD_E = isField("e");
 
 type Boss = { mob: number; dungeon: number } | null;
 
@@ -148,9 +151,9 @@ export async function handleStats(
           .prepare(
             `SELECT e.id, e.boss, e.mob_code AS mobCode, e.dungeon_id AS dungeonId, e.start_ms AS startMs,
                e.duration_ms AS durationMs, e.total_damage AS totalDamage, e.max_hp AS maxHp, e.is_train AS isTrain,
-               e.actor_count AS actorCount, e.uploaders, e.killed
+               e.actor_count AS actorCount, e.uploaders, e.killed, ${FIELD_E} AS field
              FROM encounters e
-             WHERE e.room = ?1 AND e.start_ms < ?2 AND (?3 = 1 OR e.is_train = 0) AND (${all} OR ${REL_E})
+             WHERE e.room = ?1 AND e.start_ms < ?2 AND (?3 = 1 OR e.is_train = 0) AND (${all} OR ${LIST_E})
                AND (?7 IS NULL OR (e.mob_code = ?7 AND e.dungeon_id = ?8))
                AND EXISTS (SELECT 1 FROM player_stats ps WHERE ps.encounter_id = e.id AND ${IS_MEMBER})
                AND (?5 IS NULL OR EXISTS (SELECT 1 FROM player_stats w WHERE w.encounter_id = e.id AND w.player_lc = ?5))
@@ -168,6 +171,7 @@ export async function handleStats(
         ...r,
         isTrain: !!r.isTrain,
         killed: !!r.killed,
+        field: !!r.field,
         uploaders: (JSON.parse(r.uploaders) as string[]).filter((u) => mset.has(u.toLowerCase())),
         top: tops.get(r.id) ?? [],
         records: recs.get(r.id) ?? [],
@@ -210,8 +214,8 @@ export async function handleStats(
         await db
           .prepare(
             `SELECT e.id, e.boss, e.dungeon_id AS dungeonId, e.start_ms AS startMs, e.duration_ms AS durationMs,
-               e.total_damage AS totalDamage
-             FROM encounters e WHERE e.room = ?1 AND e.is_train = 0 AND ${REL_E}
+               e.total_damage AS totalDamage, ${FIELD_E} AS field
+             FROM encounters e WHERE e.room = ?1 AND e.is_train = 0 AND ${LIST_E}
                AND EXISTS (SELECT 1 FROM player_stats ps WHERE ps.encounter_id = e.id AND ${IS_MEMBER})
              ORDER BY e.start_ms DESC LIMIT 6`,
           )
@@ -294,9 +298,9 @@ export async function handleStats(
       };
     }
 
-    // ---------- Wartung: Peak-DPS und Frontal-Quote alter Kämpfe nachtragen ----------
+    // ---------- Wartung: Peak-DPS und Frontal-Quote nachtragen, veraltete Zusammenführungen erneuern ----------
     case "/maintenance/backfill":
-      return req.method === "POST" ? backfillStats(db, room) : null;
+      return req.method === "POST" ? { ...(await backfillStats(db, room)), ...(await remergeStale(db, room, members)) } : null;
 
     // ---------- Wartung: Kämpfe zusammenlegen, die nur die Dungeon-ID trennte ----------
     case "/maintenance/dedupe":

@@ -129,7 +129,7 @@ function renderOverview(d) {
   const recent = d.recent
     .map(
       (f) => `<a class="frow" href="#/fight/${f.id}">
-        <div><b>${esc(f.boss)}</b><div class="muted small">${fmtDate(f.startMs)} · ${fmtTime(f.durationMs)}${f.members.length > 1 ? " · zusammen" : ""}</div></div>
+        <div><b>${esc(f.boss)}</b>${f.field ? ' <span class="badge">Feldboss</span>' : ""}<div class="muted small">${fmtDate(f.startMs)} · ${fmtTime(f.durationMs)}${f.members.length > 1 ? " · zusammen" : ""}</div></div>
         <div class="frow-people">${f.members
           .slice(0, 3)
           .map((p) => `<span class="mini">${avatar(p.name, p.job, p.jobId)}<span>${esc(p.name)}</span><b>${fmtShort(p.dps)}</b></span>`)

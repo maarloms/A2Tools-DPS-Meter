@@ -392,7 +392,51 @@ export function buildUpload(r: any, uploader: string, known: string[]): UploadDe
 // ---------- 2. Zusammenfuehren ----------
 
 /** Steigt, wenn sich die Zusammenfuehrung aendert; aeltere Kaempfe werden neu zusammengefuehrt. */
-export const MERGE_VERSION = 3;
+export const MERGE_VERSION = 5;
+
+/** Ein Einzeltreffer ab diesem Vielfachen der übrigen Treffer desselben Skills ist ein Lesefehler … */
+const OUTLIER_FACTOR = 20;
+/** … sofern er auch absolut groß ist (echte Krit-Spitzen kleiner Skills bleiben unangetastet). */
+const OUTLIER_MIN = 200_000;
+
+/**
+ * Fehlgelesene Einzeltreffer kappen: Bei vollen Feldbossen liest der Parser vereinzelt einen
+ * fremden Zahlenwert als Schaden (z. B. 1,8M bei sonst 18k je Treffer). Der Treffer wird auf den
+ * Schnitt der übrigen Treffer gesetzt; Spieler-Summe, DPS, Gesamtsumme und Zeitverlauf folgen.
+ * Idempotent: nach dem Kappen ist max kein Ausreißer mehr.
+ */
+export function scrubOutliers(u: UploadDetail): UploadDetail {
+  const seconds = Math.max(u.durationMs / 1000, 0.001);
+  for (const p of u.players) {
+    let removed = 0;
+    for (const k of p.skills) {
+      if (k.dot || k.hits < 3) continue;
+      const rest = (k.dmg - k.max) / (k.hits - 1);
+      if (rest <= 0 || k.max < OUTLIER_MIN || k.max < OUTLIER_FACTOR * rest) continue;
+      const capped = Math.round(rest);
+      const delta = k.max - capped;
+      k.dmg -= delta;
+      k.max = capped;
+      removed += delta;
+      // Im Zeitverlauf ist der Skill-Schaden gleichmäßig auf seine Treffer verteilt
+      const lane = u.lanes.find((l) => l.name === p.name)?.skills.find((l) => l.name === k.name && !l.dot);
+      const series = u.series.find((s) => s.name === p.name)?.dmg;
+      const laneHits = lane ? lane.hits.reduce((a, [, c]) => a + c, 0) : 0;
+      if (lane && laneHits > 0)
+        for (const [b, c] of lane.hits) {
+          const d = (delta * c) / laneHits;
+          if (series && b < series.length) series[b] = Math.max(0, Math.round(series[b] - d));
+          if (b < u.total.length) u.total[b] = Math.max(0, Math.round(u.total[b] - d));
+        }
+    }
+    if (removed > 0) {
+      p.dmg = Math.max(0, p.dmg - removed);
+      p.dps = r1(p.dmg / seconds);
+      u.totalDamage = Math.max(0, u.totalDamage - removed);
+    }
+  }
+  return u;
+}
 
 export interface StoredUpload {
   id: string;
@@ -427,20 +471,23 @@ function mergedDungeon(uploads: StoredUpload[], best: StoredUpload): number {
 }
 
 export function mergeEncounter(id: string, uploads: StoredUpload[], known: string[]): EncounterDetail {
+  for (const u of uploads) scrubOutliers(u.detail);
   const unmask = unmasker([...known, ...uploads.map((u) => u.uploader)]);
   const knownLc = new Set([...known, ...uploads.map((u) => u.uploader)].map((n) => n.toLowerCase()));
   const startMs = Math.min(...uploads.map((u) => u.detail.startMs));
   const durationMs = Math.max(...uploads.map((u) => u.detail.startMs + u.detail.durationMs)) - startMs;
   const best = uploads.reduce((a, b) => (b.detail.totalDamage > a.detail.totalDamage ? b : a));
-  const totalDamage = best.detail.totalDamage;
 
   const isKnownName = (lc: string) => knownLc.has(lc);
   const chosen = new Map<string, MergedPlayer>();
   const baseLc = best.uploader.toLowerCase();
+  const baseDmg = new Map<string, number>();
   for (const p0 of best.detail.players) {
     const name = unmask(p0.name);
     const key = name.toLowerCase();
-    if (!chosen.has(key)) chosen.set(key, { ...p0, name, source: best.uploader, selfReport: key === baseLc });
+    if (chosen.has(key)) continue;
+    chosen.set(key, { ...p0, name, source: best.uploader, selfReport: key === baseLc });
+    baseDmg.set(key, p0.dmg);
   }
   for (const u of uploads) {
     if (u === best) continue;
@@ -469,6 +516,14 @@ export function mergeEncounter(id: string, uploads: StoredUpload[], known: strin
       chosen.set(key, entry);
     }
   }
+  // Die Gesamtsumme der Basis enthaelt nur, was ihr Meter gesehen hat. Bei
+  // Feldbossen mit vielen Spielern sieht jedes Meter fast nur den eigenen
+  // Schaden; kommt ein Spieler aus einer anderen Perspektive, muss sein Wert
+  // die Basis-Zahl in der Summe ersetzen, sonst ergeben die Anteile > 100 %.
+  let totalDamage = best.detail.totalDamage;
+  for (const [key, dmg] of baseDmg) if (chosen.get(key)?.source !== best.uploader) totalDamage -= dmg;
+  for (const p of chosen.values()) if (p.source !== best.uploader) totalDamage += p.dmg;
+  totalDamage = Math.max(totalDamage, 0);
   for (const p of chosen.values()) p.share = totalDamage > 0 ? r1((p.dmg / totalDamage) * 100) : 0;
   // Entities, die das Meter nie benennen konnte (maskierte IDs wie "49**1"),
   // sind mit Kleinstanteil fast immer Beschwoerungen (Geister, Totems); ohne
