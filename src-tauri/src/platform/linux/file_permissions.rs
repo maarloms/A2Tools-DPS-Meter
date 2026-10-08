@@ -170,6 +170,9 @@ pub(super) fn restore(path: &Path, file: &File, security: &SecuritySnapshot) -> 
 
 #[cfg(test)]
 mod tests {
+    use super::super::atomic_file::{
+        apply_permissions, create_new_private, replacement_permissions,
+    };
     use super::*;
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
@@ -248,7 +251,7 @@ mod tests {
     fn atomic_replacement_preserves_the_exact_access_acl_and_owner() {
         let dir = Directory::new();
         let path = dir.0.join("settings.json");
-        let mut file = super::super::create_new_private(&path).unwrap();
+        let mut file = create_new_private(&path).unwrap();
         file.write_all(b"old").unwrap();
         set_acl(&file, ACCESS_ACL, &acl());
         let before = file.metadata().unwrap();
@@ -280,7 +283,7 @@ mod tests {
     fn default_acl_does_not_leak_into_a_replacement_without_an_access_acl() {
         let dir = Directory::new();
         let path = dir.0.join("settings.json");
-        let original = super::super::create_new_private(&path).unwrap();
+        let original = create_new_private(&path).unwrap();
         original
             .set_permissions(std::fs::Permissions::from_mode(0o640))
             .unwrap();
@@ -290,7 +293,7 @@ mod tests {
             c"system.posix_acl_default",
             &acl(),
         );
-        let temporary = super::super::create_new_private(&dir.0.join("probe.tmp")).unwrap();
+        let temporary = create_new_private(&dir.0.join("probe.tmp")).unwrap();
         assert_eq!(temporary.metadata().unwrap().len(), 0);
         assert_eq!(
             temporary.metadata().unwrap().permissions().mode() & 0o077,
@@ -337,7 +340,7 @@ mod tests {
     fn owning_group_is_preserved_when_it_differs_from_new_file_creation() {
         let dir = Directory::new();
         let path = dir.0.join("settings.json");
-        let original = super::super::create_new_private(&path).unwrap();
+        let original = create_new_private(&path).unwrap();
         let initial = original.metadata().unwrap();
         // SAFETY: size-0 getgroups performs a size query and ignores the pointer.
         let count = unsafe { libc::getgroups(0, std::ptr::null_mut()) };
@@ -370,18 +373,18 @@ mod tests {
     fn permission_restoration_uses_the_descriptor_if_the_temporary_name_changes() {
         let dir = Directory::new();
         let original_path = dir.0.join("settings.json");
-        let original = super::super::create_new_private(&original_path).unwrap();
+        let original = create_new_private(&original_path).unwrap();
         set_acl(&original, ACCESS_ACL, &acl());
-        let permissions = super::super::replacement_permissions(&original_path).unwrap();
+        let permissions = replacement_permissions(&original_path).unwrap();
         let temporary_path = dir.0.join("temporary.json");
-        let temporary = super::super::create_new_private(&temporary_path).unwrap();
+        let temporary = create_new_private(&temporary_path).unwrap();
         let moved_path = dir.0.join("moved.json");
         std::fs::rename(&temporary_path, &moved_path).unwrap();
         let unrelated_path = dir.0.join("unrelated.json");
         std::fs::write(&unrelated_path, b"untouched").unwrap();
         std::fs::set_permissions(&unrelated_path, std::fs::Permissions::from_mode(0o400)).unwrap();
         std::os::unix::fs::symlink(&unrelated_path, &temporary_path).unwrap();
-        super::super::apply_permissions(&temporary_path, &temporary, &permissions).unwrap();
+        apply_permissions(&temporary_path, &temporary, &permissions).unwrap();
         assert_eq!(file_acl(&temporary), file_acl(&original));
         assert_eq!(
             temporary.metadata().unwrap().permissions().mode() & 0o777,
@@ -412,7 +415,7 @@ mod tests {
         let path = dir.0.join("settings.json");
         std::fs::write(&path, b"previous").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
-        let mut permissions = super::super::replacement_permissions(&path).unwrap();
+        let mut permissions = replacement_permissions(&path).unwrap();
         let security = &mut permissions.as_mut().unwrap().security;
         security.uid = if security.uid == 65_534 {
             65_533
@@ -420,9 +423,9 @@ mod tests {
             65_534
         };
         let temporary_path = dir.0.join("temporary.json");
-        let mut temporary = super::super::create_new_private(&temporary_path).unwrap();
+        let mut temporary = create_new_private(&temporary_path).unwrap();
         temporary.write_all(b"new").unwrap();
-        super::super::apply_permissions(&temporary_path, &temporary, &permissions).unwrap();
+        apply_permissions(&temporary_path, &temporary, &permissions).unwrap();
         let metadata = temporary.metadata().unwrap();
         assert_eq!(metadata.uid(), user);
         assert_eq!(metadata.permissions().mode() & 0o777, 0o640);

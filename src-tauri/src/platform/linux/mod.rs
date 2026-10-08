@@ -4,15 +4,15 @@
 //! Ported so far: packet capture (libpcap), finding the game (/proc), the
 //! capture-permission check, the account token (the desktop keyring), dialogs
 //! and the folder picker (GTK), screenshots (WebKit's own snapshot), updates
-//! (pacman, apt, dnf, zypper), and the clock Wine's QueryPerformanceCounter runs
-//! on. The rest still comes from `../unsupported/` and does the safe nothing
-//! until it is ported here.
+//! (pacman, apt, dnf, zypper), the clock Wine's QueryPerformanceCounter runs
+//! on, and keeping a saved file's owner, mode and ACL. The rest still comes
+//! from `../unsupported/` and does the safe nothing until it is ported here.
 
 pub mod admin;
-#[path = "../unsupported/atomic_file.rs"]
 pub mod atomic_file;
 pub mod clock;
 pub mod dialog;
+mod file_permissions;
 pub mod pcap;
 pub mod process;
 pub mod screen;
