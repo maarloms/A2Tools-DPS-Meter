@@ -114,7 +114,6 @@ windows = { version = "0.59", features = [
     "Win32_System_Memory",
     "Win32_Security",
     "Win32_Security_Authorization",
-    "Win32_Storage_FileSystem",
     # DPAPI, for encrypting the account token at rest.
     "Win32_Security_Cryptography",
     "Win32_System_Threading",

@@ -1,30 +1,47 @@
-//! Private temporary files and DACL preservation without a destructive replace.
+//! Temporary files for an atomic replacement, and keeping a replaced file's DACL.
+//!
+//! New files and temporaries take the DACL their folder hands down. The meter's
+//! data lives under %APPDATA%, which is already private to the user, and the
+//! inherited ACEs name the user directly. An explicit OWNER RIGHTS ACE would
+//! not: an elevated run's files are owned by BUILTIN\Administrators, which is
+//! deny-only in the user's normal token, so a later non-elevated run could
+//! neither read nor replace them.
+//!
+//! Replacing a file keeps its DACL when it can. When the DACL cannot be read or
+//! applied (written by an elevated run, or a filesystem without Windows
+//! security), the replacement inherits instead of failing the write.
 
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::OpenOptionsExt;
-use std::os::windows::io::FromRawHandle;
 use std::path::Path;
-use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{LocalFree, GENERIC_WRITE, HLOCAL};
+use windows::core::{PCWSTR, PWSTR};
+use windows::Win32::Foundation::{LocalFree, HLOCAL};
 use windows::Win32::Security::Authorization::{
-    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    ConvertSecurityDescriptorToStringSecurityDescriptorW, SDDL_REVISION_1,
 };
 use windows::Win32::Security::{
     GetFileSecurityW, GetSecurityDescriptorControl, SetFileSecurityW, DACL_SECURITY_INFORMATION,
     OBJECT_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
-    SECURITY_ATTRIBUTES, SE_DACL_PROTECTED, UNPROTECTED_DACL_SECURITY_INFORMATION,
+    SE_DACL_PROTECTED, UNPROTECTED_DACL_SECURITY_INFORMATION,
 };
-use windows::Win32::Storage::FileSystem::{
-    CreateFileW, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_DELETE, FILE_SHARE_READ,
-    FILE_SHARE_WRITE,
-};
+
+/// The DACL an unreleased build of the private-settings change gave every file
+/// it wrote. Keeping it would carry the elevated-owner problem above into each
+/// replacement, so a file that has it inherits its folder's DACL instead.
+const LEGACY_PRIVATE_DACL: &str = "D:P(A;;FA;;;SY)(A;;FA;;;OW)";
 
 pub struct ReplacementPermissions {
     // u64 keeps the self-relative SECURITY_DESCRIPTOR suitably aligned.
     descriptor: Vec<u64>,
     information: OBJECT_SECURITY_INFORMATION,
+}
+
+impl ReplacementPermissions {
+    fn pointer(&self) -> PSECURITY_DESCRIPTOR {
+        PSECURITY_DESCRIPTOR(self.descriptor.as_ptr().cast_mut().cast())
+    }
 }
 
 fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
@@ -52,25 +69,30 @@ fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
     Ok(wide)
 }
 
-pub fn replacement_permissions(path: &Path) -> io::Result<Option<ReplacementPermissions>> {
-    let metadata = match std::fs::metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error),
-    };
-    if !metadata.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "target is not a regular file",
-        ));
+/// The filesystem has no Windows security to query or set (FAT, exFAT, some
+/// network and virtual drives), as opposed to refusing this process.
+fn security_unsupported(error: &io::Error) -> bool {
+    // ERROR_INVALID_FUNCTION, ERROR_NOT_SUPPORTED, ERROR_CALL_NOT_IMPLEMENTED.
+    matches!(error.raw_os_error(), Some(1 | 50 | 120))
+}
+
+/// A DACL that cannot be kept is not a reason to lose the write: the
+/// replacement inherits the folder's DACL, like a newly created file.
+fn inherit_instead(action: &str, path: &Path, error: &io::Error) {
+    if security_unsupported(error) {
+        tracing::debug!(
+            "No file security to {action} for {}; it inherits its folder's: {error}",
+            path.display()
+        );
+    } else {
+        tracing::warn!(
+            "Could not {action} the permissions of {}; it inherits its folder's: {error}",
+            path.display()
+        );
     }
-    if metadata.permissions().readonly() {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "target is read-only",
-        ));
-    }
-    let wide = wide_path(path)?;
+}
+
+fn read_dacl(wide: &[u16]) -> io::Result<ReplacementPermissions> {
     let mut needed = 0;
     let _ = unsafe {
         GetFileSecurityW(
@@ -107,53 +129,75 @@ pub fn replacement_permissions(path: &Path) -> io::Result<Option<ReplacementPerm
     } else {
         UNPROTECTED_DACL_SECURITY_INFORMATION
     };
-    Ok(Some(ReplacementPermissions {
+    Ok(ReplacementPermissions {
         descriptor,
         information: DACL_SECURITY_INFORMATION | protection,
-    }))
+    })
 }
 
-struct AllocatedDescriptor(PSECURITY_DESCRIPTOR);
-
-impl Drop for AllocatedDescriptor {
-    fn drop(&mut self) {
-        unsafe { LocalFree(Some(HLOCAL(self.0 .0))) };
-    }
-}
-
-pub fn create_new_private(path: &Path) -> io::Result<File> {
-    let wide = wide_path(path)?;
-    let mut descriptor = PSECURITY_DESCRIPTOR::default();
-    // No inherited Users/Everyone ACE can expose a temporary's payload.
+fn dacl_string(permissions: &ReplacementPermissions) -> io::Result<String> {
+    let mut string = PWSTR::null();
     unsafe {
-        ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            w!("D:P(A;;FA;;;SY)(A;;FA;;;OW)"),
+        ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            permissions.pointer(),
             SDDL_REVISION_1,
-            &mut descriptor,
+            DACL_SECURITY_INFORMATION,
+            &mut string,
             None,
         )
     }
     .map_err(io::Error::from)?;
-    let descriptor = AllocatedDescriptor(descriptor);
-    let attributes = SECURITY_ATTRIBUTES {
-        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-        lpSecurityDescriptor: descriptor.0 .0,
-        bInheritHandle: false.into(),
+    let result = unsafe { string.to_string() };
+    unsafe { LocalFree(Some(HLOCAL(string.0.cast()))) };
+    result.map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "DACL is not UTF-16"))
+}
+
+pub fn replacement_permissions(path: &Path) -> io::Result<Option<ReplacementPermissions>> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
     };
-    let handle = unsafe {
-        CreateFileW(
-            PCWSTR(wide.as_ptr()),
-            GENERIC_WRITE.0,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            Some(&attributes),
-            CREATE_NEW,
-            FILE_ATTRIBUTE_NORMAL,
-            None,
-        )
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "target is not a regular file",
+        ));
     }
-    .map_err(io::Error::from)?;
-    // Ownership moves to File; the security descriptor is no longer needed.
-    Ok(unsafe { File::from_raw_handle(handle.0) })
+    if metadata.permissions().readonly() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "target is read-only",
+        ));
+    }
+    let permissions = match read_dacl(&wide_path(path)?) {
+        Ok(permissions) => permissions,
+        Err(error) => {
+            // Replacing still works: the folder's delete-child right lets the
+            // rename remove a file this process cannot open.
+            inherit_instead("read", path, &error);
+            return Ok(None);
+        }
+    };
+    if dacl_string(&permissions).is_ok_and(|dacl| dacl == LEGACY_PRIVATE_DACL) {
+        tracing::debug!(
+            "{} has the old owner-only DACL; its replacement inherits its folder's",
+            path.display()
+        );
+        return Ok(None);
+    }
+    Ok(Some(permissions))
+}
+
+/// Creates a new file with the DACL its folder hands down (see the module
+/// documentation for why it is not an explicit owner-only DACL).
+pub fn create_new_private(path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE.
+        .share_mode(0x1 | 0x2 | 0x4)
+        .open(path)
 }
 
 pub fn apply_permissions(
@@ -163,11 +207,17 @@ pub fn apply_permissions(
 ) -> io::Result<()> {
     if let Some(permissions) = permissions {
         let wide = wide_path(path)?;
-        let pointer = PSECURITY_DESCRIPTOR(permissions.descriptor.as_ptr().cast_mut().cast());
-        if !unsafe { SetFileSecurityW(PCWSTR(wide.as_ptr()), permissions.information, pointer) }
-            .as_bool()
+        if !unsafe {
+            SetFileSecurityW(
+                PCWSTR(wide.as_ptr()),
+                permissions.information,
+                permissions.pointer(),
+            )
+        }
+        .as_bool()
         {
-            return Err(io::Error::last_os_error());
+            // The temporary keeps the DACL it inherited at creation.
+            inherit_instead("apply", path, &io::Error::last_os_error());
         }
     }
     // Keep std::fs::rename: ReplaceFileW can remove the old target on a failed
@@ -196,74 +246,176 @@ pub fn rename_retryable(error: &io::Error, target: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use windows::core::PWSTR;
-    use windows::Win32::Security::Authorization::ConvertSecurityDescriptorToStringSecurityDescriptorW;
+    use windows::core::w;
+    use windows::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
 
-    fn dacl_string(path: &Path) -> String {
-        let permissions = replacement_permissions(path).unwrap().unwrap();
-        let descriptor = PSECURITY_DESCRIPTOR(permissions.descriptor.as_ptr().cast_mut().cast());
-        let mut string = PWSTR::null();
-        unsafe {
-            ConvertSecurityDescriptorToStringSecurityDescriptorW(
-                descriptor,
-                SDDL_REVISION_1,
-                DACL_SECURITY_INFORMATION,
-                &mut string,
-                None,
-            )
-            .unwrap();
+    struct Directory(std::path::PathBuf);
+
+    impl Directory {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("a2t-dacl-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
         }
-        let result = unsafe { string.to_string().unwrap() };
-        unsafe { LocalFree(Some(HLOCAL(string.0.cast()))) };
-        result
     }
 
-    #[test]
-    fn temporary_has_no_broad_reader_and_an_existing_protected_dacl_survives() {
-        let dir = std::env::temp_dir().join(format!("a2t-private-dacl-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("settings.json");
-        let file = create_new_private(&path).unwrap();
-        assert_eq!(file.metadata().unwrap().len(), 0);
-        let private = dacl_string(&path);
-        assert!(
-            private.starts_with("D:P"),
-            "the DACL must not inherit broad reader ACEs: {private}"
-        );
-        assert!(private.contains(";;;SY)") && private.contains(";;;OW)"));
-        for broad in [";;;WD)", ";;;AU)", ";;;BU)"] {
-            assert!(
-                !private.contains(broad),
-                "a broad SID can read the temporary: {private}"
-            );
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
         }
-        drop(file);
-        // A stricter existing DACL differs from the new-file default.
+    }
+
+    fn file_dacl(path: &Path) -> ReplacementPermissions {
+        read_dacl(&wide_path(path).unwrap()).unwrap()
+    }
+
+    fn sddl(path: &Path) -> String {
+        dacl_string(&file_dacl(path)).unwrap()
+    }
+
+    fn protected(path: &Path) -> bool {
+        let permissions = file_dacl(path);
+        let (mut control, mut revision) = (0, 0);
+        unsafe { GetSecurityDescriptorControl(permissions.pointer(), &mut control, &mut revision) }
+            .unwrap();
+        control & SE_DACL_PROTECTED.0 != 0
+    }
+
+    /// Sets a DACL the way an older build or another tool would have.
+    fn set_dacl(path: &Path, dacl: PCWSTR) {
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
         unsafe {
             ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                w!("D:P(A;;FA;;;OW)"),
+                dacl,
                 SDDL_REVISION_1,
                 &mut descriptor,
                 None,
             )
             .unwrap();
         }
-        let descriptor = AllocatedDescriptor(descriptor);
-        let wide = wide_path(&path).unwrap();
-        assert!(unsafe {
+        let wide = wide_path(path).unwrap();
+        let set = unsafe {
             SetFileSecurityW(
                 PCWSTR(wide.as_ptr()),
                 DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-                descriptor.0,
+                descriptor,
             )
-        }
-        .as_bool());
-        let before = dacl_string(&path);
+        };
+        unsafe { LocalFree(Some(HLOCAL(descriptor.0))) };
+        assert!(set.as_bool(), "{}", io::Error::last_os_error());
+    }
+
+    #[test]
+    fn a_written_file_inherits_its_folders_dacl() {
+        let dir = Directory::new("inherit");
+        let path = dir.0.join("settings.json");
+        crate::atomic_file::write(&path, b"first").unwrap();
+        assert!(
+            !protected(&path),
+            "new file has a protected DACL: {}",
+            sddl(&path)
+        );
+        assert!(
+            sddl(&path).contains(";ID;"),
+            "no inherited ACE: {}",
+            sddl(&path)
+        );
+        crate::atomic_file::write(&path, b"second").unwrap();
+        assert!(
+            !protected(&path),
+            "replacement has a protected DACL: {}",
+            sddl(&path)
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"second");
+        assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_temporary_inherits_and_has_no_payload_yet() {
+        let dir = Directory::new("temporary");
+        let path = dir.0.join("settings.json.tmp");
+        let file = create_new_private(&path).unwrap();
+        assert_eq!(file.metadata().unwrap().len(), 0);
+        assert!(
+            !protected(&path),
+            "temporary has a protected DACL: {}",
+            sddl(&path)
+        );
+        assert_eq!(
+            create_new_private(&path).unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+    }
+
+    #[test]
+    fn an_existing_protected_dacl_survives_replacement() {
+        let dir = Directory::new("preserve");
+        let path = dir.0.join("settings.json");
+        crate::atomic_file::write(&path, b"old").unwrap();
+        // A stricter DACL than the folder's, set by the user or another tool.
+        set_dacl(&path, w!("D:P(A;;FA;;;OW)"));
+        let before = sddl(&path);
         crate::atomic_file::write(&path, b"private settings").unwrap();
-        assert_eq!(dacl_string(&path), before);
+        assert_eq!(sddl(&path), before);
+        assert!(protected(&path));
         assert_eq!(std::fs::read(&path).unwrap(), b"private settings");
-        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_old_owner_only_dacl_is_replaced_by_the_folders() {
+        let dir = Directory::new("legacy");
+        let path = dir.0.join("settings.json");
+        crate::atomic_file::write(&path, b"old").unwrap();
+        set_dacl(&path, w!("D:P(A;;FA;;;SY)(A;;FA;;;OW)"));
+        assert_eq!(sddl(&path), LEGACY_PRIVATE_DACL);
+        crate::atomic_file::write(&path, b"new").unwrap();
+        assert!(!protected(&path), "the old DACL was kept: {}", sddl(&path));
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+    }
+
+    #[test]
+    fn a_file_this_process_cannot_open_is_still_replaced() {
+        // Like a file an elevated run left behind: the owner rights grant only
+        // FILE_READ_ATTRIBUTES, so this process can neither read the payload
+        // nor the DACL. The folder's delete-child right still allows the rename.
+        let dir = Directory::new("unreadable");
+        let path = dir.0.join("fight.json");
+        crate::atomic_file::write(&path, b"old").unwrap();
+        set_dacl(&path, w!("D:P(A;;FA;;;SY)(A;;0x80;;;OW)"));
+        assert!(std::fs::read(&path).is_err());
+        assert!(read_dacl(&wide_path(&path).unwrap()).is_err());
+        crate::atomic_file::write(&path, b"new").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        assert!(
+            !protected(&path),
+            "replacement did not inherit: {}",
+            sddl(&path)
+        );
+        assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_dacl_that_cannot_be_applied_leaves_the_inherited_one() {
+        let dir = Directory::new("apply");
+        let source = dir.0.join("source.json");
+        crate::atomic_file::write(&source, b"source").unwrap();
+        let permissions = Some(file_dacl(&source));
+        let temporary_path = dir.0.join("temporary.json");
+        let temporary = create_new_private(&temporary_path).unwrap();
+        // Make the temporary refuse WRITE_DAC to its owner.
+        set_dacl(&temporary_path, w!("D:P(A;;FA;;;SY)(A;;0x80;;;OW)"));
+        assert!(read_dacl(&wide_path(&temporary_path).unwrap()).is_err());
+        apply_permissions(&temporary_path, &temporary, &permissions).unwrap();
+    }
+
+    #[test]
+    fn missing_file_security_is_told_apart_from_a_refusal() {
+        for code in [1, 50, 120] {
+            assert!(security_unsupported(&io::Error::from_raw_os_error(code)));
+        }
+        for code in [5, 2, 87] {
+            assert!(!security_unsupported(&io::Error::from_raw_os_error(code)));
+        }
     }
 }
