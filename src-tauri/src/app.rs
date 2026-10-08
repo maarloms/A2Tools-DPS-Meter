@@ -260,7 +260,7 @@ async fn upload_fight(
     fight_id: String,
 ) -> Result<share::UploadResult, String> {
     let record = state.fight_history.load_fight(&fight_id)?;
-    share::upload(&state.http, &state.app_data_dir, &record).await
+    share::upload(&state.http, &state.app_data_dir, &record, &state.settings).await
 }
 
 /// Upload a finished fight in the background, and tell every window.
@@ -275,7 +275,7 @@ fn auto_upload(app: tauri::AppHandle, record: FightRecord) {
     tauri::async_runtime::spawn(async move {
         let _in_flight = in_flight;
         let Some(state) = app.try_state::<AppState>() else { return };
-        match share::upload_detailed(&state.http, &state.app_data_dir, &record).await {
+        match share::upload_detailed(&state.http, &state.app_data_dir, &record, &state.settings).await {
             Ok(result) => {
                 tracing::info!("Auto-uploaded {} -> {}", record.id, result.url);
                 let _ = app.emit("fight-uploaded", serde_json::json!({
@@ -756,7 +756,16 @@ fn set_manual_device(state: tauri::State<'_, AppState>, device: String) {
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
     save_fights_before_reset(&app);
+    flush_settings_before_exit(&app);
     app.exit(0);
+}
+
+fn flush_settings_before_exit(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Err(error) = state.settings.flush() {
+            tracing::warn!("Could not save final settings: {error}");
+        }
+    }
 }
 
 #[tauri::command]
@@ -971,10 +980,12 @@ async fn download_and_install_update(app: &tauri::AppHandle, url: &str, expected
     let install_dir = install_dir.trim_end_matches('\\').to_string();
 
     // Launch the installer (msiexec on Windows; see platform::updater).
+    flush_settings_before_exit(app);
     platform::updater::run_installer(&msi_path, &install_dir)?;
 
     // Give installer time to start, then exit
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    flush_settings_before_exit(&app_clone);
     app_clone.exit(0);
     Ok(())
 }
@@ -2243,6 +2254,14 @@ pub fn run() {
             platform::window_startup::reuses_settings(),
         ))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri::plugin::Builder::<_, ()>::new("settings-persistence")
+            .on_event(|app, event| {
+                // Flush before normal exit or restart, with Exit as a final safeguard.
+                if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+                    flush_settings_before_exit(app);
+                }
+            })
+            .build())
         .plugin(tauri_plugin_process::init())
         // Closing the meter quits, even with Details, History or a kept
         // Settings window still open.

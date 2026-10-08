@@ -41,6 +41,8 @@ pub use os::{
     admin, clock, dialog, pcap, process, secret, shell, updater, window, window_detector, window_rules, window_startup,
 };
 
+pub use os::atomic_file;
+
 /// Why `secret::unprotect` could not give a stored secret back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsealError {

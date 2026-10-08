@@ -5,6 +5,7 @@
 mod atomic_file_tests;
 
 pub mod admin;
+pub mod atomic_file;
 pub mod clock;
 pub mod dialog;
 pub mod hotkeys;

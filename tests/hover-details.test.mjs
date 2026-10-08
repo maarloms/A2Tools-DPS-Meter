@@ -262,6 +262,161 @@ test('rapid re-entry shares a pending request even when refresh is requested', a
   assert.equal(app.hoverTooltipPendingRowIds.size, 0);
 });
 
+function hoverPipeline(mode = 'allTargets') {
+  const calls = [];
+  const rendered = [];
+  let active = 0;
+  let peak = 0;
+  let visible = false;
+  let row;
+  const context = vm.createContext({
+    console: { log() {} },
+    window: { addEventListener() {}, javaBridge: { updateOverlaySize() {} } },
+    document: {
+      readyState: 'loading', addEventListener() {},
+      documentElement: { classList: { toggle() {} } }, body: { classList: { toggle() {} } },
+    },
+    requestAnimationFrame: () => 1, cancelAnimationFrame() {},
+    cachedDpsJson: null, lastSkillDetailsIssue: '',
+    invoke(command, args) {
+      assert.equal(command, 'get_skill_details');
+      peak = Math.max(peak, ++active);
+      return new Promise((resolve, reject) => calls.push({
+        target: args.targetId,
+        resolve(damage) { active--; resolve(response(damage)); },
+        reject() { active--; reject(new Error('old target failed')); },
+      }));
+    },
+  });
+  vm.runInContext(source, context);
+  vm.runInContext(`window.dpsData = { getDpsData: () => cachedDpsJson, ${battleDetailMethod} };`, context);
+  const app = vm.runInContext('new DpsApp()', context);
+  app.hoverTooltipEl = { setAttribute() {}, classList: { contains: () => visible, remove() { visible = false; } } };
+  app.elList = { querySelector: () => ({}) };
+  app.detailsUI = { close() {}, isOpen: () => false };
+  app.meterUI = { updateFromRows() {} };
+  app.battleTime = { setVisible() {}, update() {} };
+  app.buildRowsFromPayload = () => ({ rows: [row], targetName: '', targetMode: mode, battleTimeMs: 1000, targetId: 0, localPlayerId: 1 });
+  for (const method of ['applyLocalPlayerIdUpdate', 'updateLocalPlayerIdentity', 'updateConnectionStatusUi', 'updateBossHpBar', 'updateMeterTotalBar', 'logDebug']) app[method] = () => {};
+  app.isOutOfCombatState = () => false;
+  app.getTargetLabel = () => 'Synthetic';
+  app.getRowsSummary = () => ({ listSignature: '' });
+  app.renderHoverTooltip = (details, currentRow) => {
+    visible = true;
+    rendered.push({ rowDamage: currentRow.totalDamage, skillDamage: details.skills?.[0]?.dmg, state: details.state });
+  };
+  const receiveSnapshot = (targets, damage) => {
+    context.cachedDpsJson = JSON.stringify({ targetId: 0, targetMode: mode, detailTargetIds: targets, battleTime: 1000, map: { damage } });
+  };
+  const setSnapshot = (targets, damage) => {
+    row = { id: 1, name: 'Synthetic', dps: damage, totalDamage: damage };
+    receiveSnapshot(targets, damage);
+    app.fetchDps();
+  };
+  const enter = () => app.openHoverDetailsRow(row, { clientX: 10, clientY: 10 });
+  const leave = () => { app.hoveredDetailsRowId = null; app.hideHoverTooltip(); };
+  setSnapshot([100], 100);
+  return { app, calls, rendered, setSnapshot, receiveSnapshot, enter, leave, peak: () => peak };
+}
+
+for (const mode of ['allTargets', 'trainTargets']) {
+  test(`re-entry after a new ${mode} snapshot discards old targets without parallel summaries`, async () => {
+    const fixture = hoverPipeline(mode);
+    fixture.enter();
+    fixture.leave();
+    fixture.setSnapshot([200], 200);
+    fixture.enter();
+    assert.equal(fixture.calls.length, 1, 'new work waits for the old summary');
+    fixture.calls[0].resolve(100);
+    await tick();
+    assert.deepEqual(fixture.calls.map(call => call.target), [100, 200]);
+    assert.equal(fixture.app.hoverTooltipCacheByRowId.size, 0);
+    assert.ok(!fixture.rendered.some(frame => frame.skillDamage === 100));
+    fixture.calls[1].resolve(200);
+    await tick();
+    assert.deepEqual(fixture.rendered.at(-1), { rowDamage: 200, skillDamage: 200, state: undefined });
+    assert.equal(fixture.peak(), 1);
+  });
+}
+
+test('a new snapshot with the same target ids still gets a fresh summary on re-entry', async () => {
+  const fixture = hoverPipeline();
+  fixture.enter();
+  fixture.leave();
+  fixture.setSnapshot([100], 200);
+  fixture.enter();
+  fixture.calls[0].resolve(100);
+  await tick();
+  assert.equal(fixture.calls.length, 2);
+  assert.ok(!fixture.rendered.some(frame => frame.skillDamage === 100));
+  fixture.calls[1].resolve(200);
+  await tick();
+  assert.equal(fixture.rendered.at(-1).skillDamage, 200);
+  assert.equal(fixture.peak(), 1);
+});
+
+test('a bridge DPS event invalidates re-entry before the meter processes that snapshot', async () => {
+  const fixture = hoverPipeline();
+  fixture.enter();
+  fixture.leave();
+  fixture.receiveSnapshot([200], 200);
+  fixture.enter();
+  fixture.calls[0].resolve(100);
+  await tick();
+  assert.deepEqual(fixture.calls.map(call => call.target), [100, 200]);
+  assert.ok(!fixture.rendered.some(frame => frame.skillDamage === 100));
+  fixture.setSnapshot([200], 200);
+  fixture.calls[1].resolve(200);
+  await tick();
+  assert.equal(fixture.rendered.at(-1).rowDamage, 200);
+  assert.equal(fixture.rendered.at(-1).skillDamage, 200);
+});
+
+test('a target set change refreshes stationary hover after its old request finishes', async () => {
+  const fixture = hoverPipeline();
+  fixture.enter();
+  fixture.setSnapshot([200], 200);
+  fixture.calls[0].resolve(100);
+  await tick();
+  assert.ok(!fixture.rendered.some(frame => frame.skillDamage === 100));
+  assert.equal(fixture.calls[1].target, 200);
+  fixture.calls[1].resolve(200);
+  await tick();
+  assert.equal(fixture.rendered.at(-1).skillDamage, 200);
+});
+
+test('steady damage updates let a slow same-target summary finish with current row totals', async () => {
+  const fixture = hoverPipeline();
+  fixture.enter();
+  for (let damage = 200; damage <= 500; damage += 100) fixture.setSnapshot([100], damage);
+  fixture.calls[0].resolve(500);
+  await tick();
+  assert.equal(fixture.calls.length, 1, 'updates do not continuously cancel a slow request');
+  assert.equal(fixture.rendered.at(-1).rowDamage, 500);
+  assert.equal(fixture.rendered.at(-1).skillDamage, 500);
+  fixture.leave();
+  fixture.enter();
+  assert.equal(fixture.calls.length, 2, 'an old-generation cache does not suppress a fresh re-entry');
+  fixture.calls[1].resolve(500);
+  await tick();
+});
+
+test('a failed old-generation request does not replace the new hover with an error', async () => {
+  const fixture = hoverPipeline();
+  fixture.enter();
+  fixture.leave();
+  fixture.setSnapshot([200], 200);
+  fixture.enter();
+  fixture.calls[0].reject();
+  await tick();
+  assert.ok(!fixture.rendered.some(frame => frame.state === 'error'));
+  assert.equal(fixture.calls[1].target, 200);
+  fixture.calls[1].resolve(200);
+  await tick();
+  assert.equal(fixture.rendered.at(-1).skillDamage, 200);
+  assert.equal(fixture.app.hoverTooltipPendingRowIds.size, 0);
+});
+
 test('cached data stays visible during refresh instead of flashing loading', async () => {
   const request = deferred();
   const { app, rendered } = setup(() => request.promise);

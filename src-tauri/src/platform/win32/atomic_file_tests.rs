@@ -71,3 +71,25 @@ fn a_reader_sharing_delete_keeps_its_old_handle_and_allows_replacement() {
     drop(reader);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn a_read_only_target_fails_immediately_and_keeps_its_previous_contents() {
+    let dir = directory("read-only");
+    let path = dir.join("settings.json");
+    crate::atomic_file::write(&path, b"old").unwrap();
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&path, permissions.clone()).unwrap();
+    let start = std::time::Instant::now();
+    let result = crate::atomic_file::write(&path, b"new");
+    permissions.set_readonly(false);
+    std::fs::set_permissions(&path, permissions).unwrap();
+    assert!(result.is_err());
+    assert!(
+        start.elapsed() < Duration::from_millis(400),
+        "read-only errors were retried"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), b"old");
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    let _ = std::fs::remove_dir_all(dir);
+}
