@@ -18,3 +18,5 @@ pub mod window;
 pub mod window_detector;
 #[path = "../unsupported/window_rules.rs"]
 pub mod window_rules;
+#[path = "../unsupported/window_startup.rs"]
+pub mod window_startup;

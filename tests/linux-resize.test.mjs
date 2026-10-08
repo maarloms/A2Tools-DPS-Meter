@@ -17,7 +17,7 @@ function setup({ userAgent = "Linux", supported = false, view = "main", detect }
   const document = {
     readyState: "complete",
     body: { classList: { add: (value) => classes.add(value) } },
-    documentElement: { classList: { add() {}, remove() {} } },
+    documentElement: { classList: { add() {}, remove() {}, contains: (name) => name === "linux" && /Linux/.test(userAgent) } },
     head: { appendChild() {} },
     createElement: () => ({}),
     addEventListener(name, handler) {

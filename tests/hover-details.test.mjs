@@ -190,14 +190,15 @@ const releaseTimers = () => {
     },
   };
 };
-test("overlay reserves the tooltip's actual width and height and shrinks on close", () => {
+test("overlay reserves the tooltip's actual width and height and shrinks on close", async () => {
   let tooltip = { getBoundingClientRect: () => ({ right: 610, bottom: 360 }) };
   let fullPanel = false;
   const sizes = [];
   const release = releaseTimers();
   const context = vm.createContext({
     ...release.globals,
-    resizeActive: false, lastSizeKey: "", PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
+    resizeActive: false, lastSizeKey: "", pendingWindowSize: null,
+    PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
     spaceRightBelow: () => ({ w: 900, h: 700 }),
     window: { A2_VIEW: "main", devicePixelRatio: 1.5, javaBridge: {} },
     document: {
@@ -209,18 +210,19 @@ test("overlay reserves the tooltip's actual width and height and shrinks on clos
     invoke: (command, args) => { sizes.push(args); return Promise.resolve(); },
   });
   vm.runInContext(sizingSource, context);
-  vm.runInContext("updateWindowSize()", context);
+  await vm.runInContext("updateWindowSize()", context);
   assert.equal(sizes[0].width, 618);
   assert.equal(sizes[0].height, 368);
   assert.equal(sizes[0].scale, 1.5);
   tooltip = null;
-  vm.runInContext("updateWindowSize()", context);
+  await vm.runInContext("updateWindowSize()", context);
   assert.equal(sizes.length, 1, "shrink waits for the release delay");
   release.flush();
+  await tick();
   assert.equal(sizes[1].width, 396);
   assert.equal(sizes[1].height, 210);
   fullPanel = true;
-  vm.runInContext("updateWindowSize()", context);
+  await vm.runInContext("updateWindowSize()", context);
   assert.equal(sizes[2].width, 1200);
   assert.equal(sizes[2].height, 800);
 });
@@ -337,14 +339,15 @@ test('invalidating a fight rejects old answers without clearing the new pending 
   assert.equal(app.hoverTooltipPendingRowIds.size, 0);
 });
 
-test('native travel area stays fixed during motion, is screen-clamped and shrinks on close', () => {
+test('native travel area stays fixed during motion, is screen-clamped and shrinks on close', async () => {
   let bounds = { right: 610, bottom: 360, width: 240, height: 180 };
   let room = { w: 900, h: 700 };
   const sizes = [];
   const release = releaseTimers();
   const context = vm.createContext({
     ...release.globals,
-    resizeActive: false, lastSizeKey: '', PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
+    resizeActive: false, lastSizeKey: '', pendingWindowSize: null,
+    PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
     spaceRightBelow: () => room,
     window: { A2_VIEW: 'main', devicePixelRatio: 1.5, javaBridge: {} },
     document: {
@@ -356,19 +359,20 @@ test('native travel area stays fixed during motion, is screen-clamped and shrink
     invoke: (command, args) => { sizes.push(args); return Promise.resolve(); },
   });
   vm.runInContext(sizingSource, context);
-  vm.runInContext('updateWindowSize()', context);
+  await vm.runInContext('updateWindowSize()', context);
   assert.equal(sizes[0].width, 640);
   assert.equal(sizes[0].height, 460);
   bounds = { ...bounds, right: 490, bottom: 320 };
-  vm.runInContext('updateWindowSize()', context);
+  await vm.runInContext('updateWindowSize()', context);
   assert.equal(sizes.length, 1);
   room = { w: 500, h: 400 };
-  vm.runInContext('updateWindowSize()', context);
+  await vm.runInContext('updateWindowSize()', context);
   assert.equal(sizes[1].width, 500);
   assert.equal(sizes[1].height, 400);
   bounds = null;
-  vm.runInContext('updateWindowSize()', context);
+  await vm.runInContext('updateWindowSize()', context);
   release.flush();
+  await tick();
   assert.equal(sizes[2].width, 396);
   assert.equal(sizes[2].height, 310);
 });
@@ -550,13 +554,14 @@ test("an IPC failure of target details is an error, not an empty fight", async (
   assert.equal(empty.skills.length, 0);
 });
 
-test("moving between rows keeps the native window size and leaving the meter shrinks it", () => {
+test("moving between rows keeps the native window size and leaving the meter shrinks it", async () => {
   let bounds = { right: 610, bottom: 360, width: 240, height: 180 };
   const sizes = [];
   const release = releaseTimers();
   const context = vm.createContext({
     ...release.globals,
-    resizeActive: false, lastSizeKey: '', PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
+    resizeActive: false, lastSizeKey: '', pendingWindowSize: null,
+    PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
     spaceRightBelow: () => ({ w: 1900, h: 1000 }),
     window: { A2_VIEW: 'main', devicePixelRatio: 1, javaBridge: {} },
     document: {
@@ -569,26 +574,27 @@ test("moving between rows keeps the native window size and leaving the meter shr
   });
   vm.runInContext(sizingSource, context);
   const update = () => vm.runInContext('updateWindowSize()', context);
-  update();
+  await update();
   assert.equal(sizes.length, 1);
   for (const width of [200, 300, 240]) {
     bounds = null;
-    update();
-    update();
+    await update();
+    await update();
     bounds = { right: 610, bottom: 360, width, height: 150 };
-    update();
+    await update();
   }
   assert.equal(sizes.length, 2, "a wider row grows the area once; nothing shrinks between rows");
   assert.equal(sizes[1].width, 700);
   assert.equal(release.timers.size, 0, "showing the tooltip again cancels the pending shrink");
   bounds = null;
-  update();
+  await update();
   assert.equal(sizes.length, 2);
   assert.equal(release.timers.size, 1);
   assert.equal([...release.timers.values()][0].ms, 250);
   release.flush();
+  await tick();
   assert.deepEqual({ width: sizes[2].width, height: sizes[2].height }, { width: 396, height: 310 });
-  update();
+  await update();
   assert.equal(sizes.length, 3, "no reserved area remains after the tooltip is gone");
 });
 

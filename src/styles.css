@@ -7228,3 +7228,26 @@ html.detailsWindow .meter,
 html.settingsWindow .meter {
   cursor: auto;
 }
+
+/* WebKitGTK asks fontconfig about every missing family in a stack, again in
+   each new window process; the Windows/macOS names cost ~0.5s of first layout
+   on Linux, where they never resolve. Same rendering, without those names. */
+html.linux {
+  --cjk-font-stack: "Noto Sans SC", "Noto Sans TC", sans-serif;
+  --hud-tech: sans-serif;
+  --hud-ident: "Pretendard", sans-serif;
+}
+html.linux, html.linux body {
+  font-family: "Pretendard", Arial, sans-serif;
+}
+html.linux:lang(ko), html.linux:lang(ko) body {
+  font-family: "Pretendard", sans-serif;
+}
+html.linux:lang(zh-CN), html.linux:lang(zh-CN) body,
+html.linux:lang(zh-Hans), html.linux:lang(zh-Hans) body {
+  font-family: "Pretendard", sans-serif;
+}
+html.linux:lang(zh-TW), html.linux:lang(zh-TW) body,
+html.linux:lang(zh-Hant), html.linux:lang(zh-Hant) body {
+  font-family: sans-serif;
+}

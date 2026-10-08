@@ -233,7 +233,7 @@ Depending on GNOME's fractional-scaling configuration, XWayland text may look so
 GDK_BACKEND=wayland a2tools-dps-meter
 ```
 
-If XWayland is unavailable, the meter also falls back to native Wayland. GTK's native Wayland keep-above request has no effect in GNOME: focus the meter, press **Alt+Space**, and select **Always on Top**. Repeat for Details or other meter windows as needed. Close the focused window with **Alt+F4**, or use **Settings > Quit** to exit the meter.
+If XWayland is unavailable, the meter also falls back to native Wayland. GTK's native Wayland keep-above request has no effect in GNOME: focus the meter, press **Alt+Space**, and select **Always on Top**. Repeat for Details or other meter windows as needed. Close the focused window with **Alt+F4**; on the meter itself this exits the meter, as **Settings > Quit** does.
 
 ### Resizing on GNOME
 
