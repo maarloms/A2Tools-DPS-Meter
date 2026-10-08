@@ -39,13 +39,17 @@ use a2tools_dps_meter_lib::combat::dps_calculator::DpsCalculator;
 use a2tools_dps_meter_lib::combat::ping_tracker::PingTracker;
 use a2tools_dps_meter_lib::entity::fight_record::FightRecord;
 use a2tools_dps_meter_lib::i18n::lookup::{NpcLookup, SkillLookup};
-use a2tools_dps_meter_lib::rederive::{derive_fight_unhidden, DerivedFight};
+use a2tools_dps_meter_lib::rederive::{derive_fight_unhidden, derive_fight_unhidden_every, DerivedFight};
 use a2tools_dps_meter_lib::share::{find_captures, read_capture};
 
 struct Tables {
     npcs: String,
     skills: String,
     dots: String,
+    /// `--capture` compares every boss fight in the capture, so slices are
+    /// derived counting every fight too, not only the uploader's own: other
+    /// players' fights showed NO SLICE (Seralth, #37, "2 of 25").
+    every_fight: bool,
 }
 
 fn main() {
@@ -59,6 +63,7 @@ fn main() {
         npcs: std::fs::read_to_string(data.join("i18n/npcs/en.json")).expect("npcs/en.json"),
         skills: std::fs::read_to_string(data.join("i18n/skills/en.json")).expect("skills/en.json"),
         dots: std::fs::read_to_string(data.join("dot_skill_ids.json")).expect("dot_skill_ids.json"),
+        every_fight: args[0] == "--capture",
     };
 
     let partner = args.iter().position(|a| a == "--partner")
@@ -156,6 +161,14 @@ fn from_capture(path: &Path, t: &Tables, partner: Option<&[(String, DerivedFight
     // (Blooming Korin). A slice of it can still be compared.
     let (storage, mut whole) = replay(&packets, t, true);
     whole.sort_by_key(|r| r.start_time_ms);
+    // Training dummies are never uploaded (the meter cuts no slice for them),
+    // and in town many players hit several at once, so a slice cannot say
+    // which dummy fight it is: Kazumi's capture, all four mismatches.
+    let dummies = whole.iter().filter(|r| r.is_train).count();
+    whole.retain(|r| !r.is_train);
+    if dummies > 0 {
+        println!("{dummies} training-dummy fights left out: never uploaded");
+    }
     let (mut tried, mut same) = (0, 0);
     for w in &whole {
         tried += 1;
@@ -169,8 +182,10 @@ fn from_capture(path: &Path, t: &Tables, partner: Option<&[(String, DerivedFight
     }
     // A partner slice for a fight the whole capture does not show is a fight
     // one of the two readings lost: say so rather than skip it.
-    for (name, d, _) in partner.unwrap_or(&[]) {
-        if whole.iter().any(|w| w.target_id == d.record.target_id) {
+    let partners = partner.unwrap_or(&[]);
+    for (name, d, _) in partners {
+        let paired = whole.iter().any(|w| partner_of(partners, w).is_some_and(|(n, _, _)| n == name));
+        if paired {
             continue;
         }
         tried += 1;
@@ -213,7 +228,7 @@ fn partner_slices(dir: &Path, t: &Tables) -> Vec<(String, DerivedFight, i64)> {
 
 /// Hold another meter's slice of `w` to the standard ours is held to.
 fn check_partner(partner: &[(String, DerivedFight, i64)], w: &FightRecord) -> bool {
-    let Some((name, d, hidden)) = partner.iter().find(|(_, d, _)| d.record.target_id == w.target_id) else {
+    let Some((name, d, hidden)) = partner_of(partner, w) else {
         println!("   partner: NO SLICE for target {}", w.target_id);
         return false;
     };
@@ -422,7 +437,29 @@ fn check(packets: &[CapturedPacket], storage: &DataStorage, w: &FightRecord, t: 
 /// unnamed actors, 4.1% of the damage). What the service stores is the hidden
 /// record; `print_hidden` says how far it is from the one compared.
 fn derive(slice: &[u8], t: &Tables) -> Result<(DerivedFight, i64), a2tools_dps_meter_lib::rederive::DeriveError> {
-    derive_fight_unhidden(slice, &t.npcs, &t.skills, &t.dots)
+    if t.every_fight {
+        derive_fight_unhidden_every(slice, &t.npcs, &t.skills, &t.dots)
+    } else {
+        derive_fight_unhidden(slice, &t.npcs, &t.skills, &t.dots)
+    }
+}
+
+/// The partner slice of `w`. A target id can be fought twice in one capture
+/// (two Blooming Korin fights, Seralth's krao capture, #37), and a slice's
+/// clock starts at its own fight, so its start cannot be matched; among the
+/// slices of that target and boss, the one nearest in total and length.
+fn partner_of<'a>(
+    partner: &'a [(String, DerivedFight, i64)],
+    w: &FightRecord,
+) -> Option<&'a (String, DerivedFight, i64)> {
+    partner
+        .iter()
+        .filter(|(_, d, _)| d.record.target_id == w.target_id && d.record.mob_code == w.mob_code)
+        .min_by_key(|(_, d, _)| {
+            let total = (d.record.details.total_target_damage - w.details.total_target_damage).abs();
+            let length = (d.record.duration_ms - w.duration_ms).abs();
+            (total, length)
+        })
 }
 
 fn print_hidden(hidden: i64, d: &DerivedFight) {
