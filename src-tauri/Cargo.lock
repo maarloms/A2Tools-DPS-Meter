@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "a2tools-dps-meter"
-version = "2.0.53"
+version = "2.0.54"
 dependencies = [
  "chrono",
  "discord-rich-presence",
@@ -12,6 +12,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "gtk",
+ "libc",
  "libloading 0.8.9",
  "lz4_flex",
  "parking_lot",

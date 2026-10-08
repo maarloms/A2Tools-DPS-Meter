@@ -190,14 +190,15 @@ const releaseTimers = () => {
     },
   };
 };
-test("overlay reserves the tooltip's actual width and height and shrinks on close", () => {
+test("overlay reserves the tooltip's actual width and height and shrinks on close", async () => {
   let tooltip = { getBoundingClientRect: () => ({ right: 610, bottom: 360 }) };
   let fullPanel = false;
   const sizes = [];
   const release = releaseTimers();
   const context = vm.createContext({
     ...release.globals,
-    resizeActive: false, lastSizeKey: "", PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
+    resizeActive: false, lastSizeKey: "", pendingWindowSize: null,
+    PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
     spaceRightBelow: () => ({ w: 900, h: 700 }),
     window: { A2_VIEW: "main", devicePixelRatio: 1.5, javaBridge: {} },
     document: {
@@ -209,18 +210,19 @@ test("overlay reserves the tooltip's actual width and height and shrinks on clos
     invoke: (command, args) => { sizes.push(args); return Promise.resolve(); },
   });
   vm.runInContext(sizingSource, context);
-  vm.runInContext("updateWindowSize()", context);
+  await vm.runInContext("updateWindowSize()", context);
   assert.equal(sizes[0].width, 618);
   assert.equal(sizes[0].height, 368);
   assert.equal(sizes[0].scale, 1.5);
   tooltip = null;
-  vm.runInContext("updateWindowSize()", context);
+  await vm.runInContext("updateWindowSize()", context);
   assert.equal(sizes.length, 1, "shrink waits for the release delay");
   release.flush();
+  await tick();
   assert.equal(sizes[1].width, 396);
   assert.equal(sizes[1].height, 210);
   fullPanel = true;
-  vm.runInContext("updateWindowSize()", context);
+  await vm.runInContext("updateWindowSize()", context);
   assert.equal(sizes[2].width, 1200);
   assert.equal(sizes[2].height, 800);
 });
@@ -258,6 +260,161 @@ test('rapid re-entry shares a pending request even when refresh is requested', a
   await tick();
   assert.equal(rendered.at(-1).skills[0].dmg, 500);
   assert.equal(app.hoverTooltipPendingRowIds.size, 0);
+});
+
+function hoverPipeline(mode = 'allTargets') {
+  const calls = [];
+  const rendered = [];
+  let active = 0;
+  let peak = 0;
+  let visible = false;
+  let row;
+  const context = vm.createContext({
+    console: { log() {} },
+    window: { addEventListener() {}, javaBridge: { updateOverlaySize() {} } },
+    document: {
+      readyState: 'loading', addEventListener() {},
+      documentElement: { classList: { toggle() {} } }, body: { classList: { toggle() {} } },
+    },
+    requestAnimationFrame: () => 1, cancelAnimationFrame() {},
+    cachedDpsJson: null, lastSkillDetailsIssue: '',
+    invoke(command, args) {
+      assert.equal(command, 'get_skill_details');
+      peak = Math.max(peak, ++active);
+      return new Promise((resolve, reject) => calls.push({
+        target: args.targetId,
+        resolve(damage) { active--; resolve(response(damage)); },
+        reject() { active--; reject(new Error('old target failed')); },
+      }));
+    },
+  });
+  vm.runInContext(source, context);
+  vm.runInContext(`window.dpsData = { getDpsData: () => cachedDpsJson, ${battleDetailMethod} };`, context);
+  const app = vm.runInContext('new DpsApp()', context);
+  app.hoverTooltipEl = { setAttribute() {}, classList: { contains: () => visible, remove() { visible = false; } } };
+  app.elList = { querySelector: () => ({}) };
+  app.detailsUI = { close() {}, isOpen: () => false };
+  app.meterUI = { updateFromRows() {} };
+  app.battleTime = { setVisible() {}, update() {} };
+  app.buildRowsFromPayload = () => ({ rows: [row], targetName: '', targetMode: mode, battleTimeMs: 1000, targetId: 0, localPlayerId: 1 });
+  for (const method of ['applyLocalPlayerIdUpdate', 'updateLocalPlayerIdentity', 'updateConnectionStatusUi', 'updateBossHpBar', 'updateMeterTotalBar', 'logDebug']) app[method] = () => {};
+  app.isOutOfCombatState = () => false;
+  app.getTargetLabel = () => 'Synthetic';
+  app.getRowsSummary = () => ({ listSignature: '' });
+  app.renderHoverTooltip = (details, currentRow) => {
+    visible = true;
+    rendered.push({ rowDamage: currentRow.totalDamage, skillDamage: details.skills?.[0]?.dmg, state: details.state });
+  };
+  const receiveSnapshot = (targets, damage) => {
+    context.cachedDpsJson = JSON.stringify({ targetId: 0, targetMode: mode, detailTargetIds: targets, battleTime: 1000, map: { damage } });
+  };
+  const setSnapshot = (targets, damage) => {
+    row = { id: 1, name: 'Synthetic', dps: damage, totalDamage: damage };
+    receiveSnapshot(targets, damage);
+    app.fetchDps();
+  };
+  const enter = () => app.openHoverDetailsRow(row, { clientX: 10, clientY: 10 });
+  const leave = () => { app.hoveredDetailsRowId = null; app.hideHoverTooltip(); };
+  setSnapshot([100], 100);
+  return { app, calls, rendered, setSnapshot, receiveSnapshot, enter, leave, peak: () => peak };
+}
+
+for (const mode of ['allTargets', 'trainTargets']) {
+  test(`re-entry after a new ${mode} snapshot discards old targets without parallel summaries`, async () => {
+    const fixture = hoverPipeline(mode);
+    fixture.enter();
+    fixture.leave();
+    fixture.setSnapshot([200], 200);
+    fixture.enter();
+    assert.equal(fixture.calls.length, 1, 'new work waits for the old summary');
+    fixture.calls[0].resolve(100);
+    await tick();
+    assert.deepEqual(fixture.calls.map(call => call.target), [100, 200]);
+    assert.equal(fixture.app.hoverTooltipCacheByRowId.size, 0);
+    assert.ok(!fixture.rendered.some(frame => frame.skillDamage === 100));
+    fixture.calls[1].resolve(200);
+    await tick();
+    assert.deepEqual(fixture.rendered.at(-1), { rowDamage: 200, skillDamage: 200, state: undefined });
+    assert.equal(fixture.peak(), 1);
+  });
+}
+
+test('a new snapshot with the same target ids still gets a fresh summary on re-entry', async () => {
+  const fixture = hoverPipeline();
+  fixture.enter();
+  fixture.leave();
+  fixture.setSnapshot([100], 200);
+  fixture.enter();
+  fixture.calls[0].resolve(100);
+  await tick();
+  assert.equal(fixture.calls.length, 2);
+  assert.ok(!fixture.rendered.some(frame => frame.skillDamage === 100));
+  fixture.calls[1].resolve(200);
+  await tick();
+  assert.equal(fixture.rendered.at(-1).skillDamage, 200);
+  assert.equal(fixture.peak(), 1);
+});
+
+test('a bridge DPS event invalidates re-entry before the meter processes that snapshot', async () => {
+  const fixture = hoverPipeline();
+  fixture.enter();
+  fixture.leave();
+  fixture.receiveSnapshot([200], 200);
+  fixture.enter();
+  fixture.calls[0].resolve(100);
+  await tick();
+  assert.deepEqual(fixture.calls.map(call => call.target), [100, 200]);
+  assert.ok(!fixture.rendered.some(frame => frame.skillDamage === 100));
+  fixture.setSnapshot([200], 200);
+  fixture.calls[1].resolve(200);
+  await tick();
+  assert.equal(fixture.rendered.at(-1).rowDamage, 200);
+  assert.equal(fixture.rendered.at(-1).skillDamage, 200);
+});
+
+test('a target set change refreshes stationary hover after its old request finishes', async () => {
+  const fixture = hoverPipeline();
+  fixture.enter();
+  fixture.setSnapshot([200], 200);
+  fixture.calls[0].resolve(100);
+  await tick();
+  assert.ok(!fixture.rendered.some(frame => frame.skillDamage === 100));
+  assert.equal(fixture.calls[1].target, 200);
+  fixture.calls[1].resolve(200);
+  await tick();
+  assert.equal(fixture.rendered.at(-1).skillDamage, 200);
+});
+
+test('steady damage updates let a slow same-target summary finish with current row totals', async () => {
+  const fixture = hoverPipeline();
+  fixture.enter();
+  for (let damage = 200; damage <= 500; damage += 100) fixture.setSnapshot([100], damage);
+  fixture.calls[0].resolve(500);
+  await tick();
+  assert.equal(fixture.calls.length, 1, 'updates do not continuously cancel a slow request');
+  assert.equal(fixture.rendered.at(-1).rowDamage, 500);
+  assert.equal(fixture.rendered.at(-1).skillDamage, 500);
+  fixture.leave();
+  fixture.enter();
+  assert.equal(fixture.calls.length, 2, 'an old-generation cache does not suppress a fresh re-entry');
+  fixture.calls[1].resolve(500);
+  await tick();
+});
+
+test('a failed old-generation request does not replace the new hover with an error', async () => {
+  const fixture = hoverPipeline();
+  fixture.enter();
+  fixture.leave();
+  fixture.setSnapshot([200], 200);
+  fixture.enter();
+  fixture.calls[0].reject();
+  await tick();
+  assert.ok(!fixture.rendered.some(frame => frame.state === 'error'));
+  assert.equal(fixture.calls[1].target, 200);
+  fixture.calls[1].resolve(200);
+  await tick();
+  assert.equal(fixture.rendered.at(-1).skillDamage, 200);
+  assert.equal(fixture.app.hoverTooltipPendingRowIds.size, 0);
 });
 
 test('cached data stays visible during refresh instead of flashing loading', async () => {
@@ -337,14 +494,15 @@ test('invalidating a fight rejects old answers without clearing the new pending 
   assert.equal(app.hoverTooltipPendingRowIds.size, 0);
 });
 
-test('native travel area stays fixed during motion, is screen-clamped and shrinks on close', () => {
+test('native travel area stays fixed during motion, is screen-clamped and shrinks on close', async () => {
   let bounds = { right: 610, bottom: 360, width: 240, height: 180 };
   let room = { w: 900, h: 700 };
   const sizes = [];
   const release = releaseTimers();
   const context = vm.createContext({
     ...release.globals,
-    resizeActive: false, lastSizeKey: '', PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
+    resizeActive: false, lastSizeKey: '', pendingWindowSize: null,
+    PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
     spaceRightBelow: () => room,
     window: { A2_VIEW: 'main', devicePixelRatio: 1.5, javaBridge: {} },
     document: {
@@ -356,19 +514,20 @@ test('native travel area stays fixed during motion, is screen-clamped and shrink
     invoke: (command, args) => { sizes.push(args); return Promise.resolve(); },
   });
   vm.runInContext(sizingSource, context);
-  vm.runInContext('updateWindowSize()', context);
+  await vm.runInContext('updateWindowSize()', context);
   assert.equal(sizes[0].width, 640);
   assert.equal(sizes[0].height, 460);
   bounds = { ...bounds, right: 490, bottom: 320 };
-  vm.runInContext('updateWindowSize()', context);
+  await vm.runInContext('updateWindowSize()', context);
   assert.equal(sizes.length, 1);
   room = { w: 500, h: 400 };
-  vm.runInContext('updateWindowSize()', context);
+  await vm.runInContext('updateWindowSize()', context);
   assert.equal(sizes[1].width, 500);
   assert.equal(sizes[1].height, 400);
   bounds = null;
-  vm.runInContext('updateWindowSize()', context);
+  await vm.runInContext('updateWindowSize()', context);
   release.flush();
+  await tick();
   assert.equal(sizes[2].width, 396);
   assert.equal(sizes[2].height, 310);
 });
@@ -550,13 +709,14 @@ test("an IPC failure of target details is an error, not an empty fight", async (
   assert.equal(empty.skills.length, 0);
 });
 
-test("moving between rows keeps the native window size and leaving the meter shrinks it", () => {
+test("moving between rows keeps the native window size and leaving the meter shrinks it", async () => {
   let bounds = { right: 610, bottom: 360, width: 240, height: 180 };
   const sizes = [];
   const release = releaseTimers();
   const context = vm.createContext({
     ...release.globals,
-    resizeActive: false, lastSizeKey: '', PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
+    resizeActive: false, lastSizeKey: '', pendingWindowSize: null,
+    PANEL_WIDTH: 1200, PANEL_HEIGHT: 800, PROMO_WIDTH: 600, PROMO_HEIGHT: 400,
     spaceRightBelow: () => ({ w: 1900, h: 1000 }),
     window: { A2_VIEW: 'main', devicePixelRatio: 1, javaBridge: {} },
     document: {
@@ -569,26 +729,27 @@ test("moving between rows keeps the native window size and leaving the meter shr
   });
   vm.runInContext(sizingSource, context);
   const update = () => vm.runInContext('updateWindowSize()', context);
-  update();
+  await update();
   assert.equal(sizes.length, 1);
   for (const width of [200, 300, 240]) {
     bounds = null;
-    update();
-    update();
+    await update();
+    await update();
     bounds = { right: 610, bottom: 360, width, height: 150 };
-    update();
+    await update();
   }
   assert.equal(sizes.length, 2, "a wider row grows the area once; nothing shrinks between rows");
   assert.equal(sizes[1].width, 700);
   assert.equal(release.timers.size, 0, "showing the tooltip again cancels the pending shrink");
   bounds = null;
-  update();
+  await update();
   assert.equal(sizes.length, 2);
   assert.equal(release.timers.size, 1);
   assert.equal([...release.timers.values()][0].ms, 250);
   release.flush();
+  await tick();
   assert.deepEqual({ width: sizes[2].width, height: sizes[2].height }, { width: 396, height: 310 });
-  update();
+  await update();
   assert.equal(sizes.length, 3, "no reserved area remains after the tooltip is gone");
 });
 

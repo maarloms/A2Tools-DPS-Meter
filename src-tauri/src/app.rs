@@ -263,7 +263,7 @@ async fn upload_fight(
     fight_id: String,
 ) -> Result<share::UploadResult, String> {
     let record = state.fight_history.load_fight(&fight_id)?;
-    share::upload(&state.http, &state.app_data_dir, &record).await
+    share::upload(&state.http, &state.app_data_dir, &record, &state.settings).await
 }
 
 /// Upload a finished fight in the background, and tell every window.
@@ -278,7 +278,7 @@ fn auto_upload(app: tauri::AppHandle, record: FightRecord) {
     tauri::async_runtime::spawn(async move {
         let _in_flight = in_flight;
         let Some(state) = app.try_state::<AppState>() else { return };
-        match share::upload_detailed(&state.http, &state.app_data_dir, &record).await {
+        match share::upload_detailed(&state.http, &state.app_data_dir, &record, &state.settings).await {
             Ok(result) => {
                 tracing::info!("Auto-uploaded {} -> {}", record.id, result.url);
                 let _ = app.emit("fight-uploaded", serde_json::json!({
@@ -765,9 +765,18 @@ fn set_manual_device(state: tauri::State<'_, AppState>, device: String) {
 }
 
 #[tauri::command]
-fn quit_app(app: tauri::AppHandle) {
+pub(crate) fn quit_app(app: tauri::AppHandle) {
     save_fights_before_reset(&app);
+    flush_settings_before_exit(&app);
     app.exit(0);
+}
+
+fn flush_settings_before_exit(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Err(error) = state.settings.flush() {
+            tracing::warn!("Could not save final settings: {error}");
+        }
+    }
 }
 
 #[tauri::command]
@@ -982,10 +991,12 @@ async fn download_and_install_update(app: &tauri::AppHandle, url: &str, expected
     let install_dir = install_dir.trim_end_matches('\\').to_string();
 
     // Launch the installer (msiexec on Windows; see platform::updater).
+    flush_settings_before_exit(app);
     platform::updater::run_installer(&msi_path, &install_dir)?;
 
     // Give installer time to start, then exit
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    flush_settings_before_exit(&app_clone);
     app_clone.exit(0);
     Ok(())
 }
@@ -1102,6 +1113,13 @@ fn resize_window(app: tauri::AppHandle, width: f64, height: f64, scale: Option<f
         None => tauri::Size::Logical(tauri::LogicalSize { width, height }),
     };
     platform::window::set_size(&window, size);
+}
+
+/// Linux can load a hidden WebKit window. Map it only after restoring its
+/// position and sizing the meter, so its initial 400x300 rectangle never flashes.
+#[tauri::command]
+fn main_window_ready(window: tauri::WebviewWindow) {
+    platform::window_startup::main_ready(&window);
 }
 
 /// Displays as reported by the OS, for the "Show Details on Monitor" picker.
@@ -1421,12 +1439,17 @@ fn restore_window_geometry(app: &tauri::AppHandle, window: &tauri::WebviewWindow
 /// See <https://docs.rs/tauri/latest/tauri/webview/struct.WebviewWindowBuilder.html>.
 #[tauri::command]
 async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    let ready = platform::window_startup::request_settings_open();
     if let Some(existing) = app.get_webview_window("settings") {
+        if !ready {
+            return Ok(());
+        }
         let _ = existing.show();
         let _ = existing.unminimize();
         let _ = existing.set_always_on_top(true);
         let _ = existing.set_focus();
         // Already open (perhaps behind the game): check the account again.
+        // A hidden one also resumes its form, without repeating page startup.
         let _ = app.emit_to("settings", "settings-shown", ());
         return Ok(());
     }
@@ -1442,7 +1465,10 @@ async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
 const SETTINGS_WINDOW_SCRIPT: &str = r#"
 window.__A2_VIEW__ = 'settings';
 (function () {
-  const call = (cmd) => window.__TAURI_INTERNALS__.invoke(cmd).catch(() => {});
+  const call = (cmd) => {
+    if (cmd === 'close_settings_window') window.dispatchEvent(new Event('settings-hidden'));
+    window.__TAURI_INTERNALS__.invoke(cmd).catch(() => {});
+  };
   document.addEventListener('click', (event) => {
     const el = event.target instanceof Element ? event.target : null;
     if (el?.closest('.quitButton')) {
@@ -1460,6 +1486,7 @@ window.__A2_VIEW__ = 'settings';
 "#;
 
 fn build_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
+    platform::window_startup::begin_settings_load();
     let window = tauri::WebviewWindowBuilder::new(
         app,
         "settings",
@@ -1478,39 +1505,52 @@ fn build_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
     .skip_taskbar(false)
     .inner_size(760.0, 820.0)
     .min_inner_size(520.0, 420.0)
-    // Built visible, with the app's background colour to cover the load rather
-    // than flashing white. Building it hidden is not an option: a hidden
-    // WebView2 window may never load its content, so a page-driven reveal
-    // deadlocks.
+    // Built visible on Windows, with the app's background colour to cover the
+    // load rather than flashing white. Building it hidden is not an option
+    // there: a hidden WebView2 window may never load its content, so a
+    // page-driven reveal deadlocks. Linux WebKit loads hidden, and the page
+    // reveals it once the form is translated and wired.
     .background_color(tauri::window::Color(10, 14, 22, 255))
+    .visible(!platform::window_startup::loads_hidden())
     .build()
     .map_err(|e| e.to_string())?;
+    platform::window_startup::prepare_settings(&window);
     platform::window::set_size(&window, tauri::Size::Logical(tauri::LogicalSize { width: 760.0, height: 820.0 }));
 
     if !restore_window_geometry(app, &window, "settings") {
-        let _ = window.center();
+        platform::window_startup::center_before_show(app, &window,
+            tauri::LogicalSize { width: 760.0, height: 820.0 });
     }
     Ok(())
 }
 
 #[tauri::command]
 fn close_settings_window(app: tauri::AppHandle) {
-    // Closed, not hidden: a hidden WebView2 window came back blank when shown
-    // again. Rebuilding it costs little now that Quit and Close are answered
-    // before the page loads (SETTINGS_WINDOW_SCRIPT) and the account line
-    // starts from the last check.
     if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.close();
+        if platform::window_startup::reuses_settings() {
+            // The page already announced `settings-hidden`.
+            platform::window_startup::hide_settings(&window);
+        } else {
+            // Closed, not hidden: a hidden WebView2 window came back blank when
+            // shown again. Rebuilding it costs little now that Quit and Close
+            // are answered before the page loads (SETTINGS_WINDOW_SCRIPT) and
+            // the account line starts from the last check.
+            let _ = window.close();
+        }
     }
 }
 
-/// Shown when the frontend of a tool window has painted.
+/// Shown when the frontend of a tool window has painted. Answers whether it
+/// was: a Settings window closed before it was ready stays hidden.
 #[tauri::command]
-fn tool_window_ready(app: tauri::AppHandle, label: String) {
-    if let Some(window) = app.get_webview_window(&label) {
-        let _ = window.show();
-        let _ = window.set_focus();
+fn tool_window_ready(app: tauri::AppHandle, label: String) -> bool {
+    if label == "settings" && !platform::window_startup::settings_ready() {
+        return false;
     }
+    let Some(window) = app.get_webview_window(&label) else { return false };
+    let _ = window.show();
+    let _ = window.set_focus();
+    true
 }
 
 /// Tell the Details window which screen it just landed on, so it can confirm
@@ -2215,10 +2255,45 @@ pub fn run() {
         tracing::info!("{note}");
     }
 
+    let mut context = tauri::generate_context!();
+    if platform::window_startup::loads_hidden()
+        && let Some(main) = context.config_mut().app.windows.iter_mut().find(|w| w.label == "main")
+    {
+        main.visible = false;
+    }
+
     tauri::Builder::default()
+        .append_invoke_initialization_script(format!(
+            "window.__A2_WINDOW_STARTUP__ = {{loadsHidden:{},reusesSettings:{}}};",
+            platform::window_startup::loads_hidden(),
+            platform::window_startup::reuses_settings(),
+        ))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri::plugin::Builder::<_, ()>::new("settings-persistence")
+            .on_event(|app, event| {
+                // Flush before normal exit or restart, with Exit as a final safeguard.
+                if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+                    flush_settings_before_exit(app);
+                }
+            })
+            .build())
         .plugin(tauri_plugin_process::init())
         .plugin(crate::fork::init())
+        // Closing the meter quits, even with Details, History or a kept
+        // Settings window still open.
+        .on_window_event(|window, event| {
+            if window.label() == "main"
+                && let tauri::WindowEvent::CloseRequested { api, .. } = event
+            {
+                api.prevent_close();
+                // fork: with the event timer open the meter only hides, and
+                // closing the timer then quits.
+                if crate::fork::close_meter_keeping_timer(window.app_handle()) {
+                    return;
+                }
+                quit_app(window.app_handle().clone());
+            }
+        })
         .setup(|app| {
             // Resolve data directory
             let app_data_dir = app.path().app_data_dir()
@@ -2321,6 +2396,25 @@ pub fn run() {
             let capture_suspended = state.capture_suspended.clone();
 
             app.manage(state);
+
+            // On KDE, a KWin rule keeps the meter above a borderless game
+            // (see platform::kwin_rules). Once: a rule the player removes
+            // stays removed. Off the setup thread, as it runs KDE's tools.
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    const KEY: &str = "dpsMeter.kwinRuleAdded";
+                    let state = handle.state::<AppState>();
+                    let done = state.settings.get(KEY).as_deref() == Some("true");
+                    match platform::window_rules::keep_above_fullscreen(done) {
+                        Ok(true) if !done => {
+                            state.settings.set(KEY, "true");
+                        }
+                        Ok(_) => {}
+                        Err(e) => tracing::warn!("Could not add the KWin rule: {e}"),
+                    }
+                });
+            }
             {
                 let handle = app.handle().clone();
                 app.state::<AppState>().data_storage
@@ -2367,6 +2461,7 @@ pub fn run() {
                 if let Ok(size) = window.inner_size() {
                     platform::window::set_size(&window, tauri::Size::Physical(size));
                 }
+                platform::window_startup::arm_main_fallback(window);
             }
 
             // Check if Npcap is available before starting capture
@@ -2445,6 +2540,7 @@ pub fn run() {
                             if window.is_visible().unwrap_or(false) {
                                 let _ = window.hide();
                             } else {
+                                crate::fork::reopen_meter(); // fork
                                 let _ = window.show();
                                 let _ = window.set_always_on_top(true);
                                 let _ = window.set_focus();
@@ -2515,7 +2611,7 @@ pub fn run() {
                         let auto_hide = tick_count > 20
                             && state.settings.get("dpsMeter.autoHideMeter")
                                 .unwrap_or_default() == "true";
-                        if auto_hide {
+                        if auto_hide && !crate::fork::meter_closed() { // fork: closed beside the timer
                             if let Some(window) = handle.get_webview_window("main") {
                                 let aion_fg = platform::window_detector::is_aion2_foreground();
                                 // Timer, settings and details are part of the same interaction.
@@ -2769,6 +2865,7 @@ pub fn run() {
             set_lock_button_rect,
             is_capture_suspended,
             resize_window,
+            main_window_ready,
             list_monitors,
             open_details_window,
             close_details_window,
@@ -2796,7 +2893,7 @@ pub fn run() {
             fetch_url,
             show_update_window,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }
 

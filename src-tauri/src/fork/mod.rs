@@ -9,6 +9,41 @@ use crate::platform::hotkeys::HotkeyManager;
 use tauri::{Manager, WindowEvent};
 
 const VISIBLE: &str = "fork.timer.visible";
+
+/// The meter window was closed while the event timer stayed open: the app
+/// runs on for the timer, and quits once the timer is closed too.
+static METER_CLOSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn meter_closed() -> bool {
+    METER_CLOSED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// The show/hide hotkey brought the meter back.
+pub fn reopen_meter() {
+    METER_CLOSED.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Hides the meter instead of quitting when the timer is showing. Returns
+/// whether it did.
+pub fn close_meter_keeping_timer(app: &tauri::AppHandle) -> bool {
+    let timer_open = app.get_webview_window("timer")
+        .is_some_and(|w| w.is_visible().unwrap_or(false));
+    if !timer_open {
+        return false;
+    }
+    METER_CLOSED.store(true, std::sync::atomic::Ordering::SeqCst);
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.hide();
+    }
+    true
+}
+
+/// The timer was the last window showing.
+fn quit_if_meter_closed(app: &tauri::AppHandle) {
+    if meter_closed() {
+        crate::app::quit_app(app.clone());
+    }
+}
 const LAYOUT: &str = "fork.timer.layout";
 
 fn is_landscape(state: &AppState) -> bool {
@@ -90,6 +125,7 @@ pub fn toggle(app: &tauri::AppHandle) -> Result<(), String> {
             let _ = window.eval("document.getElementById('settings').hidden=true; document.getElementById('events').hidden=false; document.getElementById('filters').setAttribute('aria-expanded','false')");
             window.hide().map_err(|e| e.to_string())?;
             state.settings.set(VISIBLE, "false");
+            quit_if_meter_closed(app);
         } else {
             // Reopening always unlocks: the global hotkey is also the escape
             // route from click-through without needing to click the window.
@@ -139,6 +175,7 @@ pub fn toggle(app: &tauri::AppHandle) -> Result<(), String> {
                 api.prevent_close();
                 if let Some(w) = handle.get_webview_window("timer") { let _ = w.hide(); }
                 state.settings.set(VISIBLE, "false");
+                quit_if_meter_closed(&handle);
             }
             _ => {}
         }

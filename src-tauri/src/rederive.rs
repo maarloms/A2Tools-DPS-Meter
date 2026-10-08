@@ -348,7 +348,7 @@ pub fn derive_fight(
     skills_json: &str,
     dot_ids_json: &str,
 ) -> Result<DerivedFight, DeriveError> {
-    derive_fight_with(slice, npcs_json, skills_json, dot_ids_json, true).map(|(fight, _)| fight)
+    derive_fight_with(slice, npcs_json, skills_json, dot_ids_json, true, false).map(|(fight, _)| fight)
 }
 
 /// `derive_fight` without `hide_unplaced_summons`: the fight as the parser
@@ -363,7 +363,19 @@ pub fn derive_fight_unhidden(
     skills_json: &str,
     dot_ids_json: &str,
 ) -> Result<(DerivedFight, i64), DeriveError> {
-    derive_fight_with(slice, npcs_json, skills_json, dot_ids_json, false)
+    derive_fight_with(slice, npcs_json, skills_json, dot_ids_json, false, false)
+}
+
+/// `derive_fight_unhidden` counting every boss fight in the slice, not only
+/// the uploader's own (`DpsCalculator::set_every_fight`). For checking tools
+/// that compare every fight in a capture: the service keeps the check.
+pub fn derive_fight_unhidden_every(
+    slice: &[u8],
+    npcs_json: &str,
+    skills_json: &str,
+    dot_ids_json: &str,
+) -> Result<(DerivedFight, i64), DeriveError> {
+    derive_fight_with(slice, npcs_json, skills_json, dot_ids_json, false, true)
 }
 
 /// The fight, and the damage `hide_unplaced_summons` removes from it (or
@@ -374,6 +386,7 @@ fn derive_fight_with(
     skills_json: &str,
     dot_ids_json: &str,
     hide: bool,
+    every_fight: bool,
 ) -> Result<(DerivedFight, i64), DeriveError> {
     let (records, blind_map) = evidence_slice::decode(slice).ok_or(DeriveError::NotASlice)?;
 
@@ -436,6 +449,7 @@ fn derive_fight_with(
     let dead = storage.get_dead_entities();
 
     let mut calc = DpsCalculator::new(storage, skills, npcs, Arc::new(PingTracker::new()));
+    calc.set_every_fight(every_fight);
     let snapshot = calc.snapshot_boss_fights_force();
     processor.set_override_timestamp(None);
     crate::clock::set_override(None);

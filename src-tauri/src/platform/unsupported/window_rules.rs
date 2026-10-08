@@ -1,0 +1,7 @@
+//! Asking the desktop to keep the meter above a fullscreen game. Nothing to
+//! ask here: Windows keeps a topmost window above a borderless game itself.
+
+/// See the Linux implementation. Always done.
+pub fn keep_above_fullscreen(_done: bool) -> Result<bool, String> {
+    Ok(true)
+}

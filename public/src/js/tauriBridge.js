@@ -11,7 +11,10 @@
   const { open: shellOpen } = window.__TAURI__.opener;
 
   // The backend enables compositor resizing only on GNOME.
-  const isLinux = /Linux/.test(navigator.userAgent);
+  const isLinux = document.documentElement.classList.contains("linux");
+  // Native startup policy is independent of the webview's user agent.
+  const loadsHidden = window.__A2_WINDOW_STARTUP__?.loadsHidden === true;
+  const reusesSettings = window.__A2_WINDOW_STARTUP__?.reusesSettings === true;
   let compositorResize = isLinux ? null : false;
   const compositorResizeReady = isLinux ? invoke("compositor_resize_supported")
     .then((supported) => {
@@ -100,11 +103,9 @@
       } catch {}
     });
 
-    // Tool windows are now built visible (a hidden WebView2 window may never
-    // load its content, so a page-driven reveal deadlocked). show() is kept as
-    // a no-op safety net; setFocus() is the part that still does work, and it
-    // must be called from the window's own webview — the same call from a
-    // spawned task on the Rust side silently did nothing.
+    // WebView2 tool windows must load visible. Linux Settings instead reveals
+    // directly from notifyUiReady, after preparing the form; a hidden webview
+    // need not run animation frames, so its reveal must not wait for one.
     const reveal = () => {
       try {
         const w = window.__TAURI__.window.getCurrentWindow();
@@ -115,13 +116,15 @@
       }
     };
     const scheduleReveal = () => requestAnimationFrame(() => requestAnimationFrame(reveal));
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", scheduleReveal, { once: true });
-    } else {
-      scheduleReveal();
+    if (!(loadsHidden && viewMode === "settings")) {
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", scheduleReveal, { once: true });
+      } else {
+        scheduleReveal();
+      }
+      // Belt and braces if rAF never fires (window fully occluded at creation).
+      setTimeout(reveal, 1200);
     }
-    // Belt and braces if rAF never fires (window fully occluded at creation).
-    setTimeout(reveal, 1200);
   }
 
   // --- Cached state ---
@@ -134,6 +137,54 @@
   let cachedAppVersion = "";     // populated on startup from Tauri backend
   let lastSkillDetailsIssue = "";
   let captureSuspended = false;  // the suspend button's state; the backend's is the truth
+  // null awaits the first show; false is an explicitly paused form.
+  let settingsActive = viewMode === "settings" && loadsHidden ? null : true;
+  let settingsLifecycleGeneration = 0;
+  let settingsReadId = 0;
+  let settingsReadPromise = null;
+  let settingsRevision = 0;
+  let pendingSettingsAccountResult = null;
+  const settingsKeyRevisions = new Map();
+  const cacheSetting = (key, value) => {
+    settingsKeyRevisions.set(key, ++settingsRevision);
+    settingsCache[key] = String(value);
+    try { localStorage.setItem(key, String(value)); } catch {}
+  };
+  const applyPendingSettingsAccountResult = () => {
+    if (pendingSettingsAccountResult === null || !window._dpsApp?.accountStateEl
+      || !window._dpsApp?.refreshAccountPanel) return false;
+    const result = pendingSettingsAccountResult;
+    pendingSettingsAccountResult = null;
+    window._dpsApp.refreshAccountPanel(result);
+    window._dpsApp.onAccountPromoResult?.(result);
+    return true;
+  };
+  // Linux keeps Settings when it is closed. Shown again, it resumes; not every
+  // change is broadcast as setting-changed, so the backend is read again.
+  const resumeSettings = ({ resync = true } = {}) => {
+    if (viewMode !== "settings" || settingsActive) return;
+    settingsActive = true;
+    applyPendingSettingsAccountResult();
+    startStatusPolling();
+    if (resync && reusesSettings) loadSettings().then((applied) => {
+      if (applied && settingsActive) window._dpsApp?.syncSettingsForm?.();
+    });
+  };
+  let devicesLoading = null;
+  let devicesLoadedAt = 0;
+  const DEVICES_STALE_MS = 10000;
+  const loadDevices = () => {
+    if (!devicesLoading) {
+      devicesLoading = invoke("get_available_devices")
+        .then((devices) => {
+          window._cachedDevices = devices;
+          devicesLoadedAt = Date.now();
+          return devices;
+        })
+        .finally(() => { devicesLoading = null; });
+    }
+    return devicesLoading;
+  };
 
   // A reloaded window picks the suspend state back up from the backend.
   invoke("is_capture_suspended").then((v) => {
@@ -147,22 +198,47 @@
 
   // Load settings from Rust backend and merge with localStorage.
   // localStorage acts as the synchronous fallback for first reads before invoke resolves.
-  invoke("get_settings").then((s) => {
-    if (s && typeof s === "object") {
-      // Merge backend settings into cache (backend is authoritative)
-      settingsCache = s;
+  const loadSettings = () => {
+    const readId = ++settingsReadId;
+    const revision = settingsRevision;
+    const pending = invoke("get_settings").then((s) => {
+      if (readId !== settingsReadId) return false;
       settingsLoaded = true;
-      // Also sync to localStorage so future reads before invoke are accurate
-      for (const [k, v] of Object.entries(s)) {
-        try { localStorage.setItem(k, v); } catch {}
+      if (!s || typeof s !== "object" || Array.isArray(s)) return false;
+      const merged = { ...s };
+      // An event or local edit after this read began is newer than its snapshot.
+      for (const [key, changed] of settingsKeyRevisions) {
+        if (changed > revision) merged[key] = settingsCache[key];
       }
-    }
-  }).catch(() => { settingsLoaded = true; });
+      for (const key of Object.keys(settingsCache)) {
+        if (!(key in merged)) {
+          try { localStorage.removeItem(key); } catch {}
+        }
+      }
+      settingsCache = merged;
+      for (const [key, value] of Object.entries(merged)) {
+        try { localStorage.setItem(key, value); } catch {}
+      }
+      return true;
+    }).catch(() => {
+      if (readId === settingsReadId) settingsLoaded = true;
+      return false;
+    });
+    settingsReadPromise = pending;
+    return pending;
+  };
+  loadSettings();
+  window.a2SettingsReady = (async () => {
+    // A reopen during startup can supersede the initial read.
+    let pending;
+    do { pending = settingsReadPromise; await pending; }
+    while (pending !== settingsReadPromise);
+  })();
 
   // --- DPS data polling via events ---
   // The Rust backend emits "dps-update" every 500ms.
   // We cache the latest snapshot so getDpsData() can return it synchronously.
-  listen("dps-update", (event) => {
+  if (viewMode !== "settings") listen("dps-update", (event) => {
     cachedDpsJson = JSON.stringify(event.payload);
     // NOTE: do NOT pre-fetch get_details_context here. It clones the full combat
     // aggregate and runs O(targets×actors×skills) work; firing it every 500ms
@@ -171,7 +247,7 @@
     // open (details.js), and getDetailsContext() below refreshes on demand.
   });
 
-  listen("ping-update", (event) => {
+  if (viewMode !== "settings") listen("ping-update", (event) => {
     cachedPing = event.payload;
     // Push directly to the app instance for immediate display update
     window._dpsApp?.updatePing?.(event.payload);
@@ -179,6 +255,7 @@
 
   listen("capture-status-changed", (event) => {
     cachedCaptureStatus = event.payload;
+    if (viewMode === "settings" && settingsActive) window._dpsApp?.refreshConnectionInfo?.();
   });
 
   // Settings live in their own window, so a change there has to reach the meter.
@@ -188,21 +265,32 @@
     const key = event?.payload?.key;
     const value = event?.payload?.value;
     if (typeof key !== "string") return;
-    settingsCache[key] = String(value);
-    try { localStorage.setItem(key, String(value)); } catch {}
+    cacheSetting(key, value);
     window._dpsApp?.applyRemoteSettingChange?.(key, String(value));
   });
 
   listen("account-changed", (event) => {
+    if (viewMode === "settings" && (!settingsActive || !window._dpsApp?.accountStateEl)) {
+      // A device grant finishes once. Keep its outcome while the form is
+      // hidden: account_status alone cannot distinguish pending from expired.
+      pendingSettingsAccountResult = event?.payload || null;
+      return;
+    }
     window._dpsApp?.refreshAccountPanel?.(event?.payload);
     window._dpsApp?.onAccountPromoResult?.(event?.payload);
   });
 
   // Settings was asked to open while already open; check the account again
   // behind what it shows.
-  listen("settings-shown", () => {
-    window._dpsApp?.refreshAccountPanel?.();
+  const settingsShownSubscription = listen("settings-shown", () => {
+    if (viewMode === "settings") ++settingsLifecycleGeneration;
+    if (!applyPendingSettingsAccountResult()) window._dpsApp?.refreshAccountPanel?.();
+    resumeSettings();
   });
+  const settingsHiddenSubscription = viewMode === "settings" ? listen("settings-hidden", () => {
+    window.dispatchEvent(new Event("settings-hidden"));
+  }) : undefined;
+  const settingsLifecycleReady = Promise.all([settingsShownSubscription, settingsHiddenSubscription]);
 
   // The lock hotkey toggled the click-through lock; the page follows.
   listen("overlay-lock-changed", (event) => {
@@ -393,6 +481,8 @@
       return invoke("close_settings_window").catch(() => {});
     },
     toolWindowReady(label) {
+      // Linux Settings loads hidden; notifyUiReady reveals it once the form is ready.
+      if (loadsHidden && label === "settings") return Promise.resolve();
       // Reveal from the window's own webview thread. Calling show() on the Rust
       // side from a spawned task did not take effect — the window stayed created
       // but unmapped — so the window shows itself and the backend call is only
@@ -406,14 +496,42 @@
       }
       return invoke("tool_window_ready", { label: String(label) }).catch(() => {});
     },
+    async notifyUiReady() {
+      // A visible startup or native fallback can precede core installation.
+      if (viewMode === "settings" && settingsActive) applyPendingSettingsAccountResult();
+      if (!loadsHidden) return;
+      if (viewMode === "settings") {
+        await settingsLifecycleReady;
+        const generation = settingsLifecycleGeneration;
+        // Lay out the translated form before mapping the native window.
+        document.querySelector(".settingsPanel")?.getBoundingClientRect();
+        // The backend shows it only if it is still wanted: a Close may have
+        // come first, and then paused the form.
+        const shown = await invoke("tool_window_ready", { label: "settings" }).catch(() => false);
+        if (generation !== settingsLifecycleGeneration) return;
+        if (shown) resumeSettings({ resync: settingsActive === false });
+        else window.dispatchEvent(new Event("settings-hidden"));
+        return;
+      }
+      if (viewMode !== "main") return;
+      // Startup setters may already have requested this same size. Await the
+      // actual native requests, including a newer size queued while waiting.
+      for (let attempt = 0; attempt < 2; ++attempt) {
+        let applied = await updateWindowSize();
+        while (pendingWindowSize) applied = await pendingWindowSize.promise;
+        if (!applied) continue;
+        await invoke("main_window_ready").catch(() => {});
+        return;
+      }
+    },
 
     // --- Settings ---
     getSetting(key) {
       return settingsCache[key] ?? localStorage.getItem(key);
     },
     setSetting(key, value) {
-      settingsCache[key] = String(value);
-      localStorage.setItem(key, String(value));
+      // A full storage quota must not keep the setting from the backend.
+      cacheSetting(key, value);
       invoke("update_settings", { key, value: String(value) }).catch(() => {});
       // Reload backend i18n data when language changes
       if (key === "dpsMeter.language") {
@@ -421,7 +539,10 @@
       }
     },
     clearAllSettings() {
-      localStorage.clear();
+      ++settingsReadId;
+      ++settingsRevision;
+      settingsKeyRevisions.clear();
+      try { localStorage.clear(); } catch {}
       settingsCache = {};
       invoke("clear_settings").catch(() => {});
     },
@@ -522,24 +643,15 @@
       return 0;
     },
     getAvailableDevices() {
-      // If cache is empty, do a blocking-ish fetch by returning what we have
-      // and immediately triggering a refresh. The settings panel re-populates
-      // the dropdown on each open, so the second open will have data.
-      if (!window._cachedDevices) {
-        // Trigger fetch — will be ready next time
-        invoke("get_available_devices").then((d) => { window._cachedDevices = d; }).catch(() => {});
-        return "[]";
+      // Stale-while-revalidate: answer now, refresh an old list in the background.
+      if (!window._cachedDevices || Date.now() - devicesLoadedAt > DEVICES_STALE_MS) {
+        loadDevices().catch(() => {});
       }
-      // Keep refreshing in background
-      invoke("get_available_devices").then((d) => { window._cachedDevices = d; }).catch(() => {});
-      return JSON.stringify(window._cachedDevices);
+      return JSON.stringify(window._cachedDevices || []);
     },
     // The same list, for a caller that can wait for it.
     loadAvailableDevices() {
-      return invoke("get_available_devices").then((d) => {
-        window._cachedDevices = d;
-        return d;
-      });
+      return loadDevices();
     },
     setManualDevice(device) {
       invoke("set_manual_device", { device: device || "" }).catch(() => {});
@@ -812,16 +924,37 @@
 
   // Poll AION2 window title and capture status from Rust backend
   const pollStatus = () => {
-    invoke("get_aion2_window_title")
+    const title = invoke("get_aion2_window_title")
       .then((title) => { window._cachedAion2Title = title ?? null; })
       .catch(() => { window._cachedAion2Title = null; });
 
-    invoke("get_capture_status")
+    const status = invoke("get_capture_status")
       .then((status) => { cachedCaptureStatus = status; })
       .catch(() => {});
+    // Settings has no title poll of its own; this one runs only while it is shown.
+    if (viewMode === "settings") Promise.all([title, status]).then(() => {
+      if (settingsActive) window._dpsApp?.refreshSettingsStatus?.();
+    });
   };
-  pollStatus();
-  setInterval(pollStatus, 3000);
+  let statusTimer = null;
+  const startStatusPolling = () => {
+    if (statusTimer !== null) return;
+    pollStatus();
+    statusTimer = setInterval(pollStatus, 3000);
+  };
+  // A repeat without a show in between is ignored.
+  if (viewMode === "settings") window.addEventListener("settings-hidden", () => {
+    ++settingsLifecycleGeneration;
+    window._dpsApp?.invalidateStreamOverlaySettings?.();
+    if (settingsActive === false) return;
+    settingsActive = false;
+    clearInterval(statusTimer);
+    statusTimer = null;
+    document.activeElement?.blur?.();
+    window._dpsApp?.closeSupportModal?.();
+    document.querySelectorAll(".settingsDropdownMenu.isOpen").forEach(menu => menu.classList.remove("isOpen"));
+  });
+  if (viewMode !== "settings" || settingsActive) startStatusPolling();
 
   // ===== Dynamic window resizing =====
   const PANEL_WIDTH = 1540;
@@ -829,6 +962,7 @@
   const PROMO_WIDTH = 400;
   const PROMO_HEIGHT = 480;
   let lastSizeKey = "";
+  let pendingWindowSize = null;
   let resizeActive = false;
   let nativeResize = null;
   let primaryHeld = false;
@@ -990,7 +1124,7 @@
   let tooltipReserve = null;
   let tooltipReleaseTimer = 0;
   const updateWindowSize = () => {
-    if (resizeActive) return; // Don't fight the user while they're resizing
+    if (resizeActive) return Promise.resolve(false); // Don't fight the user while they're resizing
     // Tool windows own their own geometry (and remember it). The overlay's
     // auto-sizing would otherwise shrink them to meter dimensions.
     if (window.A2_VIEW !== "main") return;
@@ -1071,12 +1205,34 @@
         : tooltipReserve
           ? Math.max(contentH, Math.min(tooltipReserve.h, room.h))
           : contentH;
-    const sizeKey = `${w}x${h}@${window.devicePixelRatio || 1}`;
-    if (sizeKey === lastSizeKey) return;
+    const scale = window.devicePixelRatio || 1;
+    const sizeKey = `${w}x${h}@${scale}`;
+    if (sizeKey === lastSizeKey) return pendingWindowSize?.promise || Promise.resolve(true);
     lastSizeKey = sizeKey;
     // The page's devicePixelRatio, so the backend sizes the window in the
     // pixels the page is actually drawn at (Windows text size included).
-    invoke("resize_window", { width: w, height: h, scale: window.devicePixelRatio || 1 }).catch(() => {});
+    const operation = { promise: null };
+    // Separate IPC fetches can arrive out of order. Queue size changes so the
+    // latest dimensions reach the native window last, and share an in-flight
+    // same-size request with notifyUiReady instead of treating it as applied.
+    operation.promise = Promise.resolve(pendingWindowSize?.promise)
+      .then(() => {
+        // A queued auto-size must not interrupt a resize the player began.
+        if (resizeActive) return false;
+        return invoke("resize_window", { width: w, height: h, scale }).then(() => true);
+      })
+      .then((applied) => {
+        if (!applied && pendingWindowSize === operation) lastSizeKey = "";
+        return applied;
+      }, () => {
+        if (pendingWindowSize === operation) lastSizeKey = "";
+        return false;
+      })
+      .finally(() => {
+        if (pendingWindowSize === operation) pendingWindowSize = null;
+      });
+    pendingWindowSize = operation;
+    return operation.promise;
   };
 
   window.javaBridge.updateOverlaySize = updateWindowSize;
@@ -1093,13 +1249,13 @@
       });
     }
   };
-  if (document.readyState === "loading") {
+  if (viewMode === "main" && document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", startObserving);
-  } else {
+  } else if (viewMode === "main") {
     startObserving();
   }
   // Fallback poll
-  setInterval(updateWindowSize, 500);
+  if (viewMode === "main") setInterval(updateWindowSize, 500);
 
   // Force resize when window is restored from auto-hide
   // (content may have changed while minimized, stale lastSizeKey would skip resize)
@@ -1139,18 +1295,34 @@
     }
   }, { capture: true });
 
-  // ===== Tool windows on Linux: drag by the header, resize from the edges =====
-  // The tool windows are frameless. On Windows their headers drag through
-  // -webkit-app-region and the window manager resizes them by their border.
-  // WebKitGTK ignores app-region, and a frameless window has no border to
-  // grab, so on Linux the page starts both: the drag through start_tool_drag,
-  // the resize through begin_tool_resize, which lifts the pinned size hints
+  // ===== Tool windows: drag by the header; on Linux, resize from the edges =====
+  // The tool windows are frameless, so the page starts the drag itself, through
+  // start_tool_drag. Not -webkit-app-region: WebView2 moves a helper window
+  // with SetWindowPos whenever the draggable area changes, and that call waits
+  // on other windows (the game's among them), so Settings froze the whole app
+  // for seconds at a time (2026-10-08). WebKitGTK ignores app-region anyway.
+  // On Windows the window manager resizes them by their border; on Linux a
+  // frameless window has no border to grab, so the page also starts the resize
+  // through begin_tool_resize, which lifts the pinned size hints
   // (platform::window::set_size) for the length of the resize.
-  if (window.A2_VIEW !== "main" && /Linux/.test(navigator.userAgent)) {
-    const DRAG_HEADERS = ".historyHeader, .detailsHeader, .settingsHeader";
-    const NO_DRAG = "button, a, input, select, textarea, [data-no-drag], "
-      + ".historyViewToggle, .historyFilters, .historyClose, .detailsModeToggle, "
-      + ".detailsSettingsMenuWrapper, .detailsScreenshotWrapper, .detailsWindowClose, .closeX";
+  const DRAG_HEADERS = ".historyHeader, .detailsHeader, .settingsHeader";
+  const NO_DRAG = "button, a, input, select, textarea, [data-no-drag], "
+    + ".historyViewToggle, .historyFilters, .historyClose, .detailsModeToggle, "
+    + ".detailsSettingsMenuWrapper, .detailsScreenshotWrapper, .detailsWindowClose, .closeX";
+  const dragFromHeader = (e) => {
+    const target = e.target?.nodeType === Node.TEXT_NODE ? e.target.parentElement : e.target;
+    if (!target?.closest?.(DRAG_HEADERS) || target.closest(NO_DRAG)) return false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    invoke("start_tool_drag").catch(() => {});
+    return true;
+  };
+  if (window.A2_VIEW !== "main" && !isLinux) {
+    document.addEventListener("mousedown", (e) => {
+      if (e.button === 0) dragFromHeader(e);
+    }, { capture: true });
+  }
+  if (window.A2_VIEW !== "main" && isLinux) {
     const MIN_SIZE = { settings: [520, 420], history: [480, 360], details: [520, 360] };
     const [minW, minH] = MIN_SIZE[window.A2_VIEW] || [480, 360];
     const EDGE = 6;
@@ -1201,28 +1373,25 @@
           .catch((err) => console.error("[A2Tools] tool window resize failed", err));
         return;
       }
-      const target = e.target?.nodeType === Node.TEXT_NODE ? e.target.parentElement : e.target;
-      if (target?.closest?.(DRAG_HEADERS) && !target.closest(NO_DRAG)) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        invoke("start_tool_drag").catch(() => {});
-      }
+      dragFromHeader(e);
     }, { capture: true });
 
     document.addEventListener("mousemove", (e) => showEdge(e.buttons ? "" : edgeAt(e)), { capture: true });
   }
 
   // Pre-fetch device list and fight history so they're ready when panels open
-  invoke("get_available_devices").then((d) => { window._cachedDevices = d; }).catch(() => {});
-  invoke("get_fight_history").then((h) => { window._cachedFightHistory = h; }).catch(() => {});
-  invoke("default_screenshot_folder")
+  if (viewMode !== "settings") {
+    loadDevices().catch(() => {});
+    invoke("get_fight_history").then((h) => { window._cachedFightHistory = h; }).catch(() => {});
+  }
+  if (viewMode !== "settings") invoke("default_screenshot_folder")
     .then((f) => {
       window._defaultScreenshotFolder = f || "";
       window._dpsApp?.updateScreenshotFolderDisplay?.();
     })
     .catch(() => {});
   // Refresh fight history periodically (picks up auto-saved fights)
-  setInterval(() => {
+  if (viewMode !== "settings") setInterval(() => {
     invoke("get_fight_history").then((h) => { window._cachedFightHistory = h; }).catch(() => {});
   }, 10000);
 

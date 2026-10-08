@@ -782,18 +782,16 @@ pub struct UploadResult {
     pub duplicate: bool,
 }
 
-/// The meter's display language, as the settings file holds it (`ko`, `en`, …).
+/// The meter's current display language (`ko`, `en`, …).
 ///
 /// Sent with an upload because a server id cannot tell Korea from Taiwan:
 /// both number their servers 1001–1058 and 2001–2058. The language and the
 /// computer's time zone are what the site has to go on; a player on Korean
 /// servers almost always has one or the other Korean.
-fn ui_language(app_data_dir: &Path) -> String {
-    std::fs::read_to_string(app_data_dir.join("settings.json"))
-        .ok()
-        .and_then(|text| serde_json::from_str::<HashMap<String, String>>(&text).ok())
-        .and_then(|values| values.get("dpsMeter.language").cloned())
-        .unwrap_or_default()
+pub(crate) fn ui_language(settings: &crate::config::settings::Settings) -> String {
+    // Settings writes are queued. Uploads must observe an accepted change even
+    // when its disk write is still pending or failed.
+    settings.get("dpsMeter.language").unwrap_or_default()
 }
 
 /// Upload a saved fight as a log.
@@ -806,8 +804,9 @@ pub async fn upload(
     client: &reqwest::Client,
     app_data_dir: &Path,
     record: &FightRecord,
+    settings: &crate::config::settings::Settings,
 ) -> Result<UploadResult, String> {
-    upload_detailed(client, app_data_dir, record).await.map_err(|f| f.message)
+    upload_detailed(client, app_data_dir, record, settings).await.map_err(|f| f.message)
 }
 
 /// Why an upload failed, and whether trying the same upload later could work.
@@ -838,6 +837,7 @@ pub async fn upload_detailed(
     client: &reqwest::Client,
     app_data_dir: &Path,
     record: &FightRecord,
+    settings: &crate::config::settings::Settings,
 ) -> Result<UploadResult, UploadFailure> {
     let token = match crate::account::secret::load_stored(app_data_dir) {
         crate::account::secret::Stored::Token(token) => token,
@@ -882,7 +882,7 @@ pub async fn upload_detailed(
         // Korea and Taiwan number their servers alike (10xx/20xx), so the
         // slice cannot say which a fight was on; these two settle it. See
         // `region_hints`.
-        "uiLanguage": ui_language(app_data_dir),
+        "uiLanguage": ui_language(settings),
         "utcOffsetMinutes": chrono::Local::now().offset().local_minus_utc() / 60,
     });
 

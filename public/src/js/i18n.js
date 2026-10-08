@@ -6,6 +6,9 @@ const createI18n = ({
   ],
 } = {}) => {
   let currentLanguage = defaultLanguage;
+  let loadedLanguage = null;
+  let pendingLoad = null;
+  let languageRequest = 0;
   let uiStrings = {};
   let skillStrings = {};
   let npcStrings = {};
@@ -198,6 +201,14 @@ const createI18n = ({
     });
   };
 
+  const applyLanguage = () => {
+    document.documentElement.setAttribute("lang", currentLanguage);
+    applyTranslations();
+    listeners.forEach((listener) => listener(currentLanguage));
+  };
+
+  // getLanguage() reports the requested language at once; the latest request
+  // wins when an older dictionary load finishes after it.
   const setLanguage = async (lang, { persist = true } = {}) => {
     const next = normalizeLanguage(lang || defaultLanguage);
     currentLanguage = next;
@@ -206,25 +217,47 @@ const createI18n = ({
       safeSetStorage(storageKey, next);
     }
 
+    if (pendingLoad?.language === next) return pendingLoad.promise;
+    const request = ++languageRequest;
+    pendingLoad = null;
+    if (loadedLanguage === next) {
+      // Same language: re-apply to the current DOM without reloading.
+      applyLanguage();
+      return;
+    }
     const localized = async (kind) => {
       const strings = await loadJson(`./i18n/${kind}/${next}.json`);
       return Object.keys(strings).length || next === "en"
         ? strings : loadJson(`./i18n/${kind}/en.json`);
     };
-    const [ui, skills, npcs, dungeons] = await Promise.all([
-      localized("ui"), localized("skills"), localized("npcs"), localized("dungeons"),
-    ]);
-
-    uiStrings = ui || {};
-    skillStrings = skills || {};
-    npcStrings = npcs || {};
-    dungeonStrings = dungeons || {};
-    document.documentElement.setAttribute("lang", currentLanguage);
-    applyTranslations();
-    listeners.forEach((listener) => listener(currentLanguage));
+    // Settings has no combat names. Do not put the megabyte-sized game
+    // dictionaries (or missing dungeon-locale fallbacks) on its startup path.
+    const uiOnly = window.A2_VIEW === "settings";
+    const promise = Promise.all([
+      localized("ui"),
+      uiOnly ? {} : localized("skills"),
+      uiOnly ? {} : localized("npcs"),
+      uiOnly ? {} : localized("dungeons"),
+    ]).then(([ui, skills, npcs, dungeons]) => {
+      if (request !== languageRequest) return;
+      pendingLoad = null;
+      loadedLanguage = next;
+      uiStrings = ui || {};
+      skillStrings = skills || {};
+      npcStrings = npcs || {};
+      dungeonStrings = dungeons || {};
+      applyLanguage();
+    }, (error) => {
+      if (request === languageRequest) pendingLoad = null;
+      throw error;
+    });
+    pendingLoad = { language: next, promise };
+    return promise;
   };
 
   const init = async () => {
+    // The backend preference wins over stale localStorage on a newly opened window.
+    if (window.A2_VIEW === "settings") await window.a2SettingsReady;
     const stored = safeGetStorage(storageKey);
     await setLanguage(stored || defaultLanguage, { persist: false });
   };

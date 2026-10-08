@@ -1345,6 +1345,16 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 .settingsPanel .settingsGroupStrip > * + * {
   border-top: 0;
 }
+/* A row with a long value (the detected device's name and port) takes the
+   strip's whole width rather than one of its columns. */
+.settingsPanel .settingsGroupStrip > .settingsRowFullWidth {
+  grid-column: 1 / -1;
+}
+/* Send logs sits under the packet logging toggle it sends the logs of: the
+   Diagnostics grid's last column (its only one when the window is narrow). */
+.settingsPanel .settingsGroupSplit > .sendLogsRow {
+  grid-column: -2 / -1;
+}
 .settingsPanel .settingsRowStacked {
   flex-direction: column;
   align-items: stretch;
@@ -6966,30 +6976,16 @@ html.historyWindow .historyBody {
   overflow-y: auto;
 }
 
-/* Frameless, so the history header is the drag surface and its × closes the
-   window. */
+/* Frameless, so the history header is the drag surface (started by the page,
+   see tauriBridge.js) and its × closes the window. */
 html.historyWindow .historyHeader {
-  -webkit-app-region: drag;
   padding-right: 6px;
-}
-html.historyWindow .historyHeader button,
-html.historyWindow .historyHeader .historyViewToggle,
-html.historyWindow .historyFilters,
-html.historyWindow .historyHeader .historyClose {
-  -webkit-app-region: no-drag;
 }
 
-/* Drag the window by its header, since it is frameless. */
+/* Drag the window by its header, since it is frameless (started by the page,
+   see tauriBridge.js). */
 html.detailsWindow .detailsHeader {
-  -webkit-app-region: drag;
   padding-right: 6px;
-}
-html.detailsWindow .detailsHeader button,
-html.detailsWindow .detailsHeader .detailsModeToggle,
-html.detailsWindow .detailsHeader .detailsSettingsMenuWrapper,
-html.detailsWindow .detailsHeader .detailsScreenshotWrapper,
-html.detailsWindow .detailsWindowClose {
-  -webkit-app-region: no-drag;
 }
 
 /* There is no title bar, so the panel supplies the close control. It is
@@ -7156,18 +7152,13 @@ html.settingsWindow .settingsBody {
   zoom: 1.2;
 }
 
-/* Frameless, so the panel header is the drag surface. */
+/* Frameless, so the panel header is the drag surface (started by the page,
+   see tauriBridge.js; not -webkit-app-region, which froze the app). */
 html.settingsWindow .settingsHeader {
-  -webkit-app-region: drag;
   position: sticky;
   top: 0;
   z-index: 5;
   background: #0a0e16;
-}
-html.settingsWindow .settingsHeader button,
-html.settingsWindow .settingsHeader .closeX,
-html.settingsWindow .settingsHeader a {
-  -webkit-app-region: no-drag;
 }
 
 /* ============================================================
@@ -7223,8 +7214,31 @@ body.windowDragFreeze * {
   cursor: grabbing !important;
 }
 
-/* Tool windows drag by their own header, handled by -webkit-app-region. */
+/* Tool windows drag by their own header (tauriBridge.js). */
 html.detailsWindow .meter,
 html.settingsWindow .meter {
   cursor: auto;
+}
+
+/* WebKitGTK asks fontconfig about every missing family in a stack, again in
+   each new window process; the Windows/macOS names cost ~0.5s of first layout
+   on Linux, where they never resolve. Same rendering, without those names. */
+html.linux {
+  --cjk-font-stack: "Noto Sans SC", "Noto Sans TC", sans-serif;
+  --hud-tech: sans-serif;
+  --hud-ident: "Pretendard", sans-serif;
+}
+html.linux, html.linux body {
+  font-family: "Pretendard", Arial, sans-serif;
+}
+html.linux:lang(ko), html.linux:lang(ko) body {
+  font-family: "Pretendard", sans-serif;
+}
+html.linux:lang(zh-CN), html.linux:lang(zh-CN) body,
+html.linux:lang(zh-Hans), html.linux:lang(zh-Hans) body {
+  font-family: "Pretendard", sans-serif;
+}
+html.linux:lang(zh-TW), html.linux:lang(zh-TW) body,
+html.linux:lang(zh-Hant), html.linux:lang(zh-Hant) body {
+  font-family: sans-serif;
 }

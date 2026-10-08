@@ -4,6 +4,7 @@
 //! replaces this for its target.
 
 pub mod admin;
+pub mod atomic_file;
 pub mod clock;
 pub mod dialog;
 pub mod hotkeys;
@@ -15,3 +16,5 @@ pub mod shell;
 pub mod updater;
 pub mod window;
 pub mod window_detector;
+pub mod window_rules;
+pub mod window_startup;
