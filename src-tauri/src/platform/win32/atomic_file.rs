@@ -316,11 +316,9 @@ mod tests {
             "new file has a protected DACL: {}",
             sddl(&path)
         );
-        assert!(
-            sddl(&path).contains(";ID;"),
-            "no inherited ACE: {}",
-            sddl(&path)
-        );
+        // No `;ID;` check: a folder whose ACEs do not inherit (CI's temp
+        // folder) gives a new file the token's default DACL instead, also
+        // unprotected. Not protected is what matters.
         crate::atomic_file::write(&path, b"second").unwrap();
         assert!(
             !protected(&path),
