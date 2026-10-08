@@ -89,6 +89,7 @@ const PARTY = [
   { id: 102, name: "Freund1", job: "치유성", rate: 6000, cp: 2900 },
   { id: 103, name: "Freund2", job: "마도성", rate: 11000, cp: 3050 },
 ];
+const MITSPIELER = { id: 198, name: "Mitspieler", job: "궁성", rate: 4000, cp: 2500 };
 
 /**
  * FightRecord wie in AppData/history: der Uploader sieht sich selbst voll und
@@ -160,7 +161,8 @@ async function main() {
   let sent = 0;
   for (let s = 1; s <= 6; s++) {
     for (const [i, a] of apps.entries()) {
-      a.ws.send(JSON.stringify(snap(s, PARTY[i].name, PARTY, s)));
+      // Marlon sieht zusätzlich einen Mitspieler ohne App
+      a.ws.send(JSON.stringify(snap(s, PARTY[i].name, i === 0 ? [...PARTY, MITSPIELER] : PARTY, s)));
       sent++;
     }
     await sleep(1050);
@@ -172,7 +174,9 @@ async function main() {
   check("Gruppen-Updates gedrosselt (≤ 2/s)", viewer.groups.length <= Math.ceil(((Date.now() - t0) / 1000) * 2) + 2, `${viewer.groups.length}`);
   check("3 Mitglieder online + kämpfend", g?.members?.filter((m) => m.state === "fighting").length === 3, JSON.stringify(g?.members?.map((m) => `${m.name}:${m.state}`)));
   check("ein gemeinsamer Kampf mit 3 Meldern", g?.encounters?.[0]?.key === enc?.key && enc?.reporters?.length === 3);
-  check("3 Spieler zusammengeführt", enc?.players?.length === 3);
+  check("3 Mitglieder zusammengeführt", enc?.players?.filter((p) => p.member).length === 3);
+  const mit = enc?.players?.find((p) => p.name === "Mitspieler");
+  check("Live: Mitspieler mit eigener Zeile, als Nicht-Mitglied markiert", mit?.member === false && mit.dmg > 0 && enc.others.count === 0, JSON.stringify([mit, enc?.others]));
   check("Gruppenansicht verrät keine clientId", g?.members?.length > 0 && g.members.every((m) => !("clientId" in m) && /^[0-9a-f]{8}$/.test(m.key)) && !JSON.stringify(g).includes("client-marlon-00"));
   const hijack = connect({ role: "app", name: "Boese", clientId: "client-marlon-00" });
   await hijack.opened;
@@ -189,7 +193,7 @@ async function main() {
 
   // HTTP-Snapshot der Gruppenansicht
   const live = await fetch(`${BASE}/api/rooms/${ROOM}/live`, { headers: auth }).then((r) => r.json());
-  check("GET /live liefert dieselbe Ansicht", live.encounters?.find((e) => e.target.name === "Testboss Kelpina")?.players?.length === 3);
+  check("GET /live liefert dieselbe Ansicht", live.encounters?.find((e) => e.target.name === "Testboss Kelpina")?.players?.length === 4);
 
   // ---------- Drosselung ----------
   for (let i = 0; i < 5; i++) apps[0].ws.send(JSON.stringify(snap(100 + i, "Marlon", PARTY, 7)));

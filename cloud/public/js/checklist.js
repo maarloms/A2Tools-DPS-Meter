@@ -165,6 +165,17 @@ function progress(p, section, per) {
   return { done, total };
 }
 
+/** Stand je Spieler und Abschnitt, für die Live-Seite: [{ player, sections: [{ id, title, done, total }] }] */
+export function checklistSummary(list, now = Date.now()) {
+  const per = periods(now);
+  return (list?.players ?? []).map((p) => ({
+    player: p.player,
+    sections: SECTIONS.map((s) => ({ id: s.id, title: s.title, ...progress(p, s, per) })),
+  }));
+}
+/** Nächster Tagesreset als „in 3 Std 12 min“ */
+export const dailyResetIn = (now = Date.now()) => left(nextReset(now).daily - now);
+
 // ---------- Laden ----------
 
 export async function loadChecklist() {

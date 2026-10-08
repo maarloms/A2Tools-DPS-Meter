@@ -9,7 +9,7 @@ import { loadMe } from "./js/me.js";
 import { loadCompare } from "./js/compare.js";
 import { drawCharts, loadFight, loadFights } from "./js/fights.js";
 import { loadVersus, redrawVersus } from "./js/versus.js";
-import { renderLive } from "./js/live.js";
+import { invalidateLiveSide, recordLive, renderLive } from "./js/live.js";
 import { loadTimer } from "./js/timer.js";
 import { loadChecklist } from "./js/checklist.js";
 import { loadMembersPage } from "./js/members.js";
@@ -121,10 +121,12 @@ function connect() {
       state.pingTimer = setInterval(() => ws.readyState === 1 && ws.send("ping"), 25000);
     } else if (m.t === "group") {
       state.group = m;
+      recordLive(m);
       if (route === "live") keepScroll(renderLive);
       if (route === "overview") keepScroll(refreshOverviewLive);
     } else if (m.t === "fight" || m.t === "fightDeleted") {
       state.bosses = null;
+      invalidateLiveSide();
       // Liste im Hintergrund nachladen: die alte bleibt stehen, kein Sprung nach oben
       if (route === "fights") keepScroll(() => loadFights(false, { quiet: true }));
       else state.fights = null;

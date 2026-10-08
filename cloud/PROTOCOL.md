@@ -118,9 +118,10 @@ aufzuwecken (kostenlos).
                      "member": true, "src": "marloms" } ],
       "others": { "count": 2, "dmg": 563000, "share": 32.5 } } ] }
 ```
-- **Nur Gruppenmitglieder** stehen in `members` und `players` (Mitglieder = Namen aus `hello`/`uploader`, ausgeblendete
-  zählen nicht; optional feste Liste `ROOM_MEMBERS`). Alle anderen Spieler fasst `others` zusammen – ihr Schaden zählt im
-  Gesamtschaden und damit in jedem `share` mit (Anteil = Anteil am Bossschaden). Die App darf weiter alle Spieler schicken.
+- **Nur Gruppenmitglieder** stehen in `members` (Mitglieder = Namen aus `hello`/`uploader`, ausgeblendete zählen nicht;
+  optional feste Liste `ROOM_MEMBERS`). `players` enthält auch die Mitspieler im Kampf (`member: false`), höchstens 24
+  nach Schaden; nur Kämpfe mit mindestens einem Mitglied erscheinen. Was darüber hinausgeht oder keinem Spieler gehört,
+  fasst `others` zusammen – es zählt im Gesamtschaden und damit in jedem `share` mit (Anteil = Anteil am Bossschaden). Die App darf weiter alle Spieler schicken.
 - `state`: `fighting` (Snapshot < 15 s), `idle` (verbunden), `offline` (getrennt; Stand bleibt bis 2 h sichtbar).
 - Kämpfe werden über `target.id + target.name` gruppiert. Pro Spieler zählt der höchste gemeldete Schaden (= aktuellster),
   bei Gleichstand die Eigenmeldung. `share` wird neu berechnet (Anteil am Gesamtschaden auf das Ziel).

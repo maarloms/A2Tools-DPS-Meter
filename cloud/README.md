@@ -47,7 +47,7 @@ cloud/
     session.ts              signierte Session-Cookies
     auth.ts                 Raum-Secrets (Digest-Vergleich), Origin/CORS
     members.ts              wer zählt zur Gruppe (members.hidden, ROOM_MEMBERS)
-    protocol.ts / merge.ts  Live-Snapshots → Gruppenansicht (nur Mitglieder + „Andere“)
+    protocol.ts / merge.ts  Live-Snapshots → Gruppenansicht (Mitglieder, Mitspieler, Rest als „Andere“)
     room.ts                 Durable Object: WebSocket-Relay, Uploads (serialisiert), Rohdaten
     fights.ts / store.ts    FightRecord → Detail, Zusammenführung, D1-Schreiben
     stats.ts                D1-Abfragen: Übersicht, Mein Bereich, Vergleich, Kampfliste, Trends, Mitglieder

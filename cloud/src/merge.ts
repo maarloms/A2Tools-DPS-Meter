@@ -40,9 +40,9 @@ export interface EncounterView {
   dealt: number;
   updatedAt: number;
   reporters: string[];
-  /** Nur Gruppenmitglieder */
+  /** Mitglieder und Mitspieler im Kampf (`member: false`), nach Schaden */
   players: MergedPlayer[];
-  /** Alle anderen zusammengefasst (zählen im Gesamtschaden/Anteil mit) */
+  /** Rest ohne eigene Zeile (über dem Limit oder keinem Spieler zugeordnet) */
   others: { count: number; dmg: number; share: number };
 }
 
@@ -76,8 +76,8 @@ function selfEntry(s: Snap) {
 
 /**
  * @param isMember  Gehört ein Name (klein geschrieben) zur Gruppe? Ohne Angabe: jeder
- *                  Melder (App-Name) gilt als Mitglied. Nur Mitglieder werden gezeigt,
- *                  Fremde zählen aber im Gesamtschaden und in den Anteilen.
+ *                  Melder (App-Name) gilt als Mitglied. Ein Kampf erscheint nur mit einem
+ *                  Mitglied darin; Mitspieler stehen dort mit `member: false`.
  */
 export function buildGroupView(
   snaps: Iterable<Snap>,
@@ -137,7 +137,8 @@ export function buildGroupView(
     for (const p of merged) p.share = pct(p.dmg);
     const mine = merged.filter((p) => p.member);
     if (!mine.length) continue;
-    const othersDmg = Math.max(0, total - mine.reduce((sum, p) => sum + p.dmg, 0));
+    const shown = merged.slice(0, LIMITS.maxPlayersPerSnap);
+    const othersDmg = Math.max(0, total - shown.reduce((sum, p) => sum + p.dmg, 0));
 
     encounters.push({
       key,
@@ -154,8 +155,8 @@ export function buildGroupView(
       dealt: total,
       updatedAt: newest.ts,
       reporters: [...new Set(list.map((s) => s.name))],
-      players: mine.slice(0, LIMITS.maxPlayersPerSnap),
-      others: { count: merged.length - mine.length, dmg: othersDmg, share: pct(othersDmg) },
+      players: shown,
+      others: { count: merged.length - shown.length, dmg: othersDmg, share: pct(othersDmg) },
     });
   }
   encounters.sort(
