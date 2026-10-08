@@ -16,6 +16,16 @@ use crate::i18n::lookup::{NpcLookup, SkillLookup};
 /// collide, and stays positive because the frontend discards non-positive ids.
 const PARTY_ROW_ID_BASE: i32 = 90_000_000;
 
+/// The local player's ids (theirs and their summons'), the party's names,
+/// and what resolves an actor to a name: what `DpsCalculator::fight_is_ours`
+/// holds a fight's actors to.
+struct OurSide {
+    local: Option<HashSet<i32>>,
+    party: HashSet<String>,
+    nicknames: HashMap<i32, String>,
+    summons: HashMap<i32, i32>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetSelectionMode {
     BossTargets,
@@ -637,15 +647,19 @@ impl DpsCalculator {
                 }
             }
             TargetSelectionMode::BossTargets => {
-                let boss_targets: Vec<_> = combat_data.keys()
-                    .filter(|&&tid| {
-                        if let Some(&mob_code) = mob_data.get(&tid) {
-                            self.npc_lookup.is_boss(mob_code)
-                        } else {
-                            false
-                        }
+                // Only a boss that is ours, by the rule the history uses
+                // (`is_our_fight`), and nothing before the meter knows who
+                // you are. Any boss in range used to count: a world boss
+                // others fought out of your sight took the meter for hours
+                // after, a row of `#id`s for players never spawned near you
+                // (2026-10-08, Centurion Demiros).
+                let us = self.our_side();
+                let boss_targets: Vec<_> = combat_data.iter()
+                    .filter(|&(&tid, td)| {
+                        mob_data.get(&tid).is_some_and(|&mob_code| self.npc_lookup.is_boss(mob_code))
+                            && self.fight_is_ours(td, &us, false)
                     })
-                    .cloned()
+                    .map(|(&tid, _)| tid)
                     .collect();
 
                 if let Some(&best) = boss_targets.iter()
@@ -878,6 +892,24 @@ impl DpsCalculator {
     /// auto-uploaded under the local player's account (issue #19). Without
     /// either a local id or a party to go on, every fight counts, as before.
     fn is_our_fight(&self, target: &TargetCombatData) -> bool {
+        self.fight_is_ours(target, &self.our_side(), true)
+    }
+
+    /// Who counts as "us" for `fight_is_ours`, read once for many targets.
+    fn our_side(&self) -> OurSide {
+        let summons = self.data_storage.get_summon_data();
+        OurSide {
+            local: self.resolve_local_ids(&summons),
+            party: self.data_storage.get_party_members().into_keys().collect(),
+            nicknames: self.data_storage.get_nicknames(),
+            summons,
+        }
+    }
+
+    /// `is_our_fight`, with `us` read beforehand. `unknown_counts`: the
+    /// answer when there is neither a local id nor a party to go on (the
+    /// history keeps such fights; the live Boss mode does not show them).
+    fn fight_is_ours(&self, target: &TargetCombatData, us: &OurSide, unknown_counts: bool) -> bool {
         if self.every_fight {
             return true;
         }
@@ -888,17 +920,13 @@ impl DpsCalculator {
         if self.target_dungeon(target.target_id) > 0 {
             return true;
         }
-        let summon_data = self.data_storage.get_summon_data();
-        let nicknames = self.data_storage.get_nicknames();
-        let party = self.data_storage.get_party_members();
-        let local = self.resolve_local_ids(&summon_data);
-        if local.is_none() && party.is_empty() {
-            return true;
+        if us.local.is_none() && us.party.is_empty() {
+            return unknown_counts;
         }
         target.actors.keys().any(|&actor| {
-            let owner = summon_resolver::resolve(actor, &summon_data);
-            local.as_ref().is_some_and(|ids| ids.contains(&actor) || ids.contains(&owner))
-                || nicknames.get(&owner).is_some_and(|name| party.contains_key(name))
+            let owner = summon_resolver::resolve(actor, &us.summons);
+            us.local.as_ref().is_some_and(|ids| ids.contains(&actor) || ids.contains(&owner))
+                || us.nicknames.get(&owner).is_some_and(|name| us.party.contains(name))
         })
     }
 
@@ -1945,6 +1973,95 @@ mod tests {
         let shown = meter(&dungeon).get_dps();
         assert_eq!(shown.target_id, 0);
         assert!(shown.map.is_empty());
+    }
+
+    /// A Boss-mode meter over `storage`, with 2100708 a boss (open world)
+    /// and 2100704 trash.
+    fn boss_meter(storage: &Arc<DataStorage>) -> DpsCalculator {
+        let npcs = Arc::new(NpcLookup::new());
+        npcs.load_from_json(r#"{"2100708": {"name": "Centurion Demiros", "isBoss": true},
+                                "2100704": {"name": "Cairn"}}"#);
+        storage.append_mob(44_090, 2100708);
+        storage.append_mob(51_473, 2100704);
+        DpsCalculator::new(storage.clone(), Arc::new(SkillLookup::new()), npcs, Arc::new(PingTracker::new()))
+    }
+
+    /// A world boss strangers fought out of your sight (2026-10-08: eight
+    /// players never spawned near you, so eight `#id` rows) is not put on
+    /// your meter in Boss mode, nor kept there for hours after; your own
+    /// trash mob is. Once you hit the boss it is yours, with everyone on it.
+    #[test]
+    fn boss_mode_shows_a_boss_only_once_you_or_your_party_hit_it() {
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(7983));
+        let mut calc = boss_meter(&storage);
+        storage.append_damage(hit(7983, 51_473, 1_000));
+        for (i, stranger) in [2653, 15468, 13179].into_iter().enumerate() {
+            storage.append_damage(hit(stranger, 44_090, 2_000 + i as i64));
+        }
+        let shown = calc.get_dps();
+        assert_eq!(shown.target_id, 51_473, "your mob, not a stranger's boss");
+        assert_eq!(shown.map.keys().copied().collect::<Vec<_>>(), vec![7983]);
+
+        // Only strangers on the boss and nothing of yours: nothing at all.
+        let alone = Arc::new(DataStorage::new());
+        alone.set_local_player_id(Some(7983));
+        alone.append_damage(hit(2653, 44_090, 2_000));
+        let shown = boss_meter(&alone).get_dps();
+        assert_eq!(shown.target_id, 0);
+        assert!(shown.map.is_empty());
+
+        // You join in: the boss is yours, with every player on it.
+        storage.append_damage(hit(7983, 44_090, 3_000));
+        let shown = calc.get_dps();
+        assert_eq!(shown.target_id, 44_090);
+        let mut rows: Vec<i32> = shown.map.keys().copied().collect();
+        rows.sort_unstable();
+        assert_eq!(rows, vec![2653, 7983, 13179, 15468]);
+    }
+
+    #[test]
+    fn boss_mode_shows_a_party_members_boss() {
+        use crate::combat::data_storage::PartyMember;
+        let storage = Arc::new(DataStorage::new());
+        storage.set_local_player_id(Some(7983));
+        storage.set_party_roster(vec![
+            ("Naicha".into(), PartyMember { slot: 1, ..Default::default() }),
+            ("Oppi".into(), PartyMember { slot: 2, ..Default::default() }),
+        ], true);
+        storage.append_nickname_authoritative(15_130, "Oppi");
+        let mut calc = boss_meter(&storage);
+        storage.append_damage(hit(7983, 51_473, 1_000));
+        storage.append_damage(hit(15_130, 44_090, 2_000));
+        storage.append_damage(hit(2653, 44_090, 2_100));
+        let shown = calc.get_dps();
+        assert_eq!(shown.target_id, 44_090);
+        assert!(shown.map.contains_key(&15_130) && shown.map.contains_key(&2653));
+    }
+
+    /// Before the meter knows who you are, an open-world boss is no one's
+    /// and stays off; in an instance (only your party there) any boss shows,
+    /// as before, identified or not.
+    #[test]
+    fn boss_mode_unidentified_and_in_an_instance() {
+        let unknown = Arc::new(DataStorage::new());
+        let mut calc = boss_meter(&unknown);
+        unknown.append_damage(hit(2653, 44_090, 2_000));
+        let shown = calc.get_dps();
+        assert_eq!(shown.target_id, 0);
+        assert!(shown.map.is_empty());
+        unknown.set_current_dungeon(600_011);
+        unknown.append_damage(hit(2653, 44_090, 2_500));
+        assert_eq!(calc.get_dps().target_id, 44_090);
+
+        let dungeon = Arc::new(DataStorage::new());
+        dungeon.set_local_player_id(Some(7983));
+        dungeon.set_current_dungeon(600_011);
+        let mut calc = boss_meter(&dungeon);
+        dungeon.append_damage(hit(2653, 44_090, 2_000));
+        let shown = calc.get_dps();
+        assert_eq!(shown.target_id, 44_090);
+        assert_eq!(shown.map.keys().copied().collect::<Vec<_>>(), vec![2653]);
     }
 
     /// Two Assassins at a training dummy, both unnamed (2026-10-07, after the

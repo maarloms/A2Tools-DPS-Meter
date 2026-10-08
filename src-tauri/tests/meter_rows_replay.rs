@@ -14,6 +14,9 @@
 //!   (A2_METER_ROWS_RESET_KIND=old for the reset that cleared every name).
 //! - A2_METER_ROWS_ACTORS, A2_METER_ROWS_NAMES=id,..., A2_METER_ROWS_LOCALJOB:
 //!   extra dumps.
+//! - A2_METER_ROWS_OWN_BOSS: captures (as A2_METER_ROWS_CAPTURES) for
+//!   `boss_mode_shows_only_our_bosses`, which asserts that Boss mode never put
+//!   up an open-world boss that neither you, your summons nor your party hit.
 //!
 //! Times print in UTC+2 (the EU captures this was written for).
 
@@ -85,6 +88,11 @@ pub struct Summary {
     /// someone else.
     pub scope_agree: usize,
     pub scope_disagree: usize,
+    /// Ticks showing an open-world boss that neither the local player, their
+    /// summons nor a party member had hit.
+    pub foreign_boss_ticks: usize,
+    /// Ticks showing a boss at all.
+    pub boss_ticks: usize,
 }
 
 fn replay(paths: &[&Path], mode: &str, verbose: bool) -> Summary {
@@ -229,6 +237,21 @@ fn replay(paths: &[&Path], mode: &str, verbose: bool) -> Summary {
             }
             // Did the local player hit the shown target(s)?
             let local = storage.local_player_id().map(|v| v as i32);
+            if dps.target_is_boss {
+                summary.boss_ticks += 1;
+                let party = storage.get_party_members();
+                let names = storage.get_nicknames();
+                let ours = combat.get(&dps.target_id).is_some_and(|td| td.actors.keys().any(|&a| {
+                    let owner = summons.get(&a).copied().unwrap_or(a);
+                    Some(a) == local || Some(owner) == local || names.get(&owner).is_some_and(|n| party.contains_key(n))
+                }));
+                if !ours && storage.current_dungeon_id() <= 0 {
+                    summary.foreign_boss_ticks += 1;
+                    if verbose && summary.foreign_boss_ticks <= 3 {
+                        println!("{} boss {} shown that no one of ours hit (local {:?})", hms(p.captured_at_ms), dps.target_id, local);
+                    }
+                }
+            }
             let targets: Vec<i32> = dps.detail_target_ids.clone();
             match local {
                 Some(lid) => {
@@ -374,5 +397,23 @@ fn report_meter_rows() {
         let parts: Vec<&Path> = path.split('+').map(Path::new).collect();
         let s = replay(&parts, &mode, true);
         println!("summary {s:?}");
+    }
+}
+
+/// Boss mode puts up only a boss that is ours, as the history saves it: a
+/// world boss strangers fought out of sight (2026-10-08, eight players never
+/// spawned near you, shown as `#id` rows) stayed on the meter for hours.
+#[test]
+fn boss_mode_shows_only_our_bosses() {
+    let Ok(paths) = std::env::var("A2_METER_ROWS_OWN_BOSS") else {
+        eprintln!("A2_METER_ROWS_OWN_BOSS unset; skipping");
+        return;
+    };
+    for path in paths.split(';').filter(|p| !p.is_empty()) {
+        let parts: Vec<&Path> = path.split('+').map(Path::new).collect();
+        let s = replay(&parts, "bossTargets", false);
+        println!("{path}: boss ticks {} foreign {}", s.boss_ticks, s.foreign_boss_ticks);
+        assert!(s.boss_ticks > 0, "{path}: no boss shown at all");
+        assert_eq!(s.foreign_boss_ticks, 0, "{path}: a stranger's boss shown");
     }
 }
