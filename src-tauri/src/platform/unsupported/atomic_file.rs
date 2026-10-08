@@ -50,7 +50,7 @@ pub fn apply_permissions(
 ) -> io::Result<()> {
     if let Some(permissions) = permissions {
         #[cfg(target_os = "linux")]
-        linux::restore(file, &permissions.security)?;
+        linux::restore(_path, file, &permissions.security)?;
         // On Linux the group mode bits are an ACL mask, not necessarily the
         // owning group's rights. Restore the ACL before widening that mask.
         file.set_permissions(permissions.permissions.clone())?;

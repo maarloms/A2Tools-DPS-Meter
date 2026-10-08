@@ -94,11 +94,18 @@ fn read_acl_with(
     ))
 }
 
-pub(super) fn restore(file: &File, security: &SecuritySnapshot) -> io::Result<()> {
+/// An owner or group this user may not hand a file to: the previous file was
+/// written by root (a sudo run, a rootful container) or for a group the user
+/// has left.
+fn ownership_refused(error: &io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(libc::EPERM) | Some(libc::EACCES))
+}
+
+pub(super) fn restore(path: &Path, file: &File, security: &SecuritySnapshot) -> io::Result<()> {
     let current = file.metadata()?;
     if current.uid() != security.uid || current.gid() != security.gid {
         // Unchanged IDs use -1: changing just the group should not require
-        // permission to change the owner. Failure leaves the old target intact.
+        // permission to change the owner.
         let uid = if current.uid() == security.uid {
             libc::uid_t::MAX
         } else {
@@ -111,14 +118,24 @@ pub(super) fn restore(file: &File, security: &SecuritySnapshot) -> io::Result<()
         };
         // SAFETY: the file owns the live descriptor; uid_t/gid_t are Linux IDs.
         if unsafe { libc::fchown(file.as_raw_fd(), uid, gid) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let restored = file.metadata()?;
-        if restored.uid() != security.uid || restored.gid() != security.gid {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "file ownership was not preserved",
-            ));
+            let error = io::Error::last_os_error();
+            if !ownership_refused(&error) {
+                return Err(error);
+            }
+            // Failing here would fail every later save of that file, fights
+            // included. Keep the write; the file now belongs to this user.
+            tracing::warn!(
+                "Could not keep the owner of {}; saving it as the current user: {error}",
+                path.display()
+            );
+        } else {
+            let restored = file.metadata()?;
+            if restored.uid() != security.uid || restored.gid() != security.gid {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "file ownership was not preserved",
+                ));
+            }
         }
     }
     if let Some(acl) = &security.acl {
@@ -382,11 +399,13 @@ mod tests {
     }
 
     #[test]
-    fn failed_owner_restoration_keeps_the_temporary_private_and_target_intact() {
-        // Root can chown to any ID, so this tests the unprivileged failure path.
+    fn an_owner_that_cannot_be_restored_does_not_lose_the_write() {
+        // Root can chown to any ID, so this tests the unprivileged path: the
+        // previous file belonged to someone this user cannot give it back to.
         // SAFETY: geteuid has no arguments and returns the effective user ID.
-        if unsafe { libc::geteuid() } == 0 {
-            eprintln!("owner-restoration failure regression requires an unprivileged user");
+        let user = unsafe { libc::geteuid() };
+        if user == 0 {
+            eprintln!("owner-restoration regression requires an unprivileged user");
             return;
         }
         let dir = Directory::new();
@@ -403,17 +422,25 @@ mod tests {
         let temporary_path = dir.0.join("temporary.json");
         let mut temporary = super::super::create_new_private(&temporary_path).unwrap();
         temporary.write_all(b"new").unwrap();
-        assert_eq!(
-            super::super::apply_permissions(&temporary_path, &temporary, &permissions)
-                .unwrap_err()
-                .kind(),
-            io::ErrorKind::PermissionDenied
-        );
-        assert_eq!(
-            temporary.metadata().unwrap().permissions().mode() & 0o077,
-            0
-        );
-        assert_eq!(std::fs::read(&path).unwrap(), b"previous");
+        super::super::apply_permissions(&temporary_path, &temporary, &permissions).unwrap();
+        let metadata = temporary.metadata().unwrap();
+        assert_eq!(metadata.uid(), user);
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o640);
+        drop(temporary);
+        std::fs::rename(&temporary_path, &path).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        assert_eq!(std::fs::metadata(&path).unwrap().uid(), user);
+        assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn only_a_refused_owner_change_is_skipped() {
+        for refused in [libc::EPERM, libc::EACCES] {
+            assert!(ownership_refused(&io::Error::from_raw_os_error(refused)));
+        }
+        for error in [libc::EIO, libc::EBADF, libc::EROFS] {
+            assert!(!ownership_refused(&io::Error::from_raw_os_error(error)));
+        }
     }
 
     #[test]
