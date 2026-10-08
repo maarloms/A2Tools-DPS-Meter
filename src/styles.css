@@ -6966,30 +6966,16 @@ html.historyWindow .historyBody {
   overflow-y: auto;
 }
 
-/* Frameless, so the history header is the drag surface and its × closes the
-   window. */
+/* Frameless, so the history header is the drag surface (started by the page,
+   see tauriBridge.js) and its × closes the window. */
 html.historyWindow .historyHeader {
-  -webkit-app-region: drag;
   padding-right: 6px;
-}
-html.historyWindow .historyHeader button,
-html.historyWindow .historyHeader .historyViewToggle,
-html.historyWindow .historyFilters,
-html.historyWindow .historyHeader .historyClose {
-  -webkit-app-region: no-drag;
 }
 
-/* Drag the window by its header, since it is frameless. */
+/* Drag the window by its header, since it is frameless (started by the page,
+   see tauriBridge.js). */
 html.detailsWindow .detailsHeader {
-  -webkit-app-region: drag;
   padding-right: 6px;
-}
-html.detailsWindow .detailsHeader button,
-html.detailsWindow .detailsHeader .detailsModeToggle,
-html.detailsWindow .detailsHeader .detailsSettingsMenuWrapper,
-html.detailsWindow .detailsHeader .detailsScreenshotWrapper,
-html.detailsWindow .detailsWindowClose {
-  -webkit-app-region: no-drag;
 }
 
 /* There is no title bar, so the panel supplies the close control. It is
@@ -7156,18 +7142,13 @@ html.settingsWindow .settingsBody {
   zoom: 1.2;
 }
 
-/* Frameless, so the panel header is the drag surface. */
+/* Frameless, so the panel header is the drag surface (started by the page,
+   see tauriBridge.js; not -webkit-app-region, which froze the app). */
 html.settingsWindow .settingsHeader {
-  -webkit-app-region: drag;
   position: sticky;
   top: 0;
   z-index: 5;
   background: #0a0e16;
-}
-html.settingsWindow .settingsHeader button,
-html.settingsWindow .settingsHeader .closeX,
-html.settingsWindow .settingsHeader a {
-  -webkit-app-region: no-drag;
 }
 
 /* ============================================================
@@ -7223,7 +7204,7 @@ body.windowDragFreeze * {
   cursor: grabbing !important;
 }
 
-/* Tool windows drag by their own header, handled by -webkit-app-region. */
+/* Tool windows drag by their own header (tauriBridge.js). */
 html.detailsWindow .meter,
 html.settingsWindow .meter {
   cursor: auto;

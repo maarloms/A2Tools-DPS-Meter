@@ -1286,18 +1286,34 @@
     }
   }, { capture: true });
 
-  // ===== Tool windows on Linux: drag by the header, resize from the edges =====
-  // The tool windows are frameless. On Windows their headers drag through
-  // -webkit-app-region and the window manager resizes them by their border.
-  // WebKitGTK ignores app-region, and a frameless window has no border to
-  // grab, so on Linux the page starts both: the drag through start_tool_drag,
-  // the resize through begin_tool_resize, which lifts the pinned size hints
+  // ===== Tool windows: drag by the header; on Linux, resize from the edges =====
+  // The tool windows are frameless, so the page starts the drag itself, through
+  // start_tool_drag. Not -webkit-app-region: WebView2 moves a helper window
+  // with SetWindowPos whenever the draggable area changes, and that call waits
+  // on other windows (the game's among them), so Settings froze the whole app
+  // for seconds at a time (2026-10-08). WebKitGTK ignores app-region anyway.
+  // On Windows the window manager resizes them by their border; on Linux a
+  // frameless window has no border to grab, so the page also starts the resize
+  // through begin_tool_resize, which lifts the pinned size hints
   // (platform::window::set_size) for the length of the resize.
+  const DRAG_HEADERS = ".historyHeader, .detailsHeader, .settingsHeader";
+  const NO_DRAG = "button, a, input, select, textarea, [data-no-drag], "
+    + ".historyViewToggle, .historyFilters, .historyClose, .detailsModeToggle, "
+    + ".detailsSettingsMenuWrapper, .detailsScreenshotWrapper, .detailsWindowClose, .closeX";
+  const dragFromHeader = (e) => {
+    const target = e.target?.nodeType === Node.TEXT_NODE ? e.target.parentElement : e.target;
+    if (!target?.closest?.(DRAG_HEADERS) || target.closest(NO_DRAG)) return false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    invoke("start_tool_drag").catch(() => {});
+    return true;
+  };
+  if (window.A2_VIEW !== "main" && !isLinux) {
+    document.addEventListener("mousedown", (e) => {
+      if (e.button === 0) dragFromHeader(e);
+    }, { capture: true });
+  }
   if (window.A2_VIEW !== "main" && isLinux) {
-    const DRAG_HEADERS = ".historyHeader, .detailsHeader, .settingsHeader";
-    const NO_DRAG = "button, a, input, select, textarea, [data-no-drag], "
-      + ".historyViewToggle, .historyFilters, .historyClose, .detailsModeToggle, "
-      + ".detailsSettingsMenuWrapper, .detailsScreenshotWrapper, .detailsWindowClose, .closeX";
     const MIN_SIZE = { settings: [520, 420], history: [480, 360], details: [520, 360] };
     const [minW, minH] = MIN_SIZE[window.A2_VIEW] || [480, 360];
     const EDGE = 6;
@@ -1348,12 +1364,7 @@
           .catch((err) => console.error("[A2Tools] tool window resize failed", err));
         return;
       }
-      const target = e.target?.nodeType === Node.TEXT_NODE ? e.target.parentElement : e.target;
-      if (target?.closest?.(DRAG_HEADERS) && !target.closest(NO_DRAG)) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        invoke("start_tool_drag").catch(() => {});
-      }
+      dragFromHeader(e);
     }, { capture: true });
 
     document.addEventListener("mousemove", (e) => showEdge(e.buttons ? "" : edgeAt(e)), { capture: true });

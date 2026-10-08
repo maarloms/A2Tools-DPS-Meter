@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = readFileSync(new URL("../public/src/js/tauriBridge.js", import.meta.url), "utf8");
 const startup = source.slice(source.indexOf("  const { invoke }"), source.indexOf("  // Three windows"));
 const overlay = source.slice(source.indexOf("  // ===== Overlay resize handle"), source.indexOf("  // Startup diagnostics"));
-const tool = source.slice(source.indexOf("  // ===== Tool windows on Linux"), source.indexOf("  // Pre-fetch device list"));
+const tool = source.slice(source.indexOf("  // ===== Tool windows: drag by the header"), source.indexOf("  // Pre-fetch device list"));
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 function setup({ userAgent = "Linux", supported = false, view = "main", detect } = {}) {
@@ -39,7 +39,7 @@ function setup({ userAgent = "Linux", supported = false, view = "main", detect }
     },
   };
   const context = vm.createContext({
-    window, document, navigator: { userAgent }, console,
+    window, document, navigator: { userAgent }, console, Node: { TEXT_NODE: 3 },
     resizeActive: false, nativeResize: null, primaryHeld: true, lastSizeKey: "",
     spaceRightBelow: () => ({ w: 1920, h: 1080 }),
     overlayPadding: () => ({ w: 16, h: 10 }),
@@ -73,6 +73,27 @@ test("Windows skips Linux capability detection and preserves an immediate resize
   assert.equal(app.calls[0].args.width, 1920);
   await tick();
   assert.equal(app.nativeResizes.length, 0);
+});
+
+test("Windows tool windows drag from the header by the page, not by app-region", () => {
+  // -webkit-app-region made WebView2 move a helper window on every layout
+  // change, and that froze the whole app for seconds at a time.
+  const app = setup({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", view: "settings" });
+  const header = (inButton) => ({
+    button: 0, clientX: 200, clientY: 20,
+    target: { closest: (selector) => selector.includes(".settingsHeader") || (inButton && selector.includes("button")) },
+    preventDefault() { this.prevented = true; },
+    stopImmediatePropagation() { this.stopped = true; },
+  });
+  const press = header(false);
+  app.emit("mousedown", press);
+  assert.equal(app.calls.at(-1)?.command, "start_tool_drag");
+  assert.equal(press.prevented, true);
+  const before = app.calls.length;
+  const onButton = header(true);
+  app.emit("mousedown", onButton);
+  assert.equal(app.calls.length, before, "a header button is clicked, not dragged");
+  assert.equal(onButton.prevented, undefined);
 });
 
 test("other Linux desktops keep viewport resizing without GNOME styling", async () => {
