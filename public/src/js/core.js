@@ -247,6 +247,7 @@ class DpsApp {
     if (window.A2_VIEW === "settings") {
       // Opening settings must not construct or lay out the hidden combat views.
       this.showPing = this.safeGetSetting(this.storageKeys.showPing) !== "false";
+      this.showTtk = this.safeGetSetting(this.storageKeys.showTtk) !== "false";
       this.showTotalDps = this.safeGetSetting(this.storageKeys.showTotalDps) !== "false";
       this.roundDps = this.safeGetSetting(this.storageKeys.roundDps) !== "false";
       const savedLimit = parseInt(this.safeGetSetting(this.storageKeys.playerLimit), 10);

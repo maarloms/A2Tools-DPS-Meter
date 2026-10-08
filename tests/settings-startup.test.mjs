@@ -49,6 +49,20 @@ test('settings drops unused combat markup before localization while retaining it
 
 const core = readFileSync(new URL('../public/src/js/core.js', import.meta.url), 'utf8');
 
+test('settings shows time to kill as on unless it was turned off', () => {
+  for (const [stored, expected] of [[undefined, true], ['true', true], ['false', false]]) {
+    const values = stored === undefined ? {} : { 'dpsMeter.showTtk': stored };
+    const window = { A2_VIEW: 'settings', addEventListener() {}, javaBridge: { getSetting: key => values[key] } };
+    const context = vm.createContext({ window, document: { readyState: 'loading', addEventListener() {} } });
+    vm.runInContext(core, context);
+    const app = window.dpsApp;
+    app.setupSettingsPanel = () => { app.settingsSelections = {}; };
+    app.i18n = { onChange() {} };
+    app.start();
+    assert.equal(app.showTtk, expected, `stored ${stored}`);
+  }
+});
+
 test('settings initializes saved controls without constructing any combat UI', () => {
   const values = { 'dpsMeter.showPing': 'false', 'dpsMeter.roundDps': 'false', 'dpsMeter.playerLimit': '12' };
   const window = { A2_VIEW: 'settings', addEventListener() {}, javaBridge: { getSetting: key => values[key] } };
