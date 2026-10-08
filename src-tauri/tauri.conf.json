@@ -66,6 +66,9 @@
     ],
     "windows": {
       "allowDowngrades": true,
+      "wix": {
+        "template": "wix/main.wxs"
+      },
       "webviewInstallMode": {
         "type": "skip"
       }
