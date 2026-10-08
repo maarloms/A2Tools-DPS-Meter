@@ -1350,17 +1350,10 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 .settingsPanel .settingsGroupStrip > .settingsRowFullWidth {
   grid-column: 1 / -1;
 }
-/* Send logs: the hint (and its status messages) above, the button below, both
-   centred. */
-.settingsPanel .sendLogsRow {
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  text-align: center;
-}
-.settingsPanel .sendLogsRow .settingsRowEnd {
-  justify-content: center;
+/* Send logs sits under the packet logging toggle it sends the logs of: the
+   Diagnostics grid's last column (its only one when the window is narrow). */
+.settingsPanel .settingsGroupSplit > .sendLogsRow {
+  grid-column: -2 / -1;
 }
 .settingsPanel .settingsRowStacked {
   flex-direction: column;
