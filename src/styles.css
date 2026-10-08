@@ -1345,6 +1345,11 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 .settingsPanel .settingsGroupStrip > * + * {
   border-top: 0;
 }
+/* A row with a long value (the detected device's name and port) takes the
+   strip's whole width rather than one of its columns. */
+.settingsPanel .settingsGroupStrip > .settingsRowFullWidth {
+  grid-column: 1 / -1;
+}
 .settingsPanel .settingsRowStacked {
   flex-direction: column;
   align-items: stretch;
