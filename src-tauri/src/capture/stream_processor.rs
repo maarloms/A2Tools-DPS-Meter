@@ -3559,6 +3559,13 @@ mod tests {
         assert_eq!(storage.current_dungeon_id(), 600021);
         load("34213601000000f2030000dd7f3c00000000006868d047d0c62c470098da46fa63284300000000000000000000004f0000");
         assert_eq!(storage.current_dungeon_id(), 0);
+        // The party stays together and its roster is sent again, still naming
+        // the dungeon it was for: the player is still in the open world.
+        storage.set_current_dungeon(600021);
+        assert_eq!(storage.current_dungeon_id(), 0, "a roster after leaving does not bring the dungeon back");
+        // Back in: the load names the instance.
+        load("34213601000000d52709003b1a350000000000f7e646460d7fb0c60080b045409da54200000000000000000000004f0000");
+        assert_eq!(storage.current_dungeon_id(), 600021);
     }
 
     #[test]

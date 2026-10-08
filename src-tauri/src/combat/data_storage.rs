@@ -58,6 +58,35 @@ pub fn is_open_world_map(map_id: i32) -> bool {
     OPEN_WORLD_MAPS.contains(&map_id)
 }
 
+/// The dungeon the player is in, from the roster's dungeon and the last map
+/// load.
+///
+/// The roster (`02 97`) names the dungeon the PARTY is for, not where anyone
+/// is: in captures it names the dungeon minutes before the load into it, while
+/// the party is still in the open world (600163 on 2026-08-15, 610073 on
+/// 2026-07-04), and again on every roster update after the party has left. A
+/// roster update after leaving set the old id back, and fights in the open
+/// world or other instances were filed under the last dungeon (76 public logs
+/// of Vakron Sky Island, 600072, on open-world bosses).
+///
+/// A map load is where the player is. An instance's map id is its dungeon id
+/// (600011, 600021, 600163 and 610073 in captures, on entry and on every
+/// teleport inside), so:
+/// - no map load seen yet (a meter opened mid-session, a slice whose prelude
+///   holds none): the roster's dungeon, the only evidence there is;
+/// - the open world: none;
+/// - a dungeon's map (600000-699999, or the roster's own id): that dungeon;
+/// - any other instance (a seal, a quest scene): none, whatever the roster
+///   says.
+fn dungeon_of_map(roster_dungeon: i32, map: Option<i32>) -> i32 {
+    match map {
+        None => roster_dungeon,
+        Some(m) if is_open_world_map(m) => 0,
+        Some(m) if (600_000..700_000).contains(&m) || (m > 0 && m == roster_dungeon) => m,
+        Some(_) => 0,
+    }
+}
+
 // ───── Aggregate data structures ─────
 
 /// Healing done, aggregated per (healer actor, skill, is_hot). Healing is keyed by
@@ -418,9 +447,16 @@ struct Inner {
     /// records rather than time so a replay names players where a live meter
     /// did.
     damage_since_roster_bind: u32,
-    /// Instance id the party is in, from the same packet. Encodes the dungeon and
-    /// its difficulty tier; resolved to a name by the frontend's dungeon table.
+    /// Instance id the party is in. Encodes the dungeon and its difficulty
+    /// tier; resolved to a name by the frontend's dungeon table. Derived from
+    /// `roster_dungeon_id` and `current_map_id` by `dungeon_of_map`.
     current_dungeon_id: i32,
+    /// The dungeon the party roster (`02 97`) names. It is the party's, not
+    /// the player's: the roster names it while the party queues in the open
+    /// world, and keeps naming it after the party has left.
+    roster_dungeon_id: i32,
+    /// The map the last zone load (`21 36`) named; None until one is seen.
+    current_map_id: Option<i32>,
     /// Power-scalar values observed per actor in its damage records. A summon
     /// inherits its owner's, so this links the two when no spawn packet (and
     /// therefore no `parent_key`) ever arrives — the case for a Cleric's Divine
@@ -531,6 +567,8 @@ impl DataStorage {
                 damage_since_roster_bind: 0,
                 party_placeholders_hidden: false,
                 current_dungeon_id: 0,
+                roster_dungeon_id: 0,
+                current_map_id: None,
                 actor_power_scalars: HashMap::new(),
                 hostile_target_ids: HashSet::new(),
                 dead_entity_ids: HashSet::new(),
@@ -1186,7 +1224,8 @@ impl DataStorage {
             self.run_before_reset();
             let mut inner = self.inner.write();
             inner.party_members.clear();
-            inner.current_dungeon_id = 0;
+            inner.roster_dungeon_id = 0;
+            inner.current_dungeon_id = dungeon_of_map(0, inner.current_map_id);
             drop(inner);
             self.flush_combat_only();
             self.combat_reset_requested.store(true, Ordering::Relaxed);
@@ -1202,27 +1241,28 @@ impl DataStorage {
         bind_roster_names_by_class(&mut inner);
     }
 
-    /// A zone load named the map it loads (`21 36`). The roster never sends 0
-    /// for the open world, so a load into an open-world map is what ends the
-    /// last instance's dungeon id. A teleport inside an instance names the
-    /// instance's own map, so it keeps the id.
+    /// A zone load named the map it loads (`21 36`). The map, once known, is
+    /// what says where the player is; see `dungeon_of_map`.
     pub fn note_map_load(&self, map_id: i32) {
         let mut inner = self.inner.write();
         // A load hands out new entity ids: counts of the old ones would name
         // an entity that is gone.
         inner.loot_identity.scope_counts.clear();
-        if !is_open_world_map(map_id) {
-            return;
-        }
-        if inner.current_dungeon_id != 0 {
-            tracing::debug!("Map {map_id} is open world: leaving dungeon {}", inner.current_dungeon_id);
-            inner.current_dungeon_id = 0;
+        inner.current_map_id = Some(map_id);
+        let dungeon = dungeon_of_map(inner.roster_dungeon_id, Some(map_id));
+        if dungeon != inner.current_dungeon_id {
+            tracing::debug!("Map {map_id}: dungeon {} -> {dungeon}", inner.current_dungeon_id);
+            inner.current_dungeon_id = dungeon;
         }
     }
 
+    /// The dungeon a party roster names. Taken as the player's only when no
+    /// map load says otherwise (`dungeon_of_map`).
     pub fn set_current_dungeon(&self, dungeon_id: i32) {
         if dungeon_id > 0 {
-            self.inner.write().current_dungeon_id = dungeon_id;
+            let mut inner = self.inner.write();
+            inner.roster_dungeon_id = dungeon_id;
+            inner.current_dungeon_id = dungeon_of_map(dungeon_id, inner.current_map_id);
         }
     }
 
@@ -2773,5 +2813,49 @@ mod tests {
         player_hit(&s, 101, 900);
         scope(&s, 101, 200);
         assert_eq!(s.local_player_id(), Some(303));
+    }
+
+    /// The roster names the party's dungeon, not where the player is
+    /// (`dungeon_of_map`). Map ids from captures: 1011 World_L_A layer,
+    /// 610073 and 600072 instances, 151007 a non-dungeon instance.
+    #[test]
+    fn a_stale_roster_does_not_file_open_world_fights_under_the_last_dungeon() {
+        // Meter opened mid-session: the roster is all there is.
+        let s = DataStorage::new();
+        s.set_current_dungeon(600072);
+        assert_eq!(s.current_dungeon_id(), 600072);
+
+        // Leave Vakron Sky Island: the load into the open world ends it, and
+        // the roster updates the party sends afterwards do not restore it.
+        s.note_map_load(1011);
+        assert_eq!(s.current_dungeon_id(), 0);
+        s.set_current_dungeon(600072);
+        assert_eq!(s.current_dungeon_id(), 0, "roster in the open world");
+
+        // Another instance that is no dungeon: none, whatever the roster says.
+        s.note_map_load(151007);
+        s.set_current_dungeon(600072);
+        assert_eq!(s.current_dungeon_id(), 0);
+
+        // A dungeon the roster does not name: the map's.
+        s.note_map_load(600011);
+        assert_eq!(s.current_dungeon_id(), 600011);
+        s.set_current_dungeon(600072);
+        assert_eq!(s.current_dungeon_id(), 600011, "the map wins over the roster");
+
+        // An instance outside the dungeon table's range that the roster names.
+        s.set_current_dungeon(710001);
+        s.note_map_load(710001);
+        assert_eq!(s.current_dungeon_id(), 710001);
+
+        // Queued for a dungeon while in the open world, then loaded into it.
+        let s = DataStorage::new();
+        s.note_map_load(1010);
+        s.set_current_dungeon(610073);
+        assert_eq!(s.current_dungeon_id(), 0, "queued, not in it yet");
+        s.note_map_load(610073);
+        assert_eq!(s.current_dungeon_id(), 610073);
+        s.note_map_load(610073);
+        assert_eq!(s.current_dungeon_id(), 610073, "a teleport inside keeps it");
     }
 }
