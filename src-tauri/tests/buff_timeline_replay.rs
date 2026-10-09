@@ -427,6 +427,18 @@ fn print_fight(f: &Fight, seen: &[Seen], names: &HashMap<u32, String>, all: bool
         f.tracks.len(),
         track_bytes / 1024
     );
+    // What History keeps of them (`FightRecord::buffs`, pretty-printed as saved).
+    let kept = f.record.buffs.as_deref().unwrap_or(&[]);
+    let segments: usize = kept.iter().map(|b| b.segments().len()).sum();
+    let buffs_bytes = serde_json::to_string_pretty(&f.record.buffs).map_or(0, |s| s.len());
+    let record_bytes = serde_json::to_string_pretty(&f.record).map_or(0, |s| s.len());
+    println!(
+        "summary history: {} buff tracks ({} passives, {segments} segments), {:.1} KB of a {:.1} KB saved fight",
+        kept.len(),
+        kept.iter().filter(|b| b.passive).count(),
+        buffs_bytes as f64 / 1024.0,
+        record_bytes as f64 / 1024.0
+    );
 }
 
 #[test]

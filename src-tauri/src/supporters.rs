@@ -336,6 +336,7 @@ mod tests {
             mob_code: 0,
             dungeon_id: 0,
             server_id: 0,
+            buffs: None,
         }
     }
 

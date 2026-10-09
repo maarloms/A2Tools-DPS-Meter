@@ -353,6 +353,17 @@
       }
     },
 
+    // The live fight's buffs and debuffs on a target: { targetId, startTimeMs,
+    // durationMs, buffs }, or null.
+    async getFightBuffs(targetId) {
+      try {
+        return await invoke("get_fight_buffs", { targetId: Number(targetId) });
+      } catch (e) {
+        console.error("[A2Tools] getFightBuffs error:", e);
+        return null;
+      }
+    },
+
     async getBattleDetail(actorId, { summaryOnly = false } = {}) {
       const dps = cachedDpsJson ? JSON.parse(cachedDpsJson) : null;
       const targetIds = [...new Set((Array.isArray(dps?.detailTargetIds)

@@ -42,6 +42,13 @@ pub struct FightRecord {
     /// region, which a2tools.app groups uploaded logs by.
     #[serde(default)]
     pub server_id: u16,
+    /// The buffs and debuffs on the fight's actors and its target
+    /// (`combat::fight_buffs`). `None` in a fight saved before the meter
+    /// recorded them, and in one derived from an Evidence Slice (which holds
+    /// no abnormal records), so neither the files of older fights nor the
+    /// log service's output change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub buffs: Option<Vec<crate::combat::fight_buffs::BuffTrack>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,4 +122,44 @@ pub fn obscure_nickname(name: &str) -> String {
     let mask_len = (chars.len() - 3).min(4);
     let mask: String = std::iter::repeat_n('*', mask_len).collect();
     format!("{}{}{}{}", chars[0], chars[1], mask, chars[chars.len() - 1])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn old_record() -> serde_json::Value {
+        serde_json::json!({
+            "id": "auto_1_2", "bossName": "Some Boss", "targetId": 1, "startTimeMs": 1_700_000_000_000i64,
+            "durationMs": 60_000, "totalDamage": 1000, "jobs": [], "jobIds": [],
+            "details": {"targetId": 1, "maxHp": 0, "totalTargetDamage": 1000, "battleTime": 60_000,
+                        "startTime": 0, "skills": [], "pingHistory": [], "healSkills": []},
+            "actors": [], "isTrain": false, "appVersion": "2.0.54", "mobCode": 0, "dungeonId": 0, "serverId": 0
+        })
+    }
+
+    #[test]
+    fn a_fight_saved_before_buffs_loads_and_saves_unchanged() {
+        let record: FightRecord = serde_json::from_value(old_record()).unwrap();
+        assert!(record.buffs.is_none());
+        assert_eq!(serde_json::to_value(&record).unwrap(), old_record());
+    }
+
+    #[test]
+    fn buffs_round_trip() {
+        let mut json = old_record();
+        json["buffs"] = serde_json::json!([
+            {"on": 7, "id": 161900001, "by": 8, "skill": 16190000, "segs": "1000,11000,1,1", "up": 10000},
+            {"on": 7, "summon": true, "id": 20, "by": 7, "passive": true, "up": 60000}
+        ]);
+        let record: FightRecord = serde_json::from_value(json.clone()).unwrap();
+        let buffs = record.buffs.as_ref().unwrap();
+        assert_eq!(buffs.len(), 2);
+        assert!(buffs[1].summon && buffs[1].passive && buffs[1].segs.is_empty());
+        assert_eq!(serde_json::to_value(&record).unwrap(), json);
+        // Recorded, none seen: an empty list, not an older fight.
+        let mut none_seen = record.clone();
+        none_seen.buffs = Some(Vec::new());
+        assert_eq!(serde_json::to_value(&none_seen).unwrap()["buffs"], serde_json::json!([]));
+    }
 }

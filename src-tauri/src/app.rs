@@ -190,6 +190,14 @@ async fn get_skill_details(app: tauri::AppHandle, target_id: i32, actor_ids: Opt
     }).await
 }
 
+/// The buffs and debuffs of the live fight on a target (Details' Buffs section).
+#[tauri::command]
+async fn get_fight_buffs(app: tauri::AppHandle, target_id: i32) -> Result<Option<crate::combat::fight_buffs::LiveFightBuffs>, String> {
+    crate::blocking::CALCULATIONS.run(move || {
+        details_reader(&app.state::<AppState>()).live_fight_buffs(target_id)
+    }).await
+}
+
 #[tauri::command]
 async fn get_details_context(app: tauri::AppHandle) -> Result<DetailsContext, String> {
     crate::blocking::CALCULATIONS.run(move || {
@@ -2790,6 +2798,7 @@ pub fn run() {
             get_dps_snapshot,
             get_skill_details,
             get_details_context,
+            get_fight_buffs,
             get_fight_history,
             save_fight,
             load_fight,

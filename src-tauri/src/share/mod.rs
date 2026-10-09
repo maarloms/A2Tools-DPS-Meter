@@ -456,6 +456,7 @@ mod tests {
             mob_code: 4242,
             dungeon_id: 600093,
             server_id: 0,
+            buffs: None,
         }
     }
 

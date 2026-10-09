@@ -186,7 +186,29 @@
   // are not fetched again on every redraw.
   const fetchFailed = new Set();
   const unavailable = new Set();
-  const getIconCandidates = (skill = {}) => resolveIconCandidates(skill).filter((url) => !unavailable.has(url));
+  // A caller may give its own list (`skill.candidates`), as buff icons do.
+  const getIconCandidates = (skill = {}) =>
+    (Array.isArray(skill.candidates) ? skill.candidates : resolveIconCandidates(skill))
+      .filter((url) => !unavailable.has(url));
+
+  // A neutral dot, for a buff with no icon of its own and no skill's.
+  const DOT_ICON = "data:image/svg+xml," + encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="#8890a4"/></svg>`
+  );
+
+  // A buff's icon: its own (abnormals.json names the file), else the icon of
+  // the skill that applied it, else a dot.
+  const getAbnormalIconCandidates = (iconName, skillCode) => {
+    const out = [];
+    if (typeof iconName === "string" && /^[A-Za-z0-9_]+$/.test(iconName)) out.push(`${BASE_URL}/${iconName}.png`);
+    if (Number(skillCode) > 0) {
+      for (const url of resolveIconCandidates({ code: skillCode })) {
+        if (url !== WAND_ICON && url !== SWORDS_ICON && !out.includes(url)) out.push(url);
+      }
+    }
+    out.push(DOT_ICON);
+    return out.filter((url) => !unavailable.has(url));
+  };
 
   // Warn only when an icon is missing or its direct image load also fails.
   let failuresLogged = 0;
@@ -373,6 +395,7 @@
 
   global.skillIcons = {
     getIconCandidates,
+    getAbnormalIconCandidates,
     getTheostoneNameColor,
     applyIconToImage,
     handleImgError,

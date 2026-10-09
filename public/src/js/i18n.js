@@ -255,6 +255,22 @@ const createI18n = ({
     return promise;
   };
 
+  // Buff and debuff names (i18n/abnormals), loaded the first time Details
+  // shows buffs, not at startup. There are none in Chinese: those read the
+  // English ones, and say so (`native: false`) so a caller can prefer the
+  // applying skill's Chinese name.
+  const ABNORMAL_LANGUAGES = ["de", "en", "es", "fr", "ja", "ko", "pt", "ru"];
+  const abnormalLoads = new Map();
+  const loadAbnormalNames = () => {
+    const native = ABNORMAL_LANGUAGES.includes(currentLanguage);
+    const lang = native ? currentLanguage : "en";
+    if (!abnormalLoads.has(lang)) {
+      abnormalLoads.set(lang, loadJson(`./i18n/abnormals/${lang}.json`).then((names) =>
+        Object.keys(names).length || lang === "en" ? names : loadJson("./i18n/abnormals/en.json")));
+    }
+    return abnormalLoads.get(lang).then((names) => ({ names, native }));
+  };
+
   const init = async () => {
     // The backend preference wins over stale localStorage on a newly opened window.
     if (window.A2_VIEW === "settings") await window.a2SettingsReady;
@@ -305,6 +321,7 @@ const createI18n = ({
     format,
     getSkillName,
     getNpcName,
+    loadAbnormalNames,
     getDungeonLabel,
     getDungeonDifficulty,
     getLanguage: () => currentLanguage,
