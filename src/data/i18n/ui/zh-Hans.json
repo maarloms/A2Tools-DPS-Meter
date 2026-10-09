@@ -232,7 +232,6 @@
     "showTotalDps": "显示总DPS/DMG",
     "roundDps": "DPS取整",
     "showDpsSuffix": "在 DPS 后显示 /s",
-    "hideOutsideDungeon": "在副本外隐藏统计窗口",
     "autoHideMeter": "自动隐藏面板",
     "showSuspendBtn": "显示暂停按钮",
     "showLockBtn": "显示锁定按钮（点击穿透）",

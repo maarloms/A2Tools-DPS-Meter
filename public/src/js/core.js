@@ -78,7 +78,6 @@ class DpsApp {
       theme: "dpsMeter.theme",
       slimMode: "dpsMeter.slimMode",
       autoHideMeter: "dpsMeter.autoHideMeter",
-      hideOutsideDungeon: "dpsMeter.hideOutsideDungeon",
       bossLogs: "dpsMeter.bossLogsEnabled",
       saveRawPackets: "dpsMeter.saveRawPackets",
       autoUpload: "dpsMeter.autoUpload",
@@ -2532,17 +2531,6 @@ class DpsApp {
         this.renderCurrentRows();
       });
     }
-    // Off unless turned on (Advanced). The backend applies it, like auto-hide.
-    this.hideOutsideDungeonCheckbox = document.querySelector(".hideOutsideDungeonCheckbox");
-    if (this.hideOutsideDungeonCheckbox) {
-      this.hideOutsideDungeonCheckbox.checked =
-        this.safeGetSetting(this.storageKeys.hideOutsideDungeon) === "true";
-      this.hideOutsideDungeonCheckbox.addEventListener("change", (event) => {
-        const isChecked = !!event.target?.checked;
-        this.safeSetSetting(this.storageKeys.hideOutsideDungeon, String(isChecked));
-        window.javaBridge?.setHideOutsideDungeon?.(isChecked);
-      });
-    }
     this.autoHideMeterCheckbox = document.querySelector(".autoHideMeterCheckbox");
     if (this.autoHideMeterCheckbox) {
       const storedAutoHide = this.safeGetSetting(this.storageKeys.autoHideMeter) !== "false";
@@ -4099,7 +4087,6 @@ class DpsApp {
     for (const [box, name, defaultOn] of [
       [this.bossLogsCheckbox, "bossLogs", false],
       [this.autoHideMeterCheckbox, "autoHideMeter", true],
-      [this.hideOutsideDungeonCheckbox, "hideOutsideDungeon", false],
       [this.saveRawPacketsCheckbox, "saveRawPackets", false],
       [document.querySelector(".discordActivityCheckbox"), "discordActivity", false],
     ]) {

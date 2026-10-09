@@ -756,9 +756,6 @@
     setAutoHideMeter(enabled) {
       invoke("update_settings", { key: "dpsMeter.autoHideMeter", value: String(enabled) }).catch(() => {});
     },
-    setHideOutsideDungeon(enabled) {
-      invoke("update_settings", { key: "dpsMeter.hideOutsideDungeon", value: String(enabled) }).catch(() => {});
-    },
     setSaveRawPackets(enabled) {
       invoke("set_packet_logging", { enabled: !!enabled }).catch(() => {});
     },
