@@ -1348,6 +1348,19 @@ impl DataStorage {
         self.inner.read().current_dungeon_id
     }
 
+    /// Whether the player is inside an instance, for hiding the meter outside
+    /// one: a dungeon, or any map that is not the open world (a solo
+    /// Nightmare or Ascension Trial has no party dungeon id). `None` until the
+    /// meter has seen either, as when it was opened mid-session, so a caller
+    /// can keep the meter up rather than hide it on a guess.
+    pub fn in_instance(&self) -> Option<bool> {
+        let inner = self.inner.read();
+        if inner.current_dungeon_id > 0 {
+            return Some(true);
+        }
+        inner.current_map_id.map(|map| !is_open_world_map(map))
+    }
+
     pub fn get_party_members(&self) -> HashMap<String, PartyMember> {
         self.inner.read().party_members.clone()
     }
@@ -2898,6 +2911,24 @@ mod tests {
     /// The roster names the party's dungeon, not where the player is
     /// (`dungeon_of_map`). Map ids from captures: 1011 World_L_A layer,
     /// 610073 and 600072 instances, 151007 a non-dungeon instance.
+    #[test]
+    fn in_instance_follows_the_map_and_the_dungeon() {
+        let s = DataStorage::new();
+        assert_eq!(s.in_instance(), None, "nothing seen yet");
+        s.note_map_load(1011);
+        assert_eq!(s.in_instance(), Some(false), "open world");
+        s.note_map_load(600072);
+        assert_eq!(s.in_instance(), Some(true), "a dungeon's map");
+        s.note_map_load(200003);
+        assert_eq!(s.in_instance(), Some(true), "Nightmare: an instance that is no party dungeon");
+        s.note_map_load(1011);
+        s.set_current_dungeon(600072);
+        assert_eq!(s.in_instance(), Some(false), "a party queued in the open world");
+        let fresh = DataStorage::new();
+        fresh.set_current_dungeon(600011);
+        assert_eq!(fresh.in_instance(), Some(true), "only a roster, no map load yet");
+    }
+
     #[test]
     fn a_stale_roster_does_not_file_open_world_fights_under_the_last_dungeon() {
         // Meter opened mid-session: the roster is all there is.

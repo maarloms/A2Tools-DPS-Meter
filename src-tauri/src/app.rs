@@ -2562,6 +2562,9 @@ pub fn run() {
                 interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 let mut tick_count: u64 = 0;
                 let mut hide_delay: u64 = 0; // ticks to wait before hiding
+                // The meter was hidden by an auto-hide rule, so turning the
+                // rules off brings it back.
+                let mut hidden_by_rule = false;
                 loop {
                     interval.tick().await;
                     tick_count += 1;
@@ -2597,21 +2600,30 @@ pub fn run() {
                             let _ = handle.emit("ping-update", ping);
                         }
 
-                        // --- Auto-hide when AION2 loses focus (every tick) ---
+                        // --- Auto-hide (every tick) ---
+                        // Two rules, either or both: hide when AION2 loses
+                        // focus, and hide outside a dungeon or instance.
                         let auto_hide = tick_count > 20
                             && state.settings.get("dpsMeter.autoHideMeter")
                                 .unwrap_or_default() == "true";
-                        if auto_hide {
+                        let hide_outside_dungeon = tick_count > 20
+                            && state.settings.get("dpsMeter.hideOutsideDungeon")
+                                .unwrap_or_default() == "true";
+                        if auto_hide || hide_outside_dungeon {
                             if let Some(window) = handle.get_webview_window("main") {
                                 let aion_fg = platform::window_detector::is_aion2_foreground();
                                 let is_self_fg = window.is_focused().unwrap_or(false);
                                 let is_visible = window.is_visible().unwrap_or(true);
                                 let is_minimized = window.is_minimized().unwrap_or(false);
+                                // Not known yet (opened mid-session): keep it up.
+                                let in_instance = state.data_storage.in_instance().unwrap_or(true);
+                                let focus_ok = !auto_hide || aion_fg || is_self_fg;
+                                let place_ok = !hide_outside_dungeon || in_instance;
                                 if tick_count % 4 == 0 {
-                                    tracing::trace!("auto-hide: aion_fg={} self_fg={} visible={} minimized={} hide_delay={}",
-                                        aion_fg, is_self_fg, is_visible, is_minimized, hide_delay);
+                                    tracing::trace!("auto-hide: aion_fg={} self_fg={} in_instance={} visible={} minimized={} hide_delay={}",
+                                        aion_fg, is_self_fg, in_instance, is_visible, is_minimized, hide_delay);
                                 }
-                                if aion_fg || is_self_fg {
+                                if focus_ok && place_ok {
                                     hide_delay = 0;
                                     if !is_visible || is_minimized {
                                         platform::window::show_on_top_without_focus(&window);
@@ -2619,14 +2631,24 @@ pub fn run() {
                                         // (content may have changed while minimized)
                                         let _ = window.emit("force-resize", ());
                                     }
+                                    hidden_by_rule = false;
                                 } else if is_visible && !is_minimized {
                                     // Wait 3 ticks (1.5s) before hiding to avoid
                                     // flickering during alt-tab transitions
                                     hide_delay += 1;
                                     if hide_delay >= 3 {
                                         platform::window::minimize_off_top(&window);
+                                        hidden_by_rule = true;
                                     }
                                 }
+                            }
+                        } else if hidden_by_rule {
+                            // Both rules switched off while the meter was hidden.
+                            hidden_by_rule = false;
+                            hide_delay = 0;
+                            if let Some(window) = handle.get_webview_window("main") {
+                                platform::window::show_on_top_without_focus(&window);
+                                let _ = window.emit("force-resize", ());
                             }
                         }
 

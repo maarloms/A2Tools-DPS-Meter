@@ -232,6 +232,7 @@
     "showTotalDps": "Показывать общий DPS/урон",
     "roundDps": "Округлять DPS",
     "showDpsSuffix": "Показывать /s после DPS",
+    "hideOutsideDungeon": "Скрывать счётчик вне подземелий",
     "autoHideMeter": "Автоматически скрывать счётчик",
     "showSuspendBtn": "Показывать кнопку паузы",
     "showLockBtn": "Показывать кнопку блокировки (клики насквозь)",
