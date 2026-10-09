@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
+
+use crate::capture::abnormal;
 
 use crate::entity::damage_packet::ParsedDamagePacket;
 use crate::entity::job_class::JobClass;
@@ -35,6 +37,13 @@ const NEVER_MS: i64 = i64::MIN;
 /// roster by class. A fight brings a few hundred records a second, so this
 /// names them within the first moments of combat.
 const ROSTER_BIND_EVERY: u32 = 64;
+/// How long the buff timeline keeps an abnormal after it ended: long enough
+/// to look back over any fight, short enough that a meter left running all
+/// day holds a bounded amount (a busy boss fight brings a few thousand
+/// instances a minute).
+const ABNORMAL_RETENTION_MS: i64 = 30 * 60 * 1000;
+/// How often, in capture time, the timeline drops what is past retention.
+const ABNORMAL_PRUNE_EVERY_MS: i64 = 60 * 1000;
 
 fn now_ms() -> i64 {
     crate::clock::now_ms()
@@ -394,6 +403,17 @@ pub struct DataStorage {
     /// Run just before combat data is cleared by a zone change or the end of a
     /// party, with no lock of ours held, so the fights can still be saved.
     before_reset: RwLock<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Buffs, debuffs and stats as the server reports them (see
+    /// `capture::abnormal`). Recorded only, nothing reads it into a fight
+    /// yet. Its own lock: it is fed every packet, and nothing here needs it
+    /// together with `inner`.
+    abnormals: Mutex<AbnormalLog>,
+}
+
+/// The timeline and when it was last pruned.
+struct AbnormalLog {
+    timeline: abnormal::Timeline,
+    pruned_ms: i64,
 }
 
 struct Inner {
@@ -593,7 +613,65 @@ impl DataStorage {
             last_zone_reset_ms: AtomicI64::new(NEVER_MS),
             combat_reset_requested: AtomicBool::new(false),
             before_reset: RwLock::new(None),
+            abnormals: Mutex::new(AbnormalLog { timeline: abnormal::Timeline::default(), pruned_ms: NEVER_MS }),
         }
+    }
+
+    /// Each stacking abnormal's stack limit (`abnormal::stack_limits`), so a
+    /// stack pushed out past it ends where the game ends it.
+    pub fn set_abnormal_stack_limits(&self, limits: HashMap<u32, u32>) {
+        self.abnormals.lock().timeline.set_stack_limits(limits);
+    }
+
+    /// Hand one framed packet to the buff timeline, at the current time.
+    pub fn note_abnormal_packet(&self, packet: &[u8]) {
+        let ms = now_ms();
+        let mut log = self.abnormals.lock();
+        // A replay's clock can jump back, to another capture: prune again.
+        if ms >= log.pruned_ms.saturating_add(ABNORMAL_PRUNE_EVERY_MS) || ms < log.pruned_ms {
+            log.timeline.prune(ms.saturating_sub(ABNORMAL_RETENTION_MS));
+            log.pruned_ms = ms;
+        }
+        log.timeline.note(ms, packet);
+    }
+
+    /// Every abnormal instance on any time from `start_ms` to `end_ms`.
+    pub fn abnormal_instances(&self, start_ms: i64, end_ms: i64) -> Vec<abnormal::Instance> {
+        self.abnormals.lock().timeline.instances_between(start_ms, end_ms)
+    }
+
+    /// Stat records (your own stat sheet) from `start_ms` to `end_ms`.
+    pub fn stat_events(&self, start_ms: i64, end_ms: i64) -> Vec<abnormal::StatEvent> {
+        let log = self.abnormals.lock();
+        log.timeline.stats.iter().filter(|s| s.ms >= start_ms && s.ms <= end_ms).cloned().collect()
+    }
+
+    /// Instances held by the buff timeline, ended and still on.
+    pub fn abnormal_count(&self) -> usize {
+        self.abnormals.lock().timeline.len()
+    }
+
+    /// A fight's buffs and debuffs: the tracks (`abnormal::tracks`) on any
+    /// time from `start_ms` to `end_ms` on `entities` and on their summons,
+    /// every entity's when `entities` is empty. A caster is resolved to the
+    /// owner of its summon chain, so a spirit's buff is its summoner's.
+    pub fn fight_abnormal_tracks(&self, start_ms: i64, end_ms: i64, entities: &HashSet<i32>) -> Vec<abnormal::Track> {
+        let links = self.get_summon_data();
+        let instances: Vec<abnormal::Instance> = self
+            .abnormal_instances(start_ms, end_ms)
+            .into_iter()
+            .filter(|i| {
+                entities.is_empty()
+                    || entities.contains(&i.entity)
+                    || entities.contains(&summon_resolver::resolve(i.entity, &links))
+            })
+            .collect();
+        abnormal::tracks(&instances, |caster| summon_resolver::resolve(caster, &links))
+    }
+
+    /// Forget the buff timeline, for a capture from another session.
+    pub fn forget_abnormals(&self) {
+        self.abnormals.lock().timeline.clear();
     }
 
     /// Called when a self/world teleport (zone-change opcode) is seen. Resets
@@ -1602,6 +1680,8 @@ impl DataStorage {
     /// Drop every summon link, for a capture from another session (a replay),
     /// whose entity ids mean something else.
     pub fn forget_summon_links(&self) {
+        // The buffs those ids had on are as foreign as the links.
+        self.forget_abnormals();
         let mut inner = self.inner.write();
         inner.summon_storage.clear();
         inner.confirmed_summon_ids.clear();

@@ -75,6 +75,17 @@ const EARLIEST: i64 = 1_704_067_200_000;
 const LONGEST: i64 = 400 * 86_400_000;
 const STATS_TAIL: usize = 8;
 
+/// The stack limit of each abnormal that stacks, from `abnormals.json`
+/// (`{"abnormals": {"<id>": {"stacks": n}}}`); empty if it does not read.
+pub fn stack_limits(json: &str) -> HashMap<u32, u32> {
+    let table: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    let Some(abnormals) = table["abnormals"].as_object() else { return HashMap::new() };
+    abnormals
+        .iter()
+        .filter_map(|(id, a)| Some((id.parse().ok()?, u32::try_from(a["stacks"].as_u64()?).ok()?)))
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Applied {
     pub entity: i32,
@@ -619,6 +630,47 @@ impl Timeline {
         self.map_loads
     }
 
+    /// Forget instances that ended before `before_ms` and stat records from
+    /// before it, so a meter left running holds a bounded window. What is
+    /// still on is kept, however long ago it started.
+    pub fn prune(&mut self, before_ms: i64) {
+        let kept: Vec<bool> = self.instances.iter().map(|i| i.end_ms.is_none_or(|e| e >= before_ms)).collect();
+        // The stacks just pushed out stay (they ended now), but their
+        // indices move with the ones dropped before them.
+        for p in &mut self.pushed {
+            p.1 = kept[..p.1].iter().filter(|&&k| k).count();
+        }
+        let mut k = kept.iter();
+        self.instances.retain(|_| *k.next().unwrap_or(&true));
+        self.stats.retain(|s| s.ms >= before_ms);
+    }
+
+    /// Forget everything but the stack limits: a capture from another
+    /// session, whose entity ids mean something else.
+    pub fn clear(&mut self) {
+        let stack_limits = std::mem::take(&mut self.stack_limits);
+        *self = Timeline { stack_limits, ..Timeline::default() };
+    }
+
+    /// Instances held, ended and still on.
+    pub fn len(&self) -> usize {
+        self.instances.len() + self.live.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Every instance on any time from `start_ms` to `end_ms`, the ones still
+    /// on included.
+    pub fn instances_between(&self, start_ms: i64, end_ms: i64) -> Vec<Instance> {
+        let overlaps = |i: &&Instance| i.start_ms <= end_ms && i.end_ms.is_none_or(|e| e >= start_ms);
+        let mut out: Vec<Instance> =
+            self.instances.iter().chain(self.live.values()).filter(overlaps).cloned().collect();
+        out.sort_by_key(|i| (i.start_ms, i.entity, i.instance));
+        out
+    }
+
     /// Every instance, the ones still on included (open, no end).
     pub fn all_instances(&self) -> Vec<Instance> {
         let mut out = self.instances.clone();
@@ -1072,5 +1124,50 @@ mod tests {
                 (1, 20, None, vec![(20, 1)]),
             ]
         );
+    }
+
+    // The meter's own additions: a bounded timeline, and the stack limits
+    // read from the table it ships.
+
+    #[test]
+    fn pruning_keeps_what_is_on_and_what_ended_since() {
+        let mut t = Timeline::default();
+        t.note(1_000, &hex(BENEDICTION_ON));
+        t.note(11_042, &hex(BENEDICTION_OFF));
+        // The spirit's passive, never ending.
+        t.note(12_000, &hex(SPIRIT_SPAWN));
+        t.prune(11_042);
+        assert_eq!(t.len(), 2);
+        t.prune(11_043);
+        let left: Vec<_> = t.all_instances().iter().map(|i| (i.abnormal, i.end)).collect();
+        assert_eq!(left, [(161_002_304, End::Open)]);
+        assert_eq!(t.instances_between(0, 5_000), []);
+        assert_eq!(t.instances_between(0, 12_000).len(), 1);
+        t.clear();
+        assert!(t.is_empty());
+    }
+
+    #[test]
+    fn a_prune_between_a_push_and_its_removal_keeps_the_reason() {
+        let mut t = Timeline::default();
+        t.set_stack_limits(HashMap::from([(167_100_001, 1)]));
+        // An old instance on another entity, ended long before.
+        t.note(100, &hex(BENEDICTION_ON));
+        t.note(200, &hex(BENEDICTION_OFF));
+        t.note(695, &hex("2f2a38a15801110661bef509ffffffffffffffff8075d52abb030000a15801005e71f0c7196dd6c700dcbf46"));
+        t.note(795, &hex("2f2a38a15801111061bef509ffffffffffffffff8075d52abb030000a15804005e71f0c7196dd6c700dcbf46"));
+        t.prune(500);
+        t.note(795, &hex("152c38a15804000f05000a05000805000605"));
+        let ends: Vec<_> = t.all_instances().iter().map(|i| (i.instance, i.end)).collect();
+        assert_eq!(ends, [(6, End::Removed(5)), (16, End::Open)]);
+    }
+
+    #[test]
+    fn stack_limits_read_from_the_table() {
+        let table = r#"{"abnormals":{"103":{"icon":"x","stacks":3},"100":{"icon":"y"},"163000003":{"stacks":4}}}"#;
+        assert_eq!(stack_limits(table), HashMap::from([(103, 3), (163_000_003, 4)]));
+        assert_eq!(stack_limits("not json"), HashMap::new());
+        let shipped = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../src/data/abnormals.json")).unwrap();
+        assert_eq!(stack_limits(&shipped).get(&163_000_003), Some(&4), "Element");
     }
 }

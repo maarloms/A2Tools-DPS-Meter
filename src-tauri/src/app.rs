@@ -2325,6 +2325,11 @@ pub fn run() {
             let npc_lookup = Arc::new(npc_lookup);
 
             let data_storage = Arc::new(DataStorage::new());
+            if let Some(ref data_dir) = found_data_dir
+                && let Ok(text) = std::fs::read_to_string(data_dir.join("abnormals.json"))
+            {
+                data_storage.set_abnormal_stack_limits(crate::capture::abnormal::stack_limits(&text));
+            }
             let ping_tracker = Arc::new(PingTracker::with_perf_clock(platform::clock::perf_clock()));
             let port_detector = Arc::new(CombatPortDetector::new());
 
