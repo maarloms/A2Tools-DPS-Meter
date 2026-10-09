@@ -36,8 +36,16 @@ use super::stream_processor::read_varint;
 /// garbage and resynchronises a byte at a time.
 const MAX_PACKET_BYTES: usize = 65535;
 /// A length above this that runs past the buffer is treated as corruption rather
-/// than as a TCP fragment worth waiting for.
+/// than as a TCP fragment worth waiting for: waiting on a garbage length would
+/// swallow that many bytes of real packets as one bogus frame.
 const MAX_FRAGMENT_WAIT_BYTES: usize = 16384;
+/// Unless the frame shows a bundle's header (`FF FF`, then a decompressed size
+/// no larger than a bundle may claim), which a garbage length almost never
+/// lands on. Bundles run past 16 KB: the zone-load bundle carrying your own
+/// self record was 17,072 bytes in a capture of 2026-10-09, and walking past
+/// it lost that record (you unnamed for the next fight), the spawns with it,
+/// and about 5 s of resync. Waited for up to the largest packet believed.
+const MAX_BUNDLE_WAIT_BYTES: usize = MAX_PACKET_BYTES;
 /// Refuse to allocate for a bundle claiming to decompress to more than this.
 const MAX_DECOMPRESSED_BYTES: usize = 1_000_000;
 /// Bundles nest. Four is far past anything observed and stops a crafted file
@@ -135,7 +143,12 @@ pub fn walk(buffer: &[u8]) -> Framing {
 
         // 3. TCP fragmentation check (anti-stall gate).
         if offset + total_packet_bytes > buffer.len() {
-            if total_packet_bytes > MAX_FRAGMENT_WAIT_BYTES {
+            let limit = if bundle_header_at(buffer, offset + length_info.length as usize) {
+                MAX_BUNDLE_WAIT_BYTES
+            } else {
+                MAX_FRAGMENT_WAIT_BYTES
+            };
+            if total_packet_bytes > limit {
                 offset += 1;
                 continue;
             }
@@ -159,6 +172,17 @@ pub fn walk(buffer: &[u8]) -> Framing {
 
     out.consumed = offset;
     out
+}
+
+/// Whether a bundle's header starts at `at`: `FF FF`, then a little-endian
+/// decompressed size that is non-zero and within what decompress_bundle
+/// accepts. Only the header need have arrived.
+fn bundle_header_at(buffer: &[u8], at: usize) -> bool {
+    let Some(h) = buffer.get(at..at + 6) else {
+        return false;
+    };
+    let size = u32::from_le_bytes([h[2], h[3], h[4], h[5]]) as usize;
+    h[0] == 0xFF && h[1] == 0xFF && size > 0 && size <= MAX_DECOMPRESSED_BYTES
 }
 
 /// Bytes a TLS record at the start of `b` occupies, header included: content
@@ -310,6 +334,59 @@ mod tests {
         let mut b = vec![op, 0x36];
         b.extend((0..len - 2).map(|i| (i % 251) as u8 | 1));
         b
+    }
+
+    #[test]
+    fn a_bundle_over_16_kb_split_across_reads_is_waited_for() {
+        // Incompressible inner packets, so the bundle stays past 16 KB as the
+        // 17,072-byte zone-load bundle of 2026-10-09 did.
+        let mut inner = Vec::new();
+        let mut x: u32 = 12345;
+        for _ in 0..12 {
+            let payload: Vec<u8> = (0..1_600).map(|_| {
+                x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                (x >> 16) as u8
+            }).collect();
+            inner.extend(packet(&payload));
+        }
+        let big = bundle(&inner);
+        assert!(big.len() > MAX_FRAGMENT_WAIT_BYTES, "{} bytes", big.len());
+        let mut stream = packet(&[0x23, 0x36, 0x01]);
+        stream.extend(&big);
+        stream.extend(packet(&[0x41, 0x36, 0x02]));
+
+        // The first read ends part-way into the bundle: wait, don't resync.
+        let first = &stream[..9_000];
+        let f = walk(first);
+        assert_eq!(f.frames.len(), 1);
+        assert_eq!(f.consumed, packet(&[0x23, 0x36, 0x01]).len(), "the bundle is kept for the next read");
+
+        // With the rest, the bundle frames whole and decompresses.
+        let rest = &stream[f.consumed..];
+        let g = walk(rest);
+        assert_eq!(g.frames.len(), 2);
+        assert_eq!(g.frames[0].kind, FrameKind::Bundle);
+        assert_eq!(decompress_bundle(g.frames[0].payload(rest)).unwrap(), inner);
+    }
+
+    #[test]
+    fn a_garbage_length_past_16_kb_without_a_bundle_header_still_resyncs() {
+        // A length of 40,000 whose bytes are not a bundle, running past what
+        // has arrived: not worth waiting for, so the walk moves on from it
+        // (consumed past 0) instead of holding the stream for 40 KB.
+        let mut buf = varint(40_000);
+        buf.extend([0x12, 0x34, 0x00, 0x00, 0x00, 0x00]);
+        buf.extend(packet(&[0x23, 0x36, 0x07]));
+        assert!(walk(&buf).consumed > 0);
+        // The same length on a bundle's header is waited for.
+        let mut held = varint(40_000);
+        held.extend([0xFF, 0xFF, 0x00, 0x00, 0x01, 0x00]);
+        assert_eq!(walk(&held).consumed, 0);
+
+        // FF FF with a size no bundle may claim is garbage too.
+        let mut bad = varint(40_000);
+        bad.extend([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F]);
+        assert!(!bundle_header_at(&bad, varint(40_000).len()));
     }
 
     #[test]
