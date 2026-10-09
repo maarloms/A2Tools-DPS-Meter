@@ -2442,7 +2442,7 @@ class DpsApp {
           return;
         }
         this.localPlayerId = Number(value);
-        window.javaBridge?.bindLocalActorId?.(value);
+        window.javaBridge?.bindLocalActorId?.(value, true);
         if (this.USER_NAME) {
           window.javaBridge?.bindLocalNickname?.(value, this.USER_NAME);
         }

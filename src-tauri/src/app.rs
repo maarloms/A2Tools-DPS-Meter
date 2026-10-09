@@ -631,7 +631,21 @@ fn set_character_name(state: tauri::State<'_, AppState>, name: String, manual: O
 }
 
 #[tauri::command]
-fn bind_local_actor_id(state: tauri::State<'_, AppState>, actor_id: i64) {
+fn bind_local_actor_id(state: tauri::State<'_, AppState>, actor_id: i64, manual: Option<bool>) {
+    // Once the game's self record has named the player, an id the UI sends
+    // back is at best the same one and at worst one from before a zone load:
+    // every window echoes the id it last saw, and binding an old one put the
+    // name on it, which took it off the entity the self record had named
+    // (the name moves to whichever id it is bound to). Only an id the player
+    // typed in Settings (`manual`) overrides the game.
+    if !state.data_storage.ui_may_bind_local_id(actor_id, manual.unwrap_or(false)) {
+        tracing::info!(
+            "bind_local_actor_id: ignored {} (the game named {:?})",
+            actor_id,
+            state.data_storage.local_player_id()
+        );
+        return;
+    }
     if actor_id <= 0 {
         // Clear manual binding — auto-detection will take over
         tracing::info!("bind_local_actor_id: cleared");

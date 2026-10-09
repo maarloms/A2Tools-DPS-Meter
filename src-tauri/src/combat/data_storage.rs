@@ -557,6 +557,13 @@ struct LootIdentity {
     /// The local id in force was read from those counts, not stated by the
     /// game or chosen in the UI. See `note_party_scope`.
     local_from_scope: bool,
+    /// The local id in force was read from `4A 36` records (see
+    /// `note_self_stats`). `local_from_scope` is set with it, since such an id
+    /// has no name either; this one keeps the `06 38` counts from moving it.
+    local_from_stats: bool,
+    /// The last entity `4A 36` records named in a row, other than the local
+    /// id in force, and how many times in a row.
+    stats_streak: Option<(i32, u32)>,
     /// The local identity currently in force came from them, not from the
     /// self record.
     applied: bool,
@@ -809,6 +816,11 @@ impl DataStorage {
         if inner.local_identity_from_game && !inner.loot_identity.applied {
             return false; // the self record has spoken
         }
+        // Your own-stats records have said which entity is you: loot can
+        // name that entity, not move you off it.
+        if inner.loot_identity.local_from_stats && inner.local_player_id != Some(owner_id as i64) {
+            return false;
+        }
         let configured_and_found = inner.local_player_id.is_some_and(|id| {
             let configured = inner.local_character_name.as_deref().map(str::trim);
             configured.is_some() && inner.nickname_storage.get(&(id as i32)).map(String::as_str) == configured
@@ -858,7 +870,7 @@ impl DataStorage {
             return;
         }
         let undecided = inner.local_player_id.is_none() || inner.loot_identity.local_from_scope;
-        if inner.local_identity_from_game || !undecided {
+        if inner.local_identity_from_game || !undecided || inner.loot_identity.local_from_stats {
             return;
         }
         if let Some(leader) = scope_leader(&inner) {
@@ -868,6 +880,77 @@ impl DataStorage {
                 inner.loot_identity.local_from_scope = true;
             }
         }
+    }
+
+    /// The server sent a `4A 36` record about `entity_id`.
+    ///
+    /// These go to the local player about the local player alone: in every
+    /// capture at hand that has them (EU, 2026-10-01 to 2026-10-09) each
+    /// entity they name is one the self record names as you, never a party
+    /// member, a spirit or a mob. They start the moment a zone loads, ahead
+    /// of the self record, and keep coming while you play.
+    ///
+    /// The self record (`33 36`) is sent on a zone load and, at best, every
+    /// few minutes after, so an id it stated goes stale whenever a load's copy
+    /// is missed: a 17 KB bundle at a dungeon's entrance threw the framing
+    /// out and swallowed it (2026-10-09), and the meter kept the previous
+    /// zone's id for two and a half minutes, a boss fight with it, your row
+    /// saved as a masked `#id`. So when these name another entity three times
+    /// running, that entity is you. It gets no name: the one the game last
+    /// stated, like the UI's, can be another character's after a switch. The
+    /// next self record names it.
+    /// Returns whether the local identity changed.
+    pub fn note_self_stats(&self, entity_id: i32) -> bool {
+        const RECORDS_IN_A_ROW: u32 = 3;
+        if !(100..=9_999_999).contains(&entity_id) {
+            return false;
+        }
+        let mut inner = self.inner.write();
+        if inner.local_player_id == Some(entity_id as i64) {
+            inner.loot_identity.stats_streak = None;
+            return false;
+        }
+        let streak = match inner.loot_identity.stats_streak {
+            Some((id, n)) if id == entity_id => n + 1,
+            _ => 1,
+        };
+        inner.loot_identity.stats_streak = Some((entity_id, streak));
+        if streak < RECORDS_IN_A_ROW {
+            return false;
+        }
+        tracing::info!(
+            "own-stats records: local player -> entity {} (was {:?})",
+            entity_id,
+            inner.local_player_id
+        );
+        inner.loot_identity.stats_streak = None;
+        inner.local_player_id = Some(entity_id as i64);
+        inner.loot_identity.local_from_scope = true;
+        inner.loot_identity.local_from_stats = true;
+        inner.loot_identity.applied = false;
+        if inner.local_identity_from_game {
+            // What the game said is about an entity no longer you; the UI's
+            // name may come back, but only as a name, not on this id.
+            inner.local_identity_from_game = false;
+            inner.local_character_name = None;
+        }
+        true
+    }
+
+    /// Whether the UI may make `actor_id` the local player (`bind_local_actor_id`).
+    ///
+    /// Each meter window (the meter, History, every Details window) sends
+    /// back the id it last saw whenever that changes, and binding one puts
+    /// the local name on it, which takes the name off whichever entity had
+    /// it. So once the self record has named you, only an id the player typed
+    /// (`manual`) may move you; an echo of an older one is dropped. A player's
+    /// fight (2026-10-09) was saved with their own row a masked, nameless
+    /// `#id`, though the self record had named them on that entity six
+    /// minutes before and a replay of the packets keeps the name on it: a
+    /// bind like this is the one path that takes both the name and "you"
+    /// off an entity.
+    pub fn ui_may_bind_local_id(&self, actor_id: i64, manual: bool) -> bool {
+        manual || !self.local_identity_from_self_record() || self.local_player_id() == Some(actor_id)
     }
 
     /// The local id was read from `06 38` counts rather than stated by the
@@ -980,6 +1063,7 @@ impl DataStorage {
         let mut inner = self.inner.write();
         if inner.local_player_id != id {
             inner.loot_identity.local_from_scope = false;
+            inner.loot_identity.local_from_stats = false;
         }
         inner.local_player_id = id;
     }
@@ -1955,6 +2039,8 @@ fn forget_entity(inner: &mut Inner, id: i32) {
 
 fn set_game_identity(inner: &mut Inner, id: i64, name: Option<String>) {
     inner.loot_identity.local_from_scope = false;
+    inner.loot_identity.local_from_stats = false;
+    inner.loot_identity.stats_streak = None;
     inner.local_identity_from_game = true;
     inner.local_player_id = Some(id);
     inner.local_character_name = name;
@@ -2830,6 +2916,79 @@ mod tests {
         // Loading a replay still starts from nothing.
         s.reset_nicknames();
         assert_eq!(s.get_nickname(4227), None);
+    }
+
+    fn own_stats(s: &DataStorage, id: i32, times: usize) {
+        for _ in 0..times {
+            s.note_self_stats(id);
+        }
+    }
+
+    /// A zone load whose self record was missed left the meter on the last
+    /// zone's entity (2026-10-09: two and a half minutes, a boss fight saved
+    /// with your row a masked `#id`). The `4A 36` records about your own stats
+    /// name the new entity from the first seconds.
+    #[test]
+    fn own_stats_records_follow_you_past_a_missed_self_record() {
+        let s = DataStorage::new();
+        s.set_local_identity_from_game(4294, Some("Mine".into()));
+        s.append_nickname_authoritative(4294, "Mine");
+        player_hit(&s, 7001, 900);
+        player_hit(&s, 8123, 900); // a party member
+
+        own_stats(&s, 7001, 2);
+        s.note_self_stats(4294); // still about the id in force: no streak
+        own_stats(&s, 7001, 2);
+        assert_eq!(s.local_player_id(), Some(4294), "not on two in a row");
+        assert!(s.note_self_stats(7001), "three in a row");
+        assert_eq!(s.local_player_id(), Some(7001));
+        assert!(s.local_id_from_scope(), "an id without a name, like the 06 38 one");
+        assert!(!s.local_identity_from_game());
+        assert_eq!(s.local_character_name(), None, "the last character's name is not assumed");
+        assert_eq!(s.get_nickname(7001), None);
+        assert_eq!(s.get_nickname(4294).as_deref(), Some("Mine"), "the old entity keeps its name");
+
+        // Neither a party member's 06 38 lead nor their loot moves you off it.
+        scope(&s, 8123, 200);
+        s.note_party_scope(7001);
+        assert!(!s.note_loot_owner(900, 8123, "Partner"));
+        assert_eq!(s.local_player_id(), Some(7001));
+        // Your own loot names you, once it leads.
+        s.note_loot_owner(901, 7001, "Mine");
+        assert!(s.note_loot_owner(902, 7001, "Mine"));
+        assert_eq!((s.local_player_id(), s.local_character_name().as_deref()), (Some(7001), Some("Mine")));
+
+        // And the next self record has the last word.
+        s.set_local_identity_from_game(7001, Some("Mine".into()));
+        assert!(!s.local_id_from_scope());
+        assert!(s.local_identity_from_self_record());
+    }
+
+    /// The fight of 2026-10-09: the self record named you on a new entity at
+    /// a zone load, and the fight after it was saved with that entity
+    /// nameless, masked and not you. Binding the id a window still showed
+    /// from before the load does exactly that: the name goes to the old id.
+    #[test]
+    fn an_old_id_echoed_by_a_window_does_not_take_you_off_your_entity() {
+        let s = DataStorage::new();
+        s.set_local_identity_from_game(5100, Some("Mine".into()));
+        s.append_nickname_authoritative(5100, "Mine");
+        // Zone load: a new entity, named by the self record.
+        s.set_local_identity_from_game(6200, Some("Mine".into()));
+        s.append_nickname_authoritative(6200, "Mine");
+        assert_eq!(s.get_nickname(5100), None);
+
+        assert!(!s.ui_may_bind_local_id(5100, false), "an echo of the old id");
+        assert!(s.ui_may_bind_local_id(6200, false));
+        assert!(s.ui_may_bind_local_id(5100, true), "a typed id is the player's call");
+
+        // What binding it did (bind_local_actor_id before this check)...
+        s.set_local_player_id(Some(5100));
+        s.set_permanent_nickname(5100, "Mine");
+        assert_eq!(s.get_nickname(6200), None, "the failure: your entity loses its name");
+        // ...is undone by your own-stats records, which keep naming 6200.
+        own_stats(&s, 6200, 3);
+        assert_eq!(s.local_player_id(), Some(6200));
     }
 
     fn scope(s: &DataStorage, id: i32, times: usize) {

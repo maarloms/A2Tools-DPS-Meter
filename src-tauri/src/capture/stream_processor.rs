@@ -272,6 +272,7 @@ impl StreamProcessor {
             || self.parsing_nickname(packet);
         let parsed_hp = self.parse_hp_mp_update_packet(packet);
         self.parse_party_scope_packet(packet);
+        self.parse_self_stats_packet(packet);
         self.parse_death_packet(packet);
         self.parse_zone_change_packet(packet);
         self.parse_map_load_packet(packet);
@@ -300,6 +301,26 @@ impl StreamProcessor {
         let id = read_varint(packet, offset + 2);
         if id.length > 0 {
             self.data_storage.note_party_scope(id.value);
+        }
+    }
+
+    // ===== OWN STATS (4A 36) =====
+
+    /// `<len> 4A 36 <entity_id varint> ...`: a record the server sends about
+    /// the local player only (see `DataStorage::note_self_stats`). What it
+    /// carries is not decoded.
+    fn parse_self_stats_packet(&self, packet: &[u8]) {
+        let length_info = read_varint(packet, 0);
+        if length_info.length <= 0 {
+            return;
+        }
+        let offset = length_info.length as usize;
+        if offset + 3 >= packet.len() || packet[offset] != 0x4A || packet[offset + 1] != 0x36 {
+            return;
+        }
+        let id = read_varint(packet, offset + 2);
+        if id.length > 0 {
+            self.data_storage.note_self_stats(id.value);
         }
     }
 
@@ -3853,6 +3874,24 @@ mod tests {
         ));
         assert_eq!(storage.local_player_id(), None);
         assert_eq!(storage.get_nickname(16), None);
+    }
+
+    /// `4A 36` records, sent about your own stats and no one else's, move the
+    /// local player onto the entity they name when the self record that
+    /// should have done it was missed. The packet's shape is from a player's
+    /// log (2026-10-09), its entity id replaced.
+    #[test]
+    fn own_stats_records_name_the_local_entity() {
+        let storage = Arc::new(DataStorage::new());
+        let mut p = StreamProcessor::new(storage.clone(), Arc::new(SkillLookup::new()), Arc::new(NpcLookup::new()));
+        storage.set_local_identity_from_game(5100, Some("Mine".into()));
+        let record = hex("114A36B8300A0000020050165636"); // entity 6200
+        p.consume_stream(&[record.clone(), record.clone()].concat());
+        assert_eq!(storage.local_player_id(), Some(5100), "two records are not enough");
+        p.consume_stream(&record);
+        assert_eq!(storage.local_player_id(), Some(6200));
+        assert!(storage.local_id_from_scope());
+        assert_eq!(storage.get_nickname(6200), None);
     }
 
     /// A Sorcerer on Ventus (server 1305) killing a mob, from a player's log
