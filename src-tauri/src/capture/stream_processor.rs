@@ -983,6 +983,7 @@ impl StreamProcessor {
                 real_actor_id,
                 owner_id
             );
+            self.name_summon_owner(owner_id, spawn_name.as_deref());
             return true;
         }
 
@@ -1032,10 +1033,40 @@ impl StreamProcessor {
             self.data_storage.note_low_id_entity(caster);
             self.data_storage
                 .register_confirmed_summon_by_id(real_actor_id, caster);
+            if kind == 0x5F {
+                self.name_summon_owner(caster, spawn_name.as_deref());
+            }
             return true;
         }
 
         false
+    }
+
+    /// A summon's (`0x5F`) spawn states its owner twice, by name and by
+    /// entity id, so it names a player whose own spawn the meter missed.
+    ///
+    /// A player is named by their spawn (`45 36`) when they come into view,
+    /// and you by your self record on a zone load. A meter started, or a
+    /// capture begun, inside an instance has missed both, and a party member
+    /// stays `#id` until something re-sends them: replaying a 2026-10-09
+    /// dungeon run from just before its last boss, a Ranger's pets named
+    /// her (entity 15961) from the first second, and her spawn came two
+    /// minutes into the fight. Over the check kit's captures and that run,
+    /// 329 summon spawns read this way, and each named its owner as the
+    /// game's own records for that id did.
+    ///
+    /// Only for a summon. A `0x1F` effect's caster field can be the boss
+    /// its mechanic hangs on, while its name is the player it targets: a
+    /// boss whose own spawn was missed would have taken each party
+    /// member's name in turn. A name the game stated elsewhere is never
+    /// replaced (`append_nickname`'s gate).
+    fn name_summon_owner(&self, owner_id: i32, name: Option<&str>) {
+        let Some(name) = name else { return };
+        if self.data_storage.has_nickname(owner_id) || self.data_storage.is_mob(owner_id) {
+            return;
+        }
+        tracing::info!("Summon spawn: owner {} is '{}'", owner_id, name);
+        self.data_storage.append_nickname(owner_id, name);
     }
 
     /// The caster of a ground spell: the `u32` after the `07 02 06` or
@@ -3675,6 +3706,61 @@ mod tests {
         other[m + 2] = 0x01;
         assert!(p.parse_summon_spawn_at(&other, 2));
         assert_eq!(storage.get_summon_data().get(&18252), Some(&191));
+    }
+
+    /// A party member whose spawn the meter missed is named by their pet's
+    /// spawn, which carries the owner's name and id together. From a
+    /// dungeon run (2026-10-09) replayed from just before the last boss: a
+    /// Ranger's pet (`0x5F`) named her a second in, two minutes before her
+    /// own spawn. Names, legion and ids are stand-ins; entity 1480 has been
+    /// fighting entity 22567, the boss, whose spawn was missed too.
+    #[test]
+    fn a_pets_spawn_names_its_owner() {
+        let (storage, mut p) = processor();
+        assert!(feed(&mut p, "a7b0010600c80b9147ff003f02020002aff4b76301000000e4506a0100"));
+        assert!(storage.get_nickname(1480).is_none());
+
+        // The boss's mechanic (`0x1F`), named after the player it targets,
+        // with the boss in its caster field: no name for the boss.
+        let mechanic = hex(concat!(
+            "4136a582011f000108",
+            "4861776b65796531", // "Hawkeye1"
+            "968f2c0040024fbd66c6c86b804600a05345600d7d43f3b301c0ee6dc0ee6d640000006400000000",
+            "00000000000000000000000000000090650000000000000100000000000000000000000000000000",
+            "000000010602110181969800ffffffffffffffff8075d52abb030000a5820101044fbd66c6c86b80",
+            "4600a05345110284969800ffffffffffffffff8075d52abb030000a58201014fbd66c6c86b804600",
+            "a05345070206",
+            "27580000", // caster field: 22567
+            "002500000000",
+        ));
+        p.parse_summon_spawn_at(&mechanic, 2);
+        assert!(storage.get_nickname(22567).is_none());
+        assert!(storage.get_nickname(1480).is_none());
+
+        // The pet: owner 1480 as its parent_key and in its caster field.
+        let pet = |id: &str, owner_name: &str| {
+            let mut b = hex(&format!("4136{id}5f000108"));
+            b.extend(owner_name.as_bytes());
+            b.extend(hex(concat!(
+                "ac902c00000200c46ac600043f460030524524e90b437e6301f73ef73efc090000fc090000000000",
+                "00000000000000000018f0010064000000f04902000100000000000000a08601000000000000e204",
+                "000101110181969800ffffffffffffffff8075d52abb030000b4c601010200c46ac600043f460030",
+                "5245070206",
+                "c8050000", // owner: 1480, the caster field and the parent_key
+                "ad01000000000f0905",
+                "4775696c64", // legion "Guild"
+                "02000000000000000000000000000000000002cd0096000000d000340100002600000000",
+            )));
+            b
+        };
+        assert!(p.parse_summon_spawn_at(&pet("b4c601", "Hawkeye1"), 2));
+        assert_eq!(storage.get_summon_data().get(&25396), Some(&1480));
+        assert_eq!(storage.get_nickname(1480).as_deref(), Some("Hawkeye1"));
+
+        // A name the game stated is kept.
+        storage.append_nickname_authoritative(1480, "Bowmaster");
+        assert!(p.parse_summon_spawn_at(&pet("b5c601", "Hawkeye1"), 2));
+        assert_eq!(storage.get_nickname(1480).as_deref(), Some("Bowmaster"));
     }
 
     #[test]
