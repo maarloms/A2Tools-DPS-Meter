@@ -226,6 +226,7 @@
     "showTtk": "Zeit bis zum Kill (TTK) anzeigen",
     "showTotalDps": "Gesamt-DPS/SCH anzeigen",
     "roundDps": "DPS runden",
+    "showDpsSuffix": "/s nach DPS anzeigen",
     "autoHideMeter": "Meter automatisch ausblenden",
     "showSuspendBtn": "Pause-Schaltfläche anzeigen",
     "showLockBtn": "Sperrtaste anzeigen (durchklickbar)",

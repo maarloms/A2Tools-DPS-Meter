@@ -231,6 +231,7 @@
     "showTtk": "顯示預計擊殺時間（TTK）",
     "showTotalDps": "顯示總DPS/DMG",
     "roundDps": "DPS取整",
+    "showDpsSuffix": "在 DPS 後顯示 /s",
     "autoHideMeter": "自動隱藏面板",
     "showSuspendBtn": "顯示暫停按鈕",
     "showLockBtn": "顯示鎖定按鈕（點擊穿透）",

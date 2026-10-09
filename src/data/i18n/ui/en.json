@@ -236,6 +236,7 @@
     "showTtk": "Show time to kill (TTK)",
     "showTotalDps": "Show total DPS/DMG",
     "roundDps": "Round DPS",
+    "showDpsSuffix": "Show /s after DPS",
     "autoHideMeter": "Auto-hide meter",
     "showSuspendBtn": "Show suspend button",
     "showLockBtn": "Show lock button (click-through)",

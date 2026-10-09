@@ -226,6 +226,7 @@
     "showTtk": "撃破予測時間（TTK）を表示",
     "showTotalDps": "合計DPS/ダメージを表示",
     "roundDps": "DPSを丸める",
+    "showDpsSuffix": "DPSの後に/sを表示",
     "autoHideMeter": "メーターを自動的に隠す",
     "showSuspendBtn": "一時停止ボタンを表示",
     "showLockBtn": "ロックボタンを表示（クリック透過）",

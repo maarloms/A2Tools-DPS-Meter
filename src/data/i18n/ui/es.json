@@ -226,6 +226,7 @@
     "showTtk": "Mostrar tiempo hasta la muerte (TTK)",
     "showTotalDps": "Mostrar DPS/DÑO total",
     "roundDps": "Redondear DPS",
+    "showDpsSuffix": "Mostrar /s tras el DPS",
     "autoHideMeter": "Ocultar el medidor automáticamente",
     "showSuspendBtn": "Mostrar botón de pausa",
     "showLockBtn": "Mostrar botón de bloqueo (clic a través)",
