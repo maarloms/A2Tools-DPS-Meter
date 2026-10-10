@@ -360,6 +360,17 @@
       }
     },
 
+    // The live fight's buffs and debuffs on a target: { targetId, startTimeMs,
+    // durationMs, buffs }, or null.
+    async getFightBuffs(targetId) {
+      try {
+        return await invoke("get_fight_buffs", { targetId: Number(targetId) });
+      } catch (e) {
+        console.error("[A2Tools] getFightBuffs error:", e);
+        return null;
+      }
+    },
+
     async getBattleDetail(actorId, { summaryOnly = false } = {}) {
       const dps = cachedDpsJson ? JSON.parse(cachedDpsJson) : null;
       const targetIds = [...new Set((Array.isArray(dps?.detailTargetIds)
@@ -575,7 +586,9 @@
     setCharacterName(name, manual) {
       invoke("set_character_name", { name, manual: !!manual }).catch(() => {});
     },
-    // `manual`: typed in the settings; outranks what the game says (fork).
+    // `manual`: the player typed the id in Settings. Otherwise this is the
+    // window echoing the id it last saw, which the backend ignores once the
+    // game has named someone else.
     bindLocalActorId(actorId, manual) {
       const id = Number(actorId);
       if (!Number.isFinite(id) || id < 0) return;

@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
+
+use crate::capture::abnormal;
 
 use crate::entity::damage_packet::ParsedDamagePacket;
 use crate::entity::job_class::JobClass;
@@ -40,6 +42,13 @@ const NEVER_MS: i64 = i64::MIN;
 /// roster by class. A fight brings a few hundred records a second, so this
 /// names them within the first moments of combat.
 const ROSTER_BIND_EVERY: u32 = 64;
+/// How long the buff timeline keeps an abnormal after it ended: long enough
+/// to look back over any fight, short enough that a meter left running all
+/// day holds a bounded amount (a busy boss fight brings a few thousand
+/// instances a minute).
+const ABNORMAL_RETENTION_MS: i64 = 30 * 60 * 1000;
+/// How often, in capture time, the timeline drops what is past retention.
+const ABNORMAL_PRUNE_EVERY_MS: i64 = 60 * 1000;
 
 fn now_ms() -> i64 {
     crate::clock::now_ms()
@@ -61,6 +70,35 @@ static OPEN_WORLD_MAPS: std::sync::LazyLock<HashSet<i32>> = std::sync::LazyLock:
 /// patch) count as instances, which keeps the dungeon id as before.
 pub fn is_open_world_map(map_id: i32) -> bool {
     OPEN_WORLD_MAPS.contains(&map_id)
+}
+
+/// The dungeon the player is in, from the roster's dungeon and the last map
+/// load.
+///
+/// The roster (`02 97`) names the dungeon the PARTY is for, not where anyone
+/// is: in captures it names the dungeon minutes before the load into it, while
+/// the party is still in the open world (600163 on 2026-08-15, 610073 on
+/// 2026-07-04), and again on every roster update after the party has left. A
+/// roster update after leaving set the old id back, and fights in the open
+/// world or other instances were filed under the last dungeon (76 public logs
+/// of Vakron Sky Island, 600072, on open-world bosses).
+///
+/// A map load is where the player is. An instance's map id is its dungeon id
+/// (600011, 600021, 600163 and 610073 in captures, on entry and on every
+/// teleport inside), so:
+/// - no map load seen yet (a meter opened mid-session, a slice whose prelude
+///   holds none): the roster's dungeon, the only evidence there is;
+/// - the open world: none;
+/// - a dungeon's map (600000-699999, or the roster's own id): that dungeon;
+/// - any other instance (a seal, a quest scene): none, whatever the roster
+///   says.
+fn dungeon_of_map(roster_dungeon: i32, map: Option<i32>) -> i32 {
+    match map {
+        None => roster_dungeon,
+        Some(m) if is_open_world_map(m) => 0,
+        Some(m) if (600_000..700_000).contains(&m) || (m > 0 && m == roster_dungeon) => m,
+        Some(_) => 0,
+    }
 }
 
 // ───── Aggregate data structures ─────
@@ -370,6 +408,17 @@ pub struct DataStorage {
     /// Run just before combat data is cleared by a zone change or the end of a
     /// party, with no lock of ours held, so the fights can still be saved.
     before_reset: RwLock<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Buffs, debuffs and stats as the server reports them (see
+    /// `capture::abnormal`). Recorded only, nothing reads it into a fight
+    /// yet. Its own lock: it is fed every packet, and nothing here needs it
+    /// together with `inner`.
+    abnormals: Mutex<AbnormalLog>,
+}
+
+/// The timeline and when it was last pruned.
+struct AbnormalLog {
+    timeline: abnormal::Timeline,
+    pruned_ms: i64,
 }
 
 struct Inner {
@@ -431,9 +480,16 @@ struct Inner {
     /// records rather than time so a replay names players where a live meter
     /// did.
     damage_since_roster_bind: u32,
-    /// Instance id the party is in, from the same packet. Encodes the dungeon and
-    /// its difficulty tier; resolved to a name by the frontend's dungeon table.
+    /// Instance id the party is in. Encodes the dungeon and its difficulty
+    /// tier; resolved to a name by the frontend's dungeon table. Derived from
+    /// `roster_dungeon_id` and `current_map_id` by `dungeon_of_map`.
     current_dungeon_id: i32,
+    /// The dungeon the party roster (`02 97`) names. It is the party's, not
+    /// the player's: the roster names it while the party queues in the open
+    /// world, and keeps naming it after the party has left.
+    roster_dungeon_id: i32,
+    /// The map the last zone load (`21 36`) named; None until one is seen.
+    current_map_id: Option<i32>,
     /// Power-scalar values observed per actor in its damage records. A summon
     /// inherits its owner's, so this links the two when no spawn packet (and
     /// therefore no `parent_key`) ever arrives — the case for a Cleric's Divine
@@ -514,6 +570,13 @@ struct LootIdentity {
     /// The local id in force was read from those counts, not stated by the
     /// game or chosen in the UI. See `note_party_scope`.
     local_from_scope: bool,
+    /// The local id in force was read from `4A 36` records (see
+    /// `note_self_stats`). `local_from_scope` is set with it, since such an id
+    /// has no name either; this one keeps the `06 38` counts from moving it.
+    local_from_stats: bool,
+    /// The last entity `4A 36` records named in a row, other than the local
+    /// id in force, and how many times in a row.
+    stats_streak: Option<(i32, u32)>,
     /// The local identity currently in force came from them, not from the
     /// self record.
     applied: bool,
@@ -550,6 +613,8 @@ impl DataStorage {
                 damage_since_roster_bind: 0,
                 party_placeholders_hidden: false,
                 current_dungeon_id: 0,
+                roster_dungeon_id: 0,
+                current_map_id: None,
                 actor_power_scalars: HashMap::new(),
                 hostile_target_ids: HashSet::new(),
                 dead_entity_ids: HashSet::new(),
@@ -574,7 +639,65 @@ impl DataStorage {
             last_zone_reset_ms: AtomicI64::new(NEVER_MS),
             combat_reset_requested: AtomicBool::new(false),
             before_reset: RwLock::new(None),
+            abnormals: Mutex::new(AbnormalLog { timeline: abnormal::Timeline::default(), pruned_ms: NEVER_MS }),
         }
+    }
+
+    /// Each stacking abnormal's stack limit (`abnormal::stack_limits`), so a
+    /// stack pushed out past it ends where the game ends it.
+    pub fn set_abnormal_stack_limits(&self, limits: HashMap<u32, u32>) {
+        self.abnormals.lock().timeline.set_stack_limits(limits);
+    }
+
+    /// Hand one framed packet to the buff timeline, at the current time.
+    pub fn note_abnormal_packet(&self, packet: &[u8]) {
+        let ms = now_ms();
+        let mut log = self.abnormals.lock();
+        // A replay's clock can jump back, to another capture: prune again.
+        if ms >= log.pruned_ms.saturating_add(ABNORMAL_PRUNE_EVERY_MS) || ms < log.pruned_ms {
+            log.timeline.prune(ms.saturating_sub(ABNORMAL_RETENTION_MS));
+            log.pruned_ms = ms;
+        }
+        log.timeline.note(ms, packet);
+    }
+
+    /// Every abnormal instance on any time from `start_ms` to `end_ms`.
+    pub fn abnormal_instances(&self, start_ms: i64, end_ms: i64) -> Vec<abnormal::Instance> {
+        self.abnormals.lock().timeline.instances_between(start_ms, end_ms)
+    }
+
+    /// Stat records (your own stat sheet) from `start_ms` to `end_ms`.
+    pub fn stat_events(&self, start_ms: i64, end_ms: i64) -> Vec<abnormal::StatEvent> {
+        let log = self.abnormals.lock();
+        log.timeline.stats.iter().filter(|s| s.ms >= start_ms && s.ms <= end_ms).cloned().collect()
+    }
+
+    /// Instances held by the buff timeline, ended and still on.
+    pub fn abnormal_count(&self) -> usize {
+        self.abnormals.lock().timeline.len()
+    }
+
+    /// A fight's buffs and debuffs: the tracks (`abnormal::tracks`) on any
+    /// time from `start_ms` to `end_ms` on `entities` and on their summons,
+    /// every entity's when `entities` is empty. A caster is resolved to the
+    /// owner of its summon chain, so a spirit's buff is its summoner's.
+    pub fn fight_abnormal_tracks(&self, start_ms: i64, end_ms: i64, entities: &HashSet<i32>) -> Vec<abnormal::Track> {
+        let links = self.get_summon_data();
+        let instances: Vec<abnormal::Instance> = self
+            .abnormal_instances(start_ms, end_ms)
+            .into_iter()
+            .filter(|i| {
+                entities.is_empty()
+                    || entities.contains(&i.entity)
+                    || entities.contains(&summon_resolver::resolve(i.entity, &links))
+            })
+            .collect();
+        abnormal::tracks(&instances, |caster| summon_resolver::resolve(caster, &links))
+    }
+
+    /// Forget the buff timeline, for a capture from another session.
+    pub fn forget_abnormals(&self) {
+        self.abnormals.lock().timeline.clear();
     }
 
     /// Called when a self/world teleport (zone-change opcode) is seen. Resets
@@ -758,6 +881,11 @@ impl DataStorage {
         if inner.local_identity_from_game && !inner.loot_identity.applied {
             return false; // the self record has spoken
         }
+        // Your own-stats records have said which entity is you: loot can
+        // name that entity, not move you off it.
+        if inner.loot_identity.local_from_stats && inner.local_player_id != Some(owner_id as i64) {
+            return false;
+        }
         if !inner.loot_identity.applied {
             inner.loot_identity.name_before = inner.local_character_name.clone();
         }
@@ -810,7 +938,7 @@ impl DataStorage {
             return;
         }
         let undecided = inner.local_player_id.is_none() || inner.loot_identity.local_from_scope;
-        if inner.local_identity_from_game || !undecided {
+        if inner.local_identity_from_game || !undecided || inner.loot_identity.local_from_stats {
             return;
         }
         if let Some(leader) = scope_leader(&inner) {
@@ -820,6 +948,77 @@ impl DataStorage {
                 inner.loot_identity.local_from_scope = true;
             }
         }
+    }
+
+    /// The server sent a `4A 36` record about `entity_id`.
+    ///
+    /// These go to the local player about the local player alone: in every
+    /// capture at hand that has them (EU, 2026-10-01 to 2026-10-09) each
+    /// entity they name is one the self record names as you, never a party
+    /// member, a spirit or a mob. They start the moment a zone loads, ahead
+    /// of the self record, and keep coming while you play.
+    ///
+    /// The self record (`33 36`) is sent on a zone load and, at best, every
+    /// few minutes after, so an id it stated goes stale whenever a load's copy
+    /// is missed: a 17 KB bundle at a dungeon's entrance threw the framing
+    /// out and swallowed it (2026-10-09), and the meter kept the previous
+    /// zone's id for two and a half minutes, a boss fight with it, your row
+    /// saved as a masked `#id`. So when these name another entity three times
+    /// running, that entity is you. It gets no name: the one the game last
+    /// stated, like the UI's, can be another character's after a switch. The
+    /// next self record names it.
+    /// Returns whether the local identity changed.
+    pub fn note_self_stats(&self, entity_id: i32) -> bool {
+        const RECORDS_IN_A_ROW: u32 = 3;
+        if !(100..=9_999_999).contains(&entity_id) {
+            return false;
+        }
+        let mut inner = self.inner.write();
+        if inner.local_player_id == Some(entity_id as i64) {
+            inner.loot_identity.stats_streak = None;
+            return false;
+        }
+        let streak = match inner.loot_identity.stats_streak {
+            Some((id, n)) if id == entity_id => n + 1,
+            _ => 1,
+        };
+        inner.loot_identity.stats_streak = Some((entity_id, streak));
+        if streak < RECORDS_IN_A_ROW {
+            return false;
+        }
+        tracing::info!(
+            "own-stats records: local player -> entity {} (was {:?})",
+            entity_id,
+            inner.local_player_id
+        );
+        inner.loot_identity.stats_streak = None;
+        inner.local_player_id = Some(entity_id as i64);
+        inner.loot_identity.local_from_scope = true;
+        inner.loot_identity.local_from_stats = true;
+        inner.loot_identity.applied = false;
+        if inner.local_identity_from_game {
+            // What the game said is about an entity no longer you; the UI's
+            // name may come back, but only as a name, not on this id.
+            inner.local_identity_from_game = false;
+            inner.local_character_name = None;
+        }
+        true
+    }
+
+    /// Whether the UI may make `actor_id` the local player (`bind_local_actor_id`).
+    ///
+    /// Each meter window (the meter, History, every Details window) sends
+    /// back the id it last saw whenever that changes, and binding one puts
+    /// the local name on it, which takes the name off whichever entity had
+    /// it. So once the self record has named you, only an id the player typed
+    /// (`manual`) may move you; an echo of an older one is dropped. A player's
+    /// fight (2026-10-09) was saved with their own row a masked, nameless
+    /// `#id`, though the self record had named them on that entity six
+    /// minutes before and a replay of the packets keeps the name on it: a
+    /// bind like this is the one path that takes both the name and "you"
+    /// off an entity.
+    pub fn ui_may_bind_local_id(&self, actor_id: i64, manual: bool) -> bool {
+        manual || !self.local_identity_from_self_record() || self.local_player_id() == Some(actor_id)
     }
 
     /// The local id was read from `06 38` counts rather than stated by the
@@ -932,6 +1131,7 @@ impl DataStorage {
         let mut inner = self.inner.write();
         if inner.local_player_id != id {
             inner.loot_identity.local_from_scope = false;
+            inner.loot_identity.local_from_stats = false;
         }
         inner.local_player_id = id;
     }
@@ -1262,7 +1462,8 @@ impl DataStorage {
             self.run_before_reset();
             let mut inner = self.inner.write();
             inner.party_members.clear();
-            inner.current_dungeon_id = 0;
+            inner.roster_dungeon_id = 0;
+            inner.current_dungeon_id = dungeon_of_map(0, inner.current_map_id);
             drop(inner);
             self.flush_combat_only();
             self.combat_reset_requested.store(true, Ordering::Relaxed);
@@ -1284,27 +1485,28 @@ impl DataStorage {
         bind_roster_names_by_class(&mut inner);
     }
 
-    /// A zone load named the map it loads (`21 36`). The roster never sends 0
-    /// for the open world, so a load into an open-world map is what ends the
-    /// last instance's dungeon id. A teleport inside an instance names the
-    /// instance's own map, so it keeps the id.
+    /// A zone load named the map it loads (`21 36`). The map, once known, is
+    /// what says where the player is; see `dungeon_of_map`.
     pub fn note_map_load(&self, map_id: i32) {
         let mut inner = self.inner.write();
         // A load hands out new entity ids: counts of the old ones would name
         // an entity that is gone.
         inner.loot_identity.scope_counts.clear();
-        if !is_open_world_map(map_id) {
-            return;
-        }
-        if inner.current_dungeon_id != 0 {
-            tracing::debug!("Map {map_id} is open world: leaving dungeon {}", inner.current_dungeon_id);
-            inner.current_dungeon_id = 0;
+        inner.current_map_id = Some(map_id);
+        let dungeon = dungeon_of_map(inner.roster_dungeon_id, Some(map_id));
+        if dungeon != inner.current_dungeon_id {
+            tracing::debug!("Map {map_id}: dungeon {} -> {dungeon}", inner.current_dungeon_id);
+            inner.current_dungeon_id = dungeon;
         }
     }
 
+    /// The dungeon a party roster names. Taken as the player's only when no
+    /// map load says otherwise (`dungeon_of_map`).
     pub fn set_current_dungeon(&self, dungeon_id: i32) {
         if dungeon_id > 0 {
-            self.inner.write().current_dungeon_id = dungeon_id;
+            let mut inner = self.inner.write();
+            inner.roster_dungeon_id = dungeon_id;
+            inner.current_dungeon_id = dungeon_of_map(dungeon_id, inner.current_map_id);
         }
     }
 
@@ -1676,6 +1878,8 @@ impl DataStorage {
     /// Drop every summon link, for a capture from another session (a replay),
     /// whose entity ids mean something else.
     pub fn forget_summon_links(&self) {
+        // The buffs those ids had on are as foreign as the links.
+        self.forget_abnormals();
         let mut inner = self.inner.write();
         inner.summon_storage.clear();
         inner.confirmed_summon_ids.clear();
@@ -1985,6 +2189,8 @@ fn forget_entity(inner: &mut Inner, id: i32) {
 
 fn set_game_identity(inner: &mut Inner, id: i64, name: Option<String>) {
     inner.loot_identity.local_from_scope = false;
+    inner.loot_identity.local_from_stats = false;
+    inner.loot_identity.stats_streak = None;
     inner.local_identity_from_game = true;
     inner.local_player_id = Some(id);
     inner.local_character_name = name;
@@ -2919,6 +3125,79 @@ mod tests {
         assert_eq!(s.get_nickname(4227), None);
     }
 
+    fn own_stats(s: &DataStorage, id: i32, times: usize) {
+        for _ in 0..times {
+            s.note_self_stats(id);
+        }
+    }
+
+    /// A zone load whose self record was missed left the meter on the last
+    /// zone's entity (2026-10-09: two and a half minutes, a boss fight saved
+    /// with your row a masked `#id`). The `4A 36` records about your own stats
+    /// name the new entity from the first seconds.
+    #[test]
+    fn own_stats_records_follow_you_past_a_missed_self_record() {
+        let s = DataStorage::new();
+        s.set_local_identity_from_game(4294, Some("Mine".into()));
+        s.append_nickname_authoritative(4294, "Mine");
+        player_hit(&s, 7001, 900);
+        player_hit(&s, 8123, 900); // a party member
+
+        own_stats(&s, 7001, 2);
+        s.note_self_stats(4294); // still about the id in force: no streak
+        own_stats(&s, 7001, 2);
+        assert_eq!(s.local_player_id(), Some(4294), "not on two in a row");
+        assert!(s.note_self_stats(7001), "three in a row");
+        assert_eq!(s.local_player_id(), Some(7001));
+        assert!(s.local_id_from_scope(), "an id without a name, like the 06 38 one");
+        assert!(!s.local_identity_from_game());
+        assert_eq!(s.local_character_name(), None, "the last character's name is not assumed");
+        assert_eq!(s.get_nickname(7001), None);
+        assert_eq!(s.get_nickname(4294).as_deref(), Some("Mine"), "the old entity keeps its name");
+
+        // Neither a party member's 06 38 lead nor their loot moves you off it.
+        scope(&s, 8123, 200);
+        s.note_party_scope(7001);
+        assert!(!s.note_loot_owner(900, 8123, "Partner"));
+        assert_eq!(s.local_player_id(), Some(7001));
+        // Your own loot names you, once it leads.
+        s.note_loot_owner(901, 7001, "Mine");
+        assert!(s.note_loot_owner(902, 7001, "Mine"));
+        assert_eq!((s.local_player_id(), s.local_character_name().as_deref()), (Some(7001), Some("Mine")));
+
+        // And the next self record has the last word.
+        s.set_local_identity_from_game(7001, Some("Mine".into()));
+        assert!(!s.local_id_from_scope());
+        assert!(s.local_identity_from_self_record());
+    }
+
+    /// The fight of 2026-10-09: the self record named you on a new entity at
+    /// a zone load, and the fight after it was saved with that entity
+    /// nameless, masked and not you. Binding the id a window still showed
+    /// from before the load does exactly that: the name goes to the old id.
+    #[test]
+    fn an_old_id_echoed_by_a_window_does_not_take_you_off_your_entity() {
+        let s = DataStorage::new();
+        s.set_local_identity_from_game(5100, Some("Mine".into()));
+        s.append_nickname_authoritative(5100, "Mine");
+        // Zone load: a new entity, named by the self record.
+        s.set_local_identity_from_game(6200, Some("Mine".into()));
+        s.append_nickname_authoritative(6200, "Mine");
+        assert_eq!(s.get_nickname(5100), None);
+
+        assert!(!s.ui_may_bind_local_id(5100, false), "an echo of the old id");
+        assert!(s.ui_may_bind_local_id(6200, false));
+        assert!(s.ui_may_bind_local_id(5100, true), "a typed id is the player's call");
+
+        // What binding it did (bind_local_actor_id before this check)...
+        s.set_local_player_id(Some(5100));
+        s.set_permanent_nickname(5100, "Mine");
+        assert_eq!(s.get_nickname(6200), None, "the failure: your entity loses its name");
+        // ...is undone by your own-stats records, which keep naming 6200.
+        own_stats(&s, 6200, 3);
+        assert_eq!(s.local_player_id(), Some(6200));
+    }
+
     fn scope(s: &DataStorage, id: i32, times: usize) {
         for _ in 0..times {
             s.note_party_scope(id);
@@ -2980,6 +3259,50 @@ mod tests {
         player_hit(&s, 101, 900);
         scope(&s, 101, 200);
         assert_eq!(s.local_player_id(), Some(303));
+    }
+
+    /// The roster names the party's dungeon, not where the player is
+    /// (`dungeon_of_map`). Map ids from captures: 1011 World_L_A layer,
+    /// 610073 and 600072 instances, 151007 a non-dungeon instance.
+    #[test]
+    fn a_stale_roster_does_not_file_open_world_fights_under_the_last_dungeon() {
+        // Meter opened mid-session: the roster is all there is.
+        let s = DataStorage::new();
+        s.set_current_dungeon(600072);
+        assert_eq!(s.current_dungeon_id(), 600072);
+
+        // Leave Vakron Sky Island: the load into the open world ends it, and
+        // the roster updates the party sends afterwards do not restore it.
+        s.note_map_load(1011);
+        assert_eq!(s.current_dungeon_id(), 0);
+        s.set_current_dungeon(600072);
+        assert_eq!(s.current_dungeon_id(), 0, "roster in the open world");
+
+        // Another instance that is no dungeon: none, whatever the roster says.
+        s.note_map_load(151007);
+        s.set_current_dungeon(600072);
+        assert_eq!(s.current_dungeon_id(), 0);
+
+        // A dungeon the roster does not name: the map's.
+        s.note_map_load(600011);
+        assert_eq!(s.current_dungeon_id(), 600011);
+        s.set_current_dungeon(600072);
+        assert_eq!(s.current_dungeon_id(), 600011, "the map wins over the roster");
+
+        // An instance outside the dungeon table's range that the roster names.
+        s.set_current_dungeon(710001);
+        s.note_map_load(710001);
+        assert_eq!(s.current_dungeon_id(), 710001);
+
+        // Queued for a dungeon while in the open world, then loaded into it.
+        let s = DataStorage::new();
+        s.note_map_load(1010);
+        s.set_current_dungeon(610073);
+        assert_eq!(s.current_dungeon_id(), 0, "queued, not in it yet");
+        s.note_map_load(610073);
+        assert_eq!(s.current_dungeon_id(), 610073);
+        s.note_map_load(610073);
+        assert_eq!(s.current_dungeon_id(), 610073, "a teleport inside keeps it");
     }
 }
 

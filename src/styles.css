@@ -6813,6 +6813,262 @@ body.isHistoryWindow .historyPanel .historyHeader .closeX {
   padding-right: 14px;
 }
 
+/* ---------- details: buffs ----------
+   One row per buff: label, a lane of bars over the fight's time, uptime.
+   Bars are plain boxes placed in percent, so a resize needs no redraw, and
+   nothing here animates (the window is transparent; motion costs CPU). */
+
+.detailsPanel,
+.buffTooltip {
+  --buff-self: var(--isUser-fill, #6aa6ff);
+  --buff-hostile: var(--error-fill, #e06b6b);
+  --buff-other: #8fa3c0;
+  --buff-label-w: minmax(120px, 32%);
+  --buff-up-w: 40px;
+}
+.detailsPanel .buffTimeline {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 4px 14px 8px;
+}
+.detailsPanel .buffToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 2px 0 6px;
+}
+.detailsPanel .buffSegmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+}
+.detailsPanel .buffChip {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.detailsPanel .buffChip:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+.detailsPanel .buffChip.isActive {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--hud-num, #fff);
+}
+.detailsPanel .buffPassivesBtn {
+  background: rgba(0, 0, 0, 0.3);
+}
+.detailsPanel .buffPassivesBtn.isActive {
+  background: rgba(255, 255, 255, 0.16);
+}
+.detailsPanel .buffBody {
+  flex: 1 1 auto;
+  min-height: 60px;
+  max-height: 420px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.detailsPanel .buffBody::-webkit-scrollbar {
+  width: 8px;
+}
+.detailsPanel .buffBody::-webkit-scrollbar-track {
+  background: rgb(30, 30, 30);
+  border-radius: 999px;
+}
+.detailsPanel .buffBody::-webkit-scrollbar-thumb {
+  background-color: rgb(77, 77, 77);
+  border-radius: 999px;
+}
+.detailsPanel .buffRow {
+  display: grid;
+  grid-template-columns: var(--buff-label-w) 1fr var(--buff-up-w);
+  align-items: center;
+  column-gap: 8px;
+  height: 22px;
+}
+.detailsPanel .buffGroup .buffRow:nth-of-type(odd) {
+  background: var(--hud-row-bg, rgba(255, 255, 255, 0.035));
+}
+.detailsPanel .buffAxis {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 18px;
+  background: rgba(var(--hud-bg, 9, 13, 24), 0.92);
+  border-bottom: 1px solid var(--hud-hairline, rgba(255, 255, 255, 0.07));
+}
+.detailsPanel .buffAxisLane {
+  position: relative;
+  height: 100%;
+  font-variation-settings: "wght" 500, "wdth" 75;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--hud-faint, rgba(255, 255, 255, 0.3));
+}
+.detailsPanel .buffAxisLane span {
+  position: absolute;
+  top: 3px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.detailsPanel .buffAxisLane span:first-child {
+  transform: none;
+}
+.detailsPanel .buffGroupHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 0 3px;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--hud-name, rgba(255, 255, 255, 0.95));
+}
+.detailsPanel .buffGroupCount {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--hud-faint, rgba(255, 255, 255, 0.3));
+  font-variant-numeric: tabular-nums;
+}
+.detailsPanel .buffLabel {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 2px;
+  font-size: 12px;
+}
+.detailsPanel .buffIcon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  object-fit: cover;
+}
+.detailsPanel .buffIconDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin: 0 4px;
+  border-radius: 50%;
+  background: var(--buff-other);
+}
+.detailsPanel .buffName {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.88);
+}
+.detailsPanel .buffCaster,
+.detailsPanel .buffTag {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--hud-sub, rgba(255, 255, 255, 0.45));
+}
+.detailsPanel .buffTag {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border: 1px solid var(--hud-hairline, rgba(255, 255, 255, 0.07));
+  border-radius: 3px;
+}
+.detailsPanel .buffLane {
+  position: relative;
+  height: 14px;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.detailsPanel .buffBar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  cursor: default;
+}
+.detailsPanel .buffStacks {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #0c1628;
+  pointer-events: none;
+}
+.detailsPanel .buffUptime {
+  text-align: right;
+  font-variation-settings: "wght" 600, "wdth" 87.5;
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  color: var(--hud-num, #fff);
+}
+.detailsPanel .buffAxis .buffUptime {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--hud-faint, rgba(255, 255, 255, 0.3));
+}
+.detailsPanel .buffPassives {
+  padding: 4px 2px 2px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--hud-sub, rgba(255, 255, 255, 0.45));
+}
+.detailsPanel .buffPassivesLabel {
+  margin-right: 6px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+}
+.detailsPanel .buffNote {
+  padding: 6px 2px;
+  font-size: 12px;
+  color: var(--hud-sub, rgba(255, 255, 255, 0.45));
+}
+.buffTooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: 280px;
+  padding: 6px 9px;
+  border: 1px solid var(--panel-border, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  background: rgba(12, 18, 30, 0.96);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.buffTooltip[hidden] {
+  display: none;
+}
+.buffTooltip .buffTooltipTitle {
+  font-weight: 700;
+  color: #fff;
+}
+.buffTooltip .buffTooltipSub {
+  color: rgba(255, 255, 255, 0.6);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .historyPanel .historyLiveBadge { animation: none; }
   .detailsPanel .detailsSettings .detailsSettingsToggleTrack::after { transition: none; }
@@ -7241,4 +7497,16 @@ html.linux:lang(zh-Hans), html.linux:lang(zh-Hans) body {
 html.linux:lang(zh-TW), html.linux:lang(zh-TW) body,
 html.linux:lang(zh-Hant), html.linux:lang(zh-Hant) body {
   font-family: sans-serif;
+}
+
+/* The main meter window is a HUD: dragging across it, or a stray double-click,
+   should not highlight names and numbers. Settings, History and Details keep
+   selectable text (skill names, log ids), and fields stay editable. */
+body:not(.isSettingsWindow):not(.isHistoryWindow):not(.isDetailsWindow) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+body:not(.isSettingsWindow):not(.isHistoryWindow):not(.isDetailsWindow) :is(input, textarea, [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
 }

@@ -1272,6 +1272,10 @@ const createDetailsUI = ({
             requestAnimationFrame(() => renderTimeline(lastDetails));
           }
         }
+        // Buffs need no details: a History fight carries them.
+        if (section.classList.contains("isExpanded") && section.classList.contains("buffsSection")) {
+          renderBuffs();
+        }
       }
     });
   });
@@ -1796,6 +1800,78 @@ const createDetailsUI = ({
     }
   };
 
+  // ── Buffs ──
+  // A History fight's come with its record; a live fight's are asked for
+  // only while the section is open, once per refresh at most.
+  const buffsSection = detailsPanel?.querySelector?.(".buffsSection");
+  const buffTimeline = typeof window.createBuffTimeline === "function"
+    ? window.createBuffTimeline({
+      root: buffsSection?.querySelector?.(".buffTimeline"),
+      describeActor: (id) => {
+        const actor = detailsActors.get(Number(id));
+        if (!actor) return null;
+        const job = actor.job || getActorJob(id);
+        const name = actor.nickname && actor.nickname !== String(id) ? actor.nickname : `#${id}`;
+        return { name, job, color: getJobColor(job) };
+      },
+    })
+    : null;
+  let liveBuffs = null;
+  let liveBuffsPending = false;
+
+  const buffTargetId = () => {
+    if (historyRecord) return Number(historyRecord.targetId) || null;
+    const id = selectedTargetId ?? detailsContext?.currentTargetId ?? detailsTargets[0]?.targetId;
+    return Number(id) || null;
+  };
+
+  const showBuffs = () => {
+    if (!buffTimeline) return;
+    const targetId = buffTargetId();
+    const target = getTargetById(targetId);
+    const common = {
+      targetId,
+      targetName: (target ? getTargetLabel(target) : "") || fightBossName,
+      playerId: Array.isArray(selectedAttackerIds) && selectedAttackerIds.length === 1
+        ? Number(selectedAttackerIds[0]) : null,
+      actorIds: [...detailsActors.keys()],
+    };
+    if (historyRecord) {
+      buffTimeline.setData({
+        ...common,
+        older: !Array.isArray(historyRecord.buffs),
+        tracks: Array.isArray(historyRecord.buffs) ? historyRecord.buffs : [],
+        durationMs: Number(historyRecord.durationMs) || 0,
+      });
+      return;
+    }
+    const shown = targetId && liveBuffs && Number(liveBuffs.targetId) === targetId ? liveBuffs : null;
+    buffTimeline.setData({
+      ...common,
+      tracks: shown ? shown.buffs : (targetId ? null : []),
+      durationMs: Number(shown?.durationMs) || 0,
+      loading: !!targetId && !shown,
+    });
+  };
+
+  const renderBuffs = () => {
+    if (!buffTimeline || !buffsSection?.classList.contains("isExpanded")) return;
+    showBuffs();
+    if (historyRecord || activeCompactMode || liveBuffsPending || !window.dpsData?.getFightBuffs) return;
+    const targetId = buffTargetId();
+    if (!targetId) return;
+    liveBuffsPending = true;
+    const seq = openSeq;
+    window.dpsData.getFightBuffs(targetId)
+      .then((result) => {
+        if (seq !== openSeq || historyRecord) return;
+        liveBuffs = result || { targetId, durationMs: 0, buffs: [] };
+        showBuffs();
+      })
+      .catch(() => {})
+      .finally(() => { liveBuffsPending = false; });
+  };
+
   const loadDetailsContext = () => {
     const nextContext = typeof getDetailsContext === "function" ? getDetailsContext() : null;
     if (!nextContext) {
@@ -2275,6 +2351,7 @@ const createDetailsUI = ({
     renderSkills(details, { compact: activeCompactMode });
     renderDpsChart(details);
     renderTimeline(details);
+    renderBuffs();
     lastRow = row;
     lastDetails = details;
 
@@ -2418,6 +2495,8 @@ const createDetailsUI = ({
     }
     detailsPanel.classList.remove("open");
     historyRecord = null;
+    liveBuffs = null;
+    buffTimeline?.clear();
     window._historyDetailsOverride = null;
     fightStartMs = 0;
     fightBossName = "";
@@ -2435,6 +2514,7 @@ const createDetailsUI = ({
     if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
     detailsMode = "dmg";
     historyRecord = record;
+    liveBuffs = null;
     openSeq++;
     const seq = openSeq;
 
@@ -2502,6 +2582,7 @@ const createDetailsUI = ({
     });
     if (seq !== openSeq) return;
     if (processedDetails) render(processedDetails, fakeRow);
+    else renderBuffs();
   };
 
   const refresh = async () => {

@@ -274,6 +274,9 @@ impl StreamProcessor {
         }
         if let Some(hook) = FORK_PACKET_HOOK.get() { hook(packet); } // fork
 
+        // Buffs, debuffs and stats, recorded alongside (see `capture::abnormal`).
+        self.data_storage.note_abnormal_packet(packet);
+
         let parsed_damage = self.parsing_damage(packet, true, false);
         let parsed_ownership = self.parse_summon_ownership_packet(packet);
         let parsed_summon = self.parse_summon_packet(packet);
@@ -282,6 +285,7 @@ impl StreamProcessor {
             || self.parsing_nickname(packet);
         let parsed_hp = self.parse_hp_mp_update_packet(packet);
         self.parse_party_scope_packet(packet);
+        self.parse_self_stats_packet(packet);
         self.parse_death_packet(packet);
         self.parse_zone_change_packet(packet);
         self.parse_map_load_packet(packet);
@@ -310,6 +314,26 @@ impl StreamProcessor {
         let id = read_varint(packet, offset + 2);
         if id.length > 0 {
             self.data_storage.note_party_scope(id.value);
+        }
+    }
+
+    // ===== OWN STATS (4A 36) =====
+
+    /// `<len> 4A 36 <entity_id varint> ...`: a record the server sends about
+    /// the local player only (see `DataStorage::note_self_stats`). What it
+    /// carries is not decoded.
+    fn parse_self_stats_packet(&self, packet: &[u8]) {
+        let length_info = read_varint(packet, 0);
+        if length_info.length <= 0 {
+            return;
+        }
+        let offset = length_info.length as usize;
+        if offset + 3 >= packet.len() || packet[offset] != 0x4A || packet[offset + 1] != 0x36 {
+            return;
+        }
+        let id = read_varint(packet, offset + 2);
+        if id.length > 0 {
+            self.data_storage.note_self_stats(id.value);
         }
     }
 
@@ -993,6 +1017,7 @@ impl StreamProcessor {
                 real_actor_id,
                 owner_id
             );
+            self.name_summon_owner(owner_id, spawn_name.as_deref());
             return true;
         }
 
@@ -1042,10 +1067,40 @@ impl StreamProcessor {
             self.data_storage.note_low_id_entity(caster);
             self.data_storage
                 .register_confirmed_summon_by_id(real_actor_id, caster);
+            if kind == 0x5F {
+                self.name_summon_owner(caster, spawn_name.as_deref());
+            }
             return true;
         }
 
         false
+    }
+
+    /// A summon's (`0x5F`) spawn states its owner twice, by name and by
+    /// entity id, so it names a player whose own spawn the meter missed.
+    ///
+    /// A player is named by their spawn (`45 36`) when they come into view,
+    /// and you by your self record on a zone load. A meter started, or a
+    /// capture begun, inside an instance has missed both, and a party member
+    /// stays `#id` until something re-sends them: replaying a 2026-10-09
+    /// dungeon run from just before its last boss, a Ranger's pets named
+    /// her (entity 15961) from the first second, and her spawn came two
+    /// minutes into the fight. Over the check kit's captures and that run,
+    /// 329 summon spawns read this way, and each named its owner as the
+    /// game's own records for that id did.
+    ///
+    /// Only for a summon. A `0x1F` effect's caster field can be the boss
+    /// its mechanic hangs on, while its name is the player it targets: a
+    /// boss whose own spawn was missed would have taken each party
+    /// member's name in turn. A name the game stated elsewhere is never
+    /// replaced (`append_nickname`'s gate).
+    fn name_summon_owner(&self, owner_id: i32, name: Option<&str>) {
+        let Some(name) = name else { return };
+        if self.data_storage.has_nickname(owner_id) || self.data_storage.is_mob(owner_id) {
+            return;
+        }
+        tracing::info!("Summon spawn: owner {} is '{}'", owner_id, name);
+        self.data_storage.append_nickname(owner_id, name);
     }
 
     /// The caster of a ground spell: the `u32` after the `07 02 06` or
@@ -3572,6 +3627,13 @@ mod tests {
         assert_eq!(storage.current_dungeon_id(), 600021);
         load("34213601000000f2030000dd7f3c00000000006868d047d0c62c470098da46fa63284300000000000000000000004f0000");
         assert_eq!(storage.current_dungeon_id(), 0);
+        // The party stays together and its roster is sent again, still naming
+        // the dungeon it was for: the player is still in the open world.
+        storage.set_current_dungeon(600021);
+        assert_eq!(storage.current_dungeon_id(), 0, "a roster after leaving does not bring the dungeon back");
+        // Back in: the load names the instance.
+        load("34213601000000d52709003b1a350000000000f7e646460d7fb0c60080b045409da54200000000000000000000004f0000");
+        assert_eq!(storage.current_dungeon_id(), 600021);
     }
 
     #[test]
@@ -3680,6 +3742,61 @@ mod tests {
         assert_eq!(storage.get_summon_data().get(&18252), Some(&191));
     }
 
+    /// A party member whose spawn the meter missed is named by their pet's
+    /// spawn, which carries the owner's name and id together. From a
+    /// dungeon run (2026-10-09) replayed from just before the last boss: a
+    /// Ranger's pet (`0x5F`) named her a second in, two minutes before her
+    /// own spawn. Names, legion and ids are stand-ins; entity 1480 has been
+    /// fighting entity 22567, the boss, whose spawn was missed too.
+    #[test]
+    fn a_pets_spawn_names_its_owner() {
+        let (storage, mut p) = processor();
+        assert!(feed(&mut p, "a7b0010600c80b9147ff003f02020002aff4b76301000000e4506a0100"));
+        assert!(storage.get_nickname(1480).is_none());
+
+        // The boss's mechanic (`0x1F`), named after the player it targets,
+        // with the boss in its caster field: no name for the boss.
+        let mechanic = hex(concat!(
+            "4136a582011f000108",
+            "4861776b65796531", // "Hawkeye1"
+            "968f2c0040024fbd66c6c86b804600a05345600d7d43f3b301c0ee6dc0ee6d640000006400000000",
+            "00000000000000000000000000000090650000000000000100000000000000000000000000000000",
+            "000000010602110181969800ffffffffffffffff8075d52abb030000a5820101044fbd66c6c86b80",
+            "4600a05345110284969800ffffffffffffffff8075d52abb030000a58201014fbd66c6c86b804600",
+            "a05345070206",
+            "27580000", // caster field: 22567
+            "002500000000",
+        ));
+        p.parse_summon_spawn_at(&mechanic, 2);
+        assert!(storage.get_nickname(22567).is_none());
+        assert!(storage.get_nickname(1480).is_none());
+
+        // The pet: owner 1480 as its parent_key and in its caster field.
+        let pet = |id: &str, owner_name: &str| {
+            let mut b = hex(&format!("4136{id}5f000108"));
+            b.extend(owner_name.as_bytes());
+            b.extend(hex(concat!(
+                "ac902c00000200c46ac600043f460030524524e90b437e6301f73ef73efc090000fc090000000000",
+                "00000000000000000018f0010064000000f04902000100000000000000a08601000000000000e204",
+                "000101110181969800ffffffffffffffff8075d52abb030000b4c601010200c46ac600043f460030",
+                "5245070206",
+                "c8050000", // owner: 1480, the caster field and the parent_key
+                "ad01000000000f0905",
+                "4775696c64", // legion "Guild"
+                "02000000000000000000000000000000000002cd0096000000d000340100002600000000",
+            )));
+            b
+        };
+        assert!(p.parse_summon_spawn_at(&pet("b4c601", "Hawkeye1"), 2));
+        assert_eq!(storage.get_summon_data().get(&25396), Some(&1480));
+        assert_eq!(storage.get_nickname(1480).as_deref(), Some("Hawkeye1"));
+
+        // A name the game stated is kept.
+        storage.append_nickname_authoritative(1480, "Bowmaster");
+        assert!(p.parse_summon_spawn_at(&pet("b5c601", "Hawkeye1"), 2));
+        assert_eq!(storage.get_nickname(1480).as_deref(), Some("Bowmaster"));
+    }
+
     #[test]
     fn names_are_one_to_twelve_letters_or_digits_in_any_script() {
         for name in ["A", "é", "あ", "ApexZ", "Amber1", "Zoë", "Ñandú", "さくら", "桜子", "전사", "Abcdefghijkl"] {
@@ -3786,6 +3903,24 @@ mod tests {
         ));
         assert_eq!(storage.local_player_id(), None);
         assert_eq!(storage.get_nickname(16), None);
+    }
+
+    /// `4A 36` records, sent about your own stats and no one else's, move the
+    /// local player onto the entity they name when the self record that
+    /// should have done it was missed. The packet's shape is from a player's
+    /// log (2026-10-09), its entity id replaced.
+    #[test]
+    fn own_stats_records_name_the_local_entity() {
+        let storage = Arc::new(DataStorage::new());
+        let mut p = StreamProcessor::new(storage.clone(), Arc::new(SkillLookup::new()), Arc::new(NpcLookup::new()));
+        storage.set_local_identity_from_game(5100, Some("Mine".into()));
+        let record = hex("114A36B8300A0000020050165636"); // entity 6200
+        p.consume_stream(&[record.clone(), record.clone()].concat());
+        assert_eq!(storage.local_player_id(), Some(5100), "two records are not enough");
+        p.consume_stream(&record);
+        assert_eq!(storage.local_player_id(), Some(6200));
+        assert!(storage.local_id_from_scope());
+        assert_eq!(storage.get_nickname(6200), None);
     }
 
     /// A Sorcerer on Ventus (server 1305) killing a mob, from a player's log

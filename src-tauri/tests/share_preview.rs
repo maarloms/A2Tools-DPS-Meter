@@ -51,6 +51,7 @@ fn record_spanning(start_ms: i64, duration_ms: i64) -> FightRecord {
         dungeon_id: 600093,
         killed: false,
         server_id: 0,
+        buffs: None,
     }
 }
 

@@ -410,6 +410,31 @@
                 </div>
               </div>
             </div>
+
+            <div class="detailsSection buffsSection">
+              <div class="detailsSectionHeader" data-section="buffs">
+                <span class="detailsSectionArrow"></span>
+                <span class="detailsSectionTitle" data-i18n="details.buffs.title">Buffs</span>
+              </div>
+              <div class="detailsSectionContent">
+                <div class="buffTimeline">
+                  <div class="buffToolbar">
+                    <div class="buffSegmented" role="group" aria-label="Cast by" data-i18n-aria-label="details.buffs.castByLabel">
+                      <button class="buffChip" type="button" data-buff-caster="all" data-i18n="details.buffs.casterAll">All</button>
+                      <button class="buffChip" type="button" data-buff-caster="party" data-i18n="details.buffs.casterParty">Party</button>
+                      <button class="buffChip" type="button" data-buff-caster="self" data-i18n="details.buffs.casterSelf">Self</button>
+                    </div>
+                    <div class="buffSegmented" role="group" aria-label="Sort" data-i18n-aria-label="details.buffs.sortLabel">
+                      <button class="buffChip" type="button" data-buff-sort="uptime" data-i18n="details.buffs.sortUptime">Uptime</button>
+                      <button class="buffChip" type="button" data-buff-sort="first" data-i18n="details.buffs.sortFirst">First applied</button>
+                    </div>
+                    <button class="buffChip buffPassivesBtn" type="button" aria-pressed="false" data-i18n="details.buffs.showPassives">Passives</button>
+                  </div>
+                  <div class="buffBody"></div>
+                  <div class="buffTooltip" hidden></div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div
@@ -686,13 +711,6 @@
                     </span>
                   </label>
                   <label class="settingsToggle">
-                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.roundDps">Round DPS</span>
-                    <span class="settingsToggleControl">
-                      <input type="checkbox" class="roundDpsCheckbox" />
-                      <span class="settingsToggleTrack" aria-hidden="true"></span>
-                    </span>
-                  </label>
-                  <label class="settingsToggle">
                     <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showSuspendBtn">Show suspend button</span>
                     <span class="settingsToggleControl">
                       <input type="checkbox" class="showSuspendBtnCheckbox" />
@@ -904,6 +922,20 @@
                       <div class="settingsDropdownMenu allTargetsWindowDropdownMenu" role="menu"></div>
                     </div>
                   </div>
+                  <label class="settingsToggle">
+                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.roundDps">Round DPS</span>
+                    <span class="settingsToggleControl">
+                      <input type="checkbox" class="roundDpsCheckbox" />
+                      <span class="settingsToggleTrack" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                  <label class="settingsToggle">
+                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showDpsSuffix">Show /s after DPS</span>
+                    <span class="settingsToggleControl">
+                      <input type="checkbox" class="showDpsSuffixCheckbox" />
+                      <span class="settingsToggleTrack" aria-hidden="true"></span>
+                    </span>
+                  </label>
                   <div class="settingsRow settingsRowAction">
                     <button
                       class="settingsAction settingsActionDanger resetAllSettingsBtn"
@@ -1222,6 +1254,7 @@
     <script src="/src/js/ttk.js"></script>
     <script src="/src/js/meter.js"></script>
     <script src="/src/js/skillIcons.js"></script>
+    <script src="/src/js/buffTimeline.js"></script>
     <script src="/src/js/details.js?v=2021a"></script>
     <script src="/src/js/history.js?v=2018a"></script>
 

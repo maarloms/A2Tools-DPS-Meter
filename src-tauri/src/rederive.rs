@@ -267,6 +267,9 @@ fn canonicalise(record: &mut FightRecord) {
     record.actors.sort_by_key(|a| a.actor_id);
     record.jobs.sort();
     record.job_ids.sort_unstable();
+    // A slice holds no abnormal records, and the service's records do not
+    // carry buffs: whatever the replay's timeline held stays out of them.
+    record.buffs = None;
 }
 
 /// Bumped when the service derives differently from the meter of the same
@@ -507,6 +510,23 @@ mod tests {
         let damage = vec![0x08, 0x04, 0x38, 0x01, 0x02, 0x03];
         let records = vec![(0, lifted), (0, bundle.clone()), (0, bundle), (0, damage)];
         assert_eq!(slice_structure(&records), (4, 1, 2));
+    }
+
+    #[test]
+    fn a_derived_record_carries_no_buffs() {
+        let mut record: FightRecord = serde_json::from_value(serde_json::json!({
+            "id": "auto_1_2", "bossName": "B", "targetId": 1, "startTimeMs": 0, "durationMs": 1000,
+            "totalDamage": 1, "jobs": [],
+            "details": {"targetId": 1, "maxHp": 0, "totalTargetDamage": 1, "battleTime": 1000,
+                        "startTime": 0, "skills": [], "pingHistory": [], "healSkills": []},
+            "actors": [],
+            "buffs": [{"on": 7, "id": 1, "by": 7, "segs": "0,1000,1,1", "up": 1000}]
+        }))
+        .unwrap();
+        assert!(record.buffs.is_some());
+        canonicalise(&mut record);
+        assert!(record.buffs.is_none());
+        assert!(serde_json::to_value(&record).unwrap().get("buffs").is_none(), "fight.json keeps its shape");
     }
 
     #[test]

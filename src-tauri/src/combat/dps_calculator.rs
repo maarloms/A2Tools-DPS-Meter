@@ -1084,6 +1084,13 @@ impl DpsCalculator {
             let id = format!("auto_{}_{}", target_id, target_data.first_damage_time);
 
             let is_train = self.npc_lookup.is_training_dummy(mob_code);
+            let buffs = crate::combat::fight_buffs::for_fight(
+                &self.data_storage,
+                target_id,
+                target_data.first_damage_time,
+                target_data.last_damage_time,
+                actors.iter().map(|a| a.actor_id),
+            );
             let record = FightRecord {
                 id,
                 boss_name,
@@ -1102,6 +1109,7 @@ impl DpsCalculator {
                 killed: self.data_storage.is_entity_dead(target_id)
                     || self.data_storage.get_mob_current_hp(target_id) == Some(0),
                 server_id: self.data_storage.fight_server_id(),
+                buffs: Some(buffs),
             };
 
             if is_ended {
@@ -1111,6 +1119,22 @@ impl DpsCalculator {
         }
 
         records
+    }
+
+    /// The buffs and debuffs of the fight on `target_id` so far, for Details
+    /// on a live fight: the same tracks a saved fight keeps, on the actors the
+    /// saved record would list.
+    pub fn live_fight_buffs(&self, target_id: i32) -> Option<crate::combat::fight_buffs::LiveFightBuffs> {
+        let target = self.data_storage.get_target_snapshot_light(target_id)?;
+        let (start, end) = (target.first_damage_time, target.last_damage_time.max(target.first_damage_time));
+        let details = self.get_hover_details(target_id, None);
+        let actors: HashSet<i32> = details.skills.iter().map(|s| s.actor_id).collect();
+        Some(crate::combat::fight_buffs::LiveFightBuffs {
+            target_id,
+            start_time_ms: start,
+            duration_ms: end - start,
+            buffs: crate::combat::fight_buffs::for_fight(&self.data_storage, target_id, start, end, actors),
+        })
     }
 
     pub fn get_details_context(&self) -> DetailsContext {

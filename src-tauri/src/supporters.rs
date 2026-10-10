@@ -337,6 +337,7 @@ mod tests {
             dungeon_id: 0,
             killed: false,
             server_id: 0,
+            buffs: None,
         }
     }
 

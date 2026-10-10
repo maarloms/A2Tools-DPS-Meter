@@ -13,6 +13,7 @@ const pickSettingChoice = (name, value) => {
 // the control that applies them. See DpsApp.applyRemoteSettingChange().
 const REMOTE_APPLIED_SETTING_CONTROLS = {
   "dpsMeter.roundDps": ".roundDpsCheckbox",
+  "dpsMeter.showDpsSuffix": ".showDpsSuffixCheckbox",
   "dpsMeter.showTotalDps": ".showTotalDpsCheckbox",
   "dpsMeter.pinMeToTop": ".pinMeToTopCheckbox",
   "dpsMeter.mainPlayerNamesBold": ".playerNamesBoldCheckbox",
@@ -72,6 +73,7 @@ class DpsApp {
       showTtk: "dpsMeter.showTtk",
       showTotalDps: "dpsMeter.showTotalDps",
       roundDps: "dpsMeter.roundDps",
+      showDpsSuffix: "dpsMeter.showDpsSuffix",
       playerLimit: "dpsMeter.playerLimit",
       theme: "dpsMeter.theme",
       slimMode: "dpsMeter.slimMode",
@@ -251,6 +253,7 @@ class DpsApp {
       this.showTtk = this.safeGetSetting(this.storageKeys.showTtk) !== "false";
       this.showTotalDps = this.safeGetSetting(this.storageKeys.showTotalDps) !== "false";
       this.roundDps = this.safeGetSetting(this.storageKeys.roundDps) !== "false";
+      this.showDpsSuffix = this.safeGetSetting(this.storageKeys.showDpsSuffix) !== "false";
       const savedLimit = parseInt(this.safeGetSetting(this.storageKeys.playerLimit), 10);
       this.playerLimit = Number.isFinite(savedLimit) && savedLimit >= 1 ? savedLimit : 6;
       this.setupSettingsPanel();
@@ -401,6 +404,8 @@ class DpsApp {
     this.showTotalDps = this.safeGetSetting(this.storageKeys.showTotalDps) !== "false";
     // Defaults on: `!== "false"` treats "never set" as enabled.
     this.roundDps = this.safeGetSetting(this.storageKeys.roundDps) !== "false";
+    // "/s" after the meter's DPS figures; on unless turned off (Advanced).
+    this.showDpsSuffix = this.safeGetSetting(this.storageKeys.showDpsSuffix) !== "false";
     this.meterTotalBar = document.querySelector(".meterTotalBar");
     this.meterTotalDpsEl = document.querySelector(".meterTotalDps");
     this.meterTotalDmgEl = document.querySelector(".meterTotalDmg");
@@ -2524,6 +2529,15 @@ class DpsApp {
       this.roundDpsCheckbox.addEventListener("change", (event) => {
         this.roundDps = !!event.target?.checked;
         this.safeSetSetting(this.storageKeys.roundDps, String(this.roundDps));
+        this.renderCurrentRows();
+      });
+    }
+    this.showDpsSuffixCheckbox = document.querySelector(".showDpsSuffixCheckbox");
+    if (this.showDpsSuffixCheckbox) {
+      this.showDpsSuffixCheckbox.checked = this.showDpsSuffix;
+      this.showDpsSuffixCheckbox.addEventListener("change", (event) => {
+        this.showDpsSuffix = !!event.target?.checked;
+        this.safeSetSetting(this.storageKeys.showDpsSuffix, String(this.showDpsSuffix));
         this.renderCurrentRows();
       });
     }
@@ -4689,13 +4703,19 @@ class DpsApp {
       };
     }
     const dps = Number(row?.dps) || 0;
-    const dpsText = `${this.formatDpsThousands(dps)}${this.i18n?.t("meter.dpsSuffix", "/s") ?? "/s"}`;
+    const dpsText = `${this.formatDpsThousands(dps)}${this.meterDpsSuffix()}`;
     if (this.displayMode === "both") {
       // "408k (13k/s)", as a player asked: damage leads, so the bars follow it.
       const totalDamage = Number(row?.totalDamage) || 0;
       return { value: totalDamage, text: `${this.formatAbbreviatedNumber(totalDamage)} (${dpsText})` };
     }
     return { value: dps, text: dpsText };
+  }
+
+  /** "/s" after the meter's DPS figures, or nothing when turned off in Advanced. */
+  meterDpsSuffix() {
+    if (this.showDpsSuffix === false) return "";
+    return this.i18n?.t("meter.dpsSuffix", "/s") ?? "/s";
   }
 
   updateMeterTotalBar(rows) {
@@ -4711,7 +4731,7 @@ class DpsApp {
     if (this.meterTotalDpsEl) {
       // Matches the per-row readout directly above it; a full-precision total
       // over abbreviated rows reads as two different units.
-      this.meterTotalDpsEl.textContent = `${this.formatDpsThousands(totalDps)}${this.i18n?.t("meter.dpsSuffix", "/s") ?? "/s"}`;
+      this.meterTotalDpsEl.textContent = `${this.formatDpsThousands(totalDps)}${this.meterDpsSuffix()}`;
     }
     if (this.meterTotalDmgEl) {
       this.meterTotalDmgEl.textContent = this.formatAbbreviatedNumber(totalDmg);
