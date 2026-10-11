@@ -246,40 +246,84 @@
 
   // -------------------------------------------------------------- settings
 
+  // Own entry in the settings sidebar (upstream 2.0.56 sections). Built
+  // before core.js wires the sidebar (initSettingsSections), so it switches
+  // like every other entry; the click handler below covers a late build.
+  function addSettingsTab(section) {
+    const tabs = document.querySelector(".settingsNav .settingsTabs");
+    const pane = document.querySelector(".settingsPane");
+    if (!tabs || !pane) return false;
+    const item = document.createElement("button");
+    item.className = "settingsNavItem forkCloudNavItem";
+    item.type = "button";
+    item.id = "settingsTab-forkCloud";
+    item.dataset.section = "forkCloud";
+    item.setAttribute("role", "tab");
+    item.setAttribute("aria-controls", "settingsSection-forkCloud");
+    item.setAttribute("aria-selected", "false");
+    item.tabIndex = -1;
+    item.innerHTML = `<i data-lucide="users" aria-hidden="true"></i><span>${t("Gruppe teilen", "Group sharing")}</span>`;
+    const after = tabs.querySelector('[data-section="streaming"]') || tabs.lastElementChild;
+    if (after) after.after(item); else tabs.appendChild(item);
+    window.lucide?.createIcons?.({ root: item });
+    item.addEventListener("click", () => {
+      for (const el of document.querySelectorAll(".settingsNavItem")) {
+        const on = el === item;
+        el.classList.toggle("isActive", on);
+        el.setAttribute("aria-selected", String(on));
+        el.tabIndex = on ? 0 : -1;
+      }
+      for (const el of document.querySelectorAll(".settingsSection")) {
+        const on = el === section;
+        el.hidden = !on;
+        el.classList.toggle("isActive", on);
+      }
+      pane.scrollTop = 0;
+    });
+    section.className = "settingsSection forkCloudGroup";
+    section.id = "settingsSection-forkCloud";
+    section.dataset.section = "forkCloud";
+    section.setAttribute("role", "tabpanel");
+    section.setAttribute("aria-labelledby", "settingsTab-forkCloud");
+    section.hidden = true;
+    pane.appendChild(section);
+    return true;
+  }
+
   function renderSettings(app) {
     if (document.querySelector(".forkCloudGroup")) return;
-    const anchor = document.querySelector(".settingsBody > .settingsGroup");
-    if (!anchor) return;
     const section = document.createElement("section");
-    section.className = "settingsGroup forkCloudGroup";
     section.innerHTML = `
-      <div class="settingsMiniTitle">${t("Gruppe teilen", "Group sharing")}</div>
-      <div class="settingsGroupBody settingsGroupStrip">
-        <div class="settingsRow">
-          <label class="settingsCheckboxLabel"><input type="checkbox" class="forkCloudEnabled" />
-            <span>${t("Live-DPS und Kämpfe mit dem Raum teilen", "Share live DPS and fights with the room")}</span></label>
-        </div>
-        <div class="settingsRow settingsRowInput settingsRowStacked">
+      <h2 class="settingsSectionTitle">${t("Gruppe teilen", "Group sharing")}</h2>
+      <div class="settingsGroupBody">
+        <label class="settingsToggle">
+          <span class="settingsToggleLabel settingsLabel">${t("Live-DPS und Kämpfe mit dem Raum teilen", "Share live DPS and fights with the room")}</span>
+          <span class="settingsToggleControl">
+            <input type="checkbox" class="forkCloudEnabled" />
+            <span class="settingsToggleTrack" aria-hidden="true"></span>
+          </span>
+        </label>
+        <div class="settingsRow forkCloudStacked">
           <label class="settingsLabel" for="forkCloudInvite">${t("Einladungslink (füllt alles aus)", "Invite link (fills in everything)")}</label>
           <input id="forkCloudInvite" class="forkCloudInput" autocomplete="off" spellcheck="false" placeholder="https://…/#/join/raum/…" />
         </div>
-        <div class="settingsRow settingsRowInput settingsRowStacked">
+        <div class="settingsRow forkCloudStacked">
           <label class="settingsLabel" for="forkCloudUrl">Server</label>
           <input id="forkCloudUrl" class="forkCloudInput" data-key="${KEYS.url}" autocomplete="off" spellcheck="false" placeholder="https://a2dps-cloud.<name>.workers.dev" />
         </div>
-        <div class="settingsRow settingsRowInput settingsRowStacked forkCloudPair">
+        <div class="settingsRow forkCloudStacked forkCloudPair">
           <div><label class="settingsLabel" for="forkCloudRoom">${t("Raum-Code", "Room code")}</label>
             <input id="forkCloudRoom" class="forkCloudInput" data-key="${KEYS.room}" autocomplete="off" spellcheck="false" placeholder="marlon-crew" /></div>
           <div><label class="settingsLabel" for="forkCloudSecret">${t("Passwort", "Secret")}</label>
             <input id="forkCloudSecret" class="forkCloudInput" data-key="${KEYS.secret}" type="password" autocomplete="off" spellcheck="false" /></div>
         </div>
-        <div class="settingsRow settingsRowStacked">
+        <div class="settingsRow forkCloudStacked">
           <div class="settingsRowEnd">
             <div class="settingsValue forkCloudStatus" data-state="off">–</div>
             <button class="settingsAction forkCloudOpen" type="button">${t("Dashboard öffnen", "Open dashboard")}</button>
           </div>
         </div>
-        <div class="settingsRow settingsRowInput settingsRowStacked">
+        <div class="settingsRow forkCloudStacked">
           <label class="settingsLabel" for="forkCloudDiagNote">${t("Problem melden: Logs und letzte Kämpfe an die Gruppe senden", "Report a problem: send logs and recent fights to the group")}</label>
           <input id="forkCloudDiagNote" class="forkCloudInput" maxlength="300" autocomplete="off" placeholder="${t("Was ist passiert? (optional)", "What happened? (optional)")}" />
           <div class="settingsRowEnd">
@@ -288,7 +332,7 @@
           </div>
         </div>
       </div>`;
-    anchor.after(section);
+    if (!addSettingsTab(section)) return;
 
     const $ = (sel) => section.querySelector(sel);
     const fields = [...section.querySelectorAll("input[data-key]")];

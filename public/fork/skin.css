@@ -210,11 +210,6 @@
   font-size: 13.5px;
 }
 
-:root.forkSkin .settingsPanel .settingsBody {
-  gap: 12px;
-  padding: 14px 16px 16px;
-}
-
 /* Every section becomes a card. */
 :root.forkSkin .settingsPanel .settingsGroup {
   gap: 6px;
@@ -758,6 +753,16 @@
 }
 .forkCloudGroup .forkCloudInput:focus { outline: none; border-color: var(--isUser-fill); }
 .forkCloudGroup .forkCloudInput::placeholder { color: var(--hud-faint); }
+.forkCloudGroup .forkCloudStacked {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 6px;
+}
+.forkCloudGroup .forkCloudStacked .settingsRowEnd {
+  width: 100%;
+  justify-content: space-between;
+}
 .forkCloudGroup .forkCloudPair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .forkCloudGroup .forkCloudPair > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .forkCloudGroup .forkCloudStatus { font-size: 12px; opacity: 0.85; }
