@@ -239,6 +239,12 @@ impl DpsCalculator {
                 self.npc_lookup.is_boss(code) && !self.npc_lookup.is_training_dummy(code)
             });
         dps_data.target_is_boss = target_is_boss;
+        let target_mob_code = if self.current_target != 0 {
+            self.data_storage.mob_code(self.current_target).unwrap_or(0)
+        } else {
+            0
+        };
+        dps_data.target_mob_code = target_mob_code;
 
         // Collect actors from selected targets
         let mut combined_actors: HashMap<i32, i64> = HashMap::new();
@@ -287,6 +293,7 @@ impl DpsCalculator {
                 snapshot.target_total_damage = 0;
                 snapshot.target_current_hp = target_current_hp;
                 snapshot.target_is_boss = target_is_boss;
+                snapshot.target_mob_code = target_mob_code;
                 snapshot.dungeon_id = dps_data.dungeon_id;
                 let mut snap = snapshot.clone();
                 self.finalize_rows(&mut snap);
@@ -569,13 +576,30 @@ impl DpsCalculator {
             return;
         }
         let party = self.data_storage.get_party_members();
+        let local_server = self.data_storage.fight_server_id();
         for row in dps_data.map.values_mut() {
             let name = row.nickname.trim();
             if name.is_empty() {
                 continue;
             }
             let dbid = party.get(name).map(|m| m.dbid).unwrap_or(0);
-            row.is_supporter = roster.contains(name, dbid);
+            let server = match self.data_storage.player_server(name) {
+                0 => local_server,
+                s => s,
+            };
+            row.is_supporter = roster.contains(name, dbid, server);
+        }
+    }
+
+    /// The server a name-and-server supporter roster checks `name` on, when no
+    /// dbid states it (a party member's does, and wins in `Roster::contains`):
+    /// the one a self, loot or summon record placed them on, else yours, since
+    /// the open world around you is your server's; 0 when nothing has said,
+    /// which matches nobody.
+    fn supporter_server(&self, name: &str) -> u16 {
+        match self.data_storage.player_server(name) {
+            0 => self.data_storage.fight_server_id(),
+            s => s,
         }
     }
 
@@ -1055,8 +1079,11 @@ impl DpsCalculator {
                         hits_received: hits_recv,
                         dbid: roster.map(|m| m.dbid).unwrap_or(0),
                         server_id: roster.map(|m| m.server_id).unwrap_or(0),
-                        is_supporter: supporters
-                            .contains(nick, roster.map(|m| m.dbid).unwrap_or(0)),
+                        is_supporter: supporters.contains(
+                            nick,
+                            roster.map(|m| m.dbid).unwrap_or(0),
+                            self.supporter_server(nick),
+                        ),
                         level: roster.map(|m| m.level).unwrap_or(0),
                         // fork: yours from the game's own update, fresher than the roster
                         gear_score: local_gear.0.filter(|_| is_you).or(roster.map(|m| m.gear_score)).unwrap_or(0),
@@ -1274,6 +1301,7 @@ impl DpsCalculator {
                     is_supporter: supporters.contains(
                         nick,
                         party_members.get(nick.as_str()).map(|m| m.dbid).unwrap_or(0),
+                        self.supporter_server(nick),
                     ),
                     // Same reason again: the live rows already show combat
                     // power from the roster; the saved record is where it
@@ -1348,19 +1376,37 @@ impl DpsCalculator {
                 .filter(|id| known_players.contains(id))
                 .map(|id| *canonical.get(&resolve_nickname(id, &nickname_data, &summon_data)).unwrap_or(&id))
                 .collect();
+            // Distinct skills per row, for the rotation test below.
+            let mut skill_sets: HashMap<i32, HashSet<i32>> = HashMap::new();
+            for (&actor_id, actor_data) in &target_data.actors {
+                let raw_uid = summon_resolver::resolve(actor_id, &summon_data);
+                if raw_uid <= 0 { continue; }
+                let uid = *canonical.get(&resolve_nickname(raw_uid, &nickname_data, &summon_data)).unwrap_or(&raw_uid);
+                skill_sets.entry(uid).or_default().extend(actor_data.skills.keys().map(|k| k.0));
+            }
+            let skills_of = |id: i32| skill_sets.get(&id).map_or(0, |s| s.len());
+            let local_ids = self.resolve_local_ids(&summon_data);
             let mut seen = HashSet::new();
             for (&actor_id, actor_data) in &target_data.actors {
                 let raw_uid = summon_resolver::resolve(actor_id, &summon_data);
                 if raw_uid <= 0 { continue; }
                 if summon_data.contains_key(&raw_uid) || nickname_data.contains_key(&raw_uid) { continue; }
-                // Never merge known players — they have their own identity
-                if known_players.contains(&raw_uid) { continue; }
+                if local_ids.as_ref().is_some_and(|ids| ids.contains(&raw_uid)) { continue; }
+                // An actor that used a class's skills is filed as a player, and
+                // so is a summon casting its owner's class skills: a
+                // Spiritmaster's spirits use 16xxxxxx codes. Such an actor goes
+                // only by power scalar, and only to a player with three times
+                // its distinct skills, as in `get_dps`. Skipping them outright
+                // left five spirits of a Spiritmaster whose spawns were before
+                // the slice as rows of their own (2026-10-10, Krao Cave), while
+                // the live meter merged them.
+                let is_player = known_players.contains(&raw_uid);
                 if !seen.insert(raw_uid) { continue; }
                 // Use loose detection from any skill this actor used
                 let job = actor_data.skills.keys()
                     .find_map(|&(sc, _)| JobClass::convert_from_skill_loose(sc))
                     .map(|j| j.class_name().to_string());
-                if let Some(job) = &job {
+                if let Some(job) = job.as_ref().filter(|_| !is_player) {
                     let matching: Vec<i32> = actor_jobs.iter()
                         .filter(|(id, j)| **id != raw_uid && *j == job && nickname_data.contains_key(id))
                         .map(|(id, _)| *id)
@@ -1376,11 +1422,14 @@ impl DpsCalculator {
                 // another Elementalist's spirits as their own rows, or folded
                 // every spirit into one of the two (2026-10-03).
                 let Some(mine) = scalars.get(&raw_uid).filter(|s| !s.is_empty()) else { continue };
+                let my_skills = skills_of(raw_uid);
+                if is_player && my_skills == 0 { continue; }
                 let owners: Vec<i32> = player_ids.iter()
                     .copied()
                     .filter(|&id| {
                         id != raw_uid
                             && job.as_ref().is_none_or(|j| actor_jobs.get(&id) == Some(j))
+                            && (!is_player || skills_of(id) >= 3 * my_skills)
                             && scalars.get(&id).is_some_and(|s| !s.is_disjoint(mine))
                     })
                     .collect();
@@ -1622,8 +1671,19 @@ impl DpsCalculator {
                     hit_timestamps: Vec::new(),
                     specs: Vec::new(),
                 });
-                entry.dmg = entry.dmg.saturating_add(hd.total_heal.min(i32::MAX as i64) as i32);
-                entry.time += hd.tick_count;
+                // Only the heals inside this fight's window count: healing is
+                // kept for the whole session, so the totals used to include
+                // every heal since the last reset (777 ticks for both bosses of
+                // the 2026-10-02 capture). Their times, from the fight's first
+                // hit as damage's are, feed HEAL's HPS chart and cast lanes.
+                let (from, to) = (target_data.first_damage_time, target_data.last_damage_time);
+                let mut healed: i64 = 0;
+                for &(t, amount) in hd.ticks.iter().filter(|(t, _)| *t >= from && *t <= to) {
+                    healed += amount;
+                    entry.time += 1;
+                    entry.hit_timestamps.push(t - from);
+                }
+                entry.dmg = entry.dmg.saturating_add(healed.min(i32::MAX as i64) as i32);
             }
         }
 

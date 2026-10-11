@@ -1,7 +1,6 @@
 const SETTING_CHOICES = {
   defaultMeterMode: { allowed: ["bossTargets", "lastHitByMe", "allTargets", "trainTargets", "groupTargets"], fallback: "lastHitByMe" }, // fork: GROUP, upstream falls back to "bossTargets"
   allTargetsWindowMs: { allowed: ["30000", "60000", "120000", "180000", "300000"], fallback: "120000" },
-  targetSelectionWindowMs: { allowed: ["5000", "10000", "15000", "20000", "30000"], fallback: "5000" },
   trainSelectionMode: { allowed: ["all", "highestDamage"], fallback: "all" },
 };
 const pickSettingChoice = (name, value) => {
@@ -50,8 +49,8 @@ class DpsApp {
       onlyShowUser: "dpsMeter.onlyShowUser",
       allTargetsWindowMs: "dpsMeter.allTargetsWindowMs",
       trainSelectionMode: "dpsMeter.trainSelectionMode",
-      targetSelectionWindowMs: "dpsMeter.targetSelectionWindowMs",
       meterFillOpacity: "dpsMeter.meterFillOpacity",
+      barGap: "dpsMeter.barGap",
       detailsBackgroundOpacity: "dpsMeter.detailsBackgroundOpacity",
       detailsFontSize: "dpsMeter.detailsFontSize",
       detailsIconSize: "dpsMeter.detailsIconSize",
@@ -73,6 +72,8 @@ class DpsApp {
       showTtk: "dpsMeter.showTtk",
       showTotalDps: "dpsMeter.showTotalDps",
       roundDps: "dpsMeter.roundDps",
+      autoDetectDevice: "dpsMeter.autoDetectDevice",
+      manualDevice: "dpsMeter.manualDevice",
       showDpsSuffix: "dpsMeter.showDpsSuffix",
       playerLimit: "dpsMeter.playerLimit",
       theme: "dpsMeter.theme",
@@ -142,6 +143,7 @@ class DpsApp {
 
     // 빈데이터 덮어쓰기 방지 스냅샷
     this.lastSnapshot = null;
+    this._barsTargetLabel = null;
     // reset 직후 서버가 구 데이터 계속 주는 현상 방지
     this.resetPending = false;
     this.refreshPending = false;
@@ -230,7 +232,20 @@ class DpsApp {
     return this.safeGetStorage(key);
   }
 
+  /** Auto-detect of the capture device: on unless unticked in Settings. A
+   *  device saved by an older version, before the switch itself was saved,
+   *  also means it was off. */
+  readAutoDetectDevice() {
+    const saved = this.safeGetSetting("dpsMeter.autoDetectDevice");
+    if (saved === "false") return false;
+    if (saved === "true") return true;
+    return !this.safeGetSetting("dpsMeter.manualDevice");
+  }
+
   safeSetSetting(key, value) {
+    // A change replayed from another window is that window's to save: writing
+    // it back sends it round again (applyRemoteSettingChange).
+    if (this._applyingRemoteSetting) return;
     try {
       window.javaBridge?.setSetting?.(key, value);
     } catch (e) {
@@ -392,6 +407,8 @@ class DpsApp {
     this.battleTime.setVisible(false);
     this.updateConnectionStatusUi();
 
+    this.applyBarGap(this.safeGetSetting(this.storageKeys.barGap), { persist: false });
+
     this.pingEl = document.querySelector(".pingDisplay");
     this.showPing = this.safeGetSetting(this.storageKeys.showPing) !== "false";
     // Time to kill beside the battle timer, for bosses; on unless turned off.
@@ -539,7 +556,12 @@ class DpsApp {
     // Settings, Details and History run this same bundle; only the overlay
     // checks, or every Settings open would ask again.
     // fork: checkRelease.js now reads the fork's own GitHub releases.
-    if (window.A2_VIEW === "main") window.ReleaseChecker?.start?.();
+    // Not in the private build, which checks for nothing (build_features).
+    if (window.A2_VIEW === "main") {
+      Promise.resolve(window.a2BuildReady).then((build) => {
+        if (build?.online !== false) window.ReleaseChecker?.start?.();
+      });
+    }
     this.setupConsoleDebugging();
     this.bindNativeHotkeyBridge();
 
@@ -737,6 +759,7 @@ class DpsApp {
 
 
     this.lastSnapshot = null;
+    this._barsTargetLabel = null;
     this.lastJson = null;
     this.lastTargetMode = "";
     this.lastTargetName = "";
@@ -1147,6 +1170,7 @@ class DpsApp {
       targetCurrentHp,
       targetIsBoss,
       dungeonId,
+      targetMobCode,
     } = this.buildRowsFromPayload(raw);
     // Boss mode with no boss engaged: say what it is waiting for. The rows of
     // the last fight can still be on screen (the meter keeps them), so this
@@ -1171,6 +1195,7 @@ class DpsApp {
       if (rows.length === 0) {
         this.lastJson = raw;
         this.lastSnapshot = [];
+        this._barsTargetLabel = null;
         this._lastRenderedListSignature = "";
         this._lastRenderedRowsSummary = null;
         this.meterUI?.onResetMeterUi?.();
@@ -1276,7 +1301,20 @@ class DpsApp {
     }
     // render
     this.lastDungeonId = dungeonId;
-    const nextTargetLabel = this.getTargetLabel({ targetId, targetName, targetMode, dungeonId });
+    let nextTargetLabel = this.getTargetLabel({ targetId, targetName, targetMode, dungeonId, targetMobCode });
+    // The title names the fight the bars below are from. After a zone change
+    // or leaving a dungeon the backend has no target, and the title fell back
+    // to the mode ("BOSS TARGETS") while the last fight's bars stayed up: keep
+    // that fight's title while its bars are shown and no new target has come.
+    const tracksOne = targetMode === "bossTargets" || targetMode === "lastHitByMe";
+    const noTarget = !(Number(targetId) > 0) && !String(targetName || "").trim();
+    if (!tracksOne) {
+      this._barsTargetLabel = null;
+    } else if (rowsToRender.length > 0 && !noTarget) {
+      this._barsTargetLabel = nextTargetLabel;
+    } else if (rowsToRender.length > 0 && noTarget && this._barsTargetLabel) {
+      nextTargetLabel = this._barsTargetLabel;
+    }
     if (this.elBossName) {
       if (this.elBossName.textContent !== nextTargetLabel) {
         this.elBossName.textContent = nextTargetLabel;
@@ -1351,6 +1389,7 @@ class DpsApp {
       ? Number(payload.targetCurrentHp)
       : -1;
     const targetIsBoss = payload?.targetIsBoss === true;
+    const targetMobCode = Math.trunc(Number(payload?.targetMobCode)) || 0;
 
     return {
       rows,
@@ -1364,6 +1403,7 @@ class DpsApp {
       targetCurrentHp,
       targetIsBoss,
       dungeonId,
+      targetMobCode,
     };
   }
 
@@ -1497,6 +1537,71 @@ class DpsApp {
     return Math.min(100, Math.max(10, Math.round(numeric)));
   }
 
+  /** Pixels between player bars, 0-16, or null for the skin's own spacing. */
+  // The sidebar's sections: one shown at a time, as a tablist (arrow keys,
+  // Home and End move between the sections that are listed).
+  initSettingsSections() {
+    const items = [...document.querySelectorAll(".settingsNavItem")];
+    if (!items.length) return;
+    const show = (key, { focus = false } = {}) => {
+      for (const item of items) {
+        const on = item.dataset.section === key;
+        item.classList.toggle("isActive", on);
+        item.setAttribute("aria-selected", String(on));
+        item.tabIndex = on ? 0 : -1;
+        if (on && focus) item.focus();
+      }
+      for (const section of document.querySelectorAll(".settingsSection")) {
+        const on = section.dataset.section === key;
+        section.hidden = !on;
+        section.classList.toggle("isActive", on);
+      }
+      const pane = document.querySelector(".settingsPane");
+      if (pane) pane.scrollTop = 0;
+    };
+    const steps = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+    for (const item of items) {
+      item.addEventListener("click", () => show(item.dataset.section));
+      item.addEventListener("keydown", (event) => {
+        if (!(event.key in steps) && event.key !== "Home" && event.key !== "End") return;
+        event.preventDefault();
+        const listed = items.filter((el) => el.getClientRects().length > 0);
+        const at = listed.indexOf(item);
+        const next = event.key === "Home" ? listed[0]
+          : event.key === "End" ? listed[listed.length - 1]
+            : listed[(at + steps[event.key] + listed.length) % listed.length];
+        if (next) show(next.dataset.section, { focus: true });
+      });
+    }
+  }
+
+  normalizeBarGap(value) {
+    if (value === null || value === undefined || String(value).trim() === "") return null;
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return null;
+    return Math.min(16, Math.max(0, Math.round(numeric)));
+  }
+
+  /** The skin's spacing between bars, for the slider before it is first moved. */
+  defaultBarGap() {
+    return this.slimMode ? 2 : 3;
+  }
+
+  // "Spacing between player bars" (a user asked for it). Unset, the skin's
+  // own spacing stands; set, it applies to every skin. The window fits its
+  // rows, so it is resized after.
+  applyBarGap(value, { persist } = {}) {
+    const normalized = this.normalizeBarGap(value);
+    const root = document.documentElement.style;
+    if (normalized === null) root.removeProperty("--meter-bar-gap");
+    else root.setProperty("--meter-bar-gap", `${normalized}px`);
+    if (persist && normalized !== null) {
+      this.safeSetSetting(this.storageKeys.barGap, String(normalized));
+    }
+    if (window.A2_VIEW === "main") window.javaBridge?.updateOverlaySize?.();
+    return normalized;
+  }
+
   applyMeterFillOpacity(percent, { persist } = {}) {
     const normalized = this.normalizeMeterOpacity(percent, 100);
     document.documentElement.style.setProperty("--meter-fill-opacity", String(normalized / 100));
@@ -1598,6 +1703,7 @@ class DpsApp {
     this.resetPending = false;
     this.lastJson = null;
     this.lastSnapshot = null;
+    this._barsTargetLabel = null;
     this._lastRenderedListSignature = "";
     this._lastRenderedRowsSummary = null;
     this.setTargetSelection(this.targetSelection, { persist: false, syncBackend: true, reason });
@@ -2041,7 +2147,9 @@ class DpsApp {
         isDot: isHot,
         crit: 0, parry: 0, back: 0, frontal: 0, perfect: 0, double: 0,
         regen: 0, multiHitCount: 0, multiHitDamage: 0, multiHitHits: 0,
-        minDmg: 0, maxDmg: 0, job: v.job ?? "", specs: null, hitTimestamps: [],
+        minDmg: 0, maxDmg: 0, job: v.job ?? "", specs: null,
+        // When each heal landed in the fight (meter 2.0.56 on): HEAL's HPS chart.
+        hitTimestamps: Array.isArray(v.hitTimestamps) ? v.hitTimestamps : [],
       });
     }
     const healBattleMs = Number.isFinite(battleTimeMsRaw) ? battleTimeMsRaw : 0;
@@ -2263,8 +2371,6 @@ class DpsApp {
     this.localActorIdInput = document.querySelector(".localActorIdInput");
     this.allTargetsWindowDropdownBtn = document.querySelector(".allTargetsWindowDropdownBtn");
     this.allTargetsWindowDropdownMenu = document.querySelector(".allTargetsWindowDropdownMenu");
-    this.targetWindowDropdownBtn = document.querySelector(".targetWindowDropdownBtn");
-    this.targetWindowDropdownMenu = document.querySelector(".targetWindowDropdownMenu");
     this.trainSelectionModeDropdownBtn = document.querySelector(".trainSelectionModeDropdownBtn");
     this.trainSelectionModeDropdownMenu = document.querySelector(".trainSelectionModeDropdownMenu");
     this.defaultMeterModeDropdownBtn = document.querySelector(".defaultMeterModeDropdownBtn");
@@ -2328,7 +2434,6 @@ class DpsApp {
       defaultMeterMode: "lastHitByMe", // fork: upstream "bossTargets"
       allTargetsWindowMs: "120000",
       trainSelectionMode: "all",
-      targetSelectionWindowMs: "5000",
     };
 
     // The meter already applied these settings. Opening a form must not change
@@ -2341,9 +2446,6 @@ class DpsApp {
     const storedTrainSelectionMode = this.safeGetSetting(this.storageKeys.trainSelectionMode) ||
       this.safeGetStorage(this.storageKeys.trainSelectionMode) ||
       "all";
-    const storedTargetSelectionWindowMs = this.safeGetSetting(this.storageKeys.targetSelectionWindowMs) ||
-      this.safeGetStorage(this.storageKeys.targetSelectionWindowMs) ||
-      "5000";
     let storedMeterOpacity = this.safeGetSetting(this.storageKeys.meterFillOpacity) ||
       this.safeGetStorage(this.storageKeys.meterFillOpacity);
     if (syncBackend && this.safeGetSetting("dpsMeter.migration.opacityReset1") !== "done") {
@@ -2370,7 +2472,11 @@ class DpsApp {
     this.setOnlyShowUser(false, { persist: false });
     this.setDebugLogging(storedDebugLogging, { persist: false, syncBackend });
     this.setPinMeToTop(storedPinMeToTop, { persist: false });
-    this.setBetaUi(this.safeGetSetting(this.storageKeys.betaUi) !== "false", { persist: false });
+    // The Classic skins are retired: Classic becomes Standard, Classic Slim
+    // becomes Slim (slimMode is kept as it was). Saved once, so every window
+    // and the next start agree.
+    const wasClassic = this.safeGetSetting(this.storageKeys.betaUi) === "false";
+    this.setBetaUi(true, { persist: wasClassic && syncBackend });
     const storedSlimMode = this.safeGetSetting(this.storageKeys.slimMode) === "true";
     this.setSlimMode(storedSlimMode, { persist: false });
     this.setMainPlayerNamesBold(storedMainPlayerNamesBold, { persist: false });
@@ -2465,13 +2571,6 @@ class DpsApp {
     if (syncBackend) {
       this.safeSetSetting(this.storageKeys.allTargetsWindowMs, selectedWindow);
       window.javaBridge?.setAllTargetsWindowMs?.(selectedWindow);
-    }
-
-    const selectedTargetWindow = pickSettingChoice("targetSelectionWindowMs", storedTargetSelectionWindowMs);
-    this.settingsSelections.targetSelectionWindowMs = selectedTargetWindow;
-    if (syncBackend) {
-      this.safeSetSetting(this.storageKeys.targetSelectionWindowMs, selectedTargetWindow);
-      window.javaBridge?.setTargetSelectionWindowMs?.(selectedTargetWindow);
     }
 
     const selectedMode = pickSettingChoice("trainSelectionMode", storedTrainSelectionMode);
@@ -2576,11 +2675,19 @@ class DpsApp {
     if (this.saveRawPacketsCheckbox) {
       const storedSaveRaw = this.safeGetSetting(this.storageKeys.saveRawPackets) === "true";
       this.saveRawPacketsCheckbox.checked = storedSaveRaw;
+      // Saved before the two were linked: packet logging on, debug off.
+      if (storedSaveRaw && !this.debugLoggingEnabled) {
+        this.setDebugLogging(true, { persist: true, syncBackend: true });
+      }
       this.saveRawPacketsCheckbox.addEventListener("change", (event) => {
         const isChecked = !!event.target?.checked;
         this.safeSetSetting(this.storageKeys.saveRawPackets, String(isChecked));
         window.javaBridge?.setSaveRawPackets?.(isChecked);
+        // Debug logging follows packet logging on and off.
+        this.setDebugLogging(isChecked, { persist: true, syncBackend: true });
+        this.syncLoggingLock();
       });
+      this.syncLoggingLock();
     }
     this.initSendLogs();
     if (this.pinMeToTopCheckbox) {
@@ -2697,6 +2804,23 @@ class DpsApp {
       });
     }
 
+    const barGapInput = document.querySelector(".barGapInput");
+    const barGapValue = document.querySelector(".barGapValue");
+    if (barGapInput && barGapValue) {
+      this.barGapInput = barGapInput;
+      this.barGapValue = barGapValue;
+      const shown = this.normalizeBarGap(this.safeGetSetting(this.storageKeys.barGap)) ?? this.defaultBarGap();
+      barGapInput.value = String(shown);
+      barGapValue.textContent = `${shown}px`;
+      const stopDrag = (event) => event.stopPropagation();
+      barGapInput.addEventListener("mousedown", stopDrag);
+      barGapInput.addEventListener("touchstart", stopDrag, { passive: true });
+      barGapInput.addEventListener("input", (event) => {
+        const next = this.applyBarGap(event.target?.value, { persist: true });
+        if (next !== null) barGapValue.textContent = `${next}px`;
+      });
+    }
+
     // Target name size
     if (this.bossNameSizeInput && this.bossNameSizeValue) {
       const defaultBossNameSize = this.getDefaultBossNameSize();
@@ -2792,30 +2916,31 @@ class DpsApp {
 
     this.settingsClose?.addEventListener("click", () => this.closeSettingsPanel());
 
-    const advancedToggle = document.querySelector(".settingsAdvancedToggle");
-    const advancedBody = document.querySelector(".settingsAdvancedBody");
-    advancedToggle?.addEventListener("click", () => {
-      const isOpen = advancedToggle.classList.toggle("isOpen");
-      if (advancedBody) advancedBody.style.display = isOpen ? "" : "none";
-    });
+    this.initSettingsSections();
 
     this.resetDetectBtn?.addEventListener("click", () => {
       window.javaBridge?.resetAutoDetection?.();
       this.refreshConnectionInfo();
     });
 
-    // Device selection: auto-detect checkbox + manual device dropdown
-    this._autoDetectDevice = !this.safeGetSetting("dpsMeter.manualDevice");
+    // Device selection: auto-detect checkbox + manual device dropdown. Both
+    // are saved (#39): unticking Auto-detect, and the device picked, were held
+    // nowhere, so reopening Settings ticked it again and lost the choice.
+    this._autoDetectDevice = this.readAutoDetectDevice();
     if (this.autoDetectDeviceCheckbox) {
       this.autoDetectDeviceCheckbox.checked = this._autoDetectDevice;
       this._updateDeviceDropdownState();
       this.autoDetectDeviceCheckbox.addEventListener("change", () => {
         this._autoDetectDevice = this.autoDetectDeviceCheckbox.checked;
+        this.safeSetSetting("dpsMeter.autoDetectDevice", String(this._autoDetectDevice));
         this._updateDeviceDropdownState();
         if (this._autoDetectDevice) {
+          this.safeSetSetting("dpsMeter.manualDevice", "");
           window.javaBridge?.setManualDevice?.("");
           this.refreshConnectionInfo();
         } else {
+          const saved = this.safeGetSetting("dpsMeter.manualDevice");
+          if (saved) window.javaBridge?.setManualDevice?.(saved);
           this._loadDeviceDropdown();
         }
       });
@@ -3123,14 +3248,6 @@ class DpsApp {
 
     themeOptions.sort((a, b) => a.label.localeCompare(b.label));
 
-    const targetWindowOptions = [
-      { value: "5000", label: this.i18n?.t("settings.targetWindow.options.5s", "5 seconds") },
-      { value: "10000", label: this.i18n?.t("settings.targetWindow.options.10s", "10 seconds") },
-      { value: "15000", label: this.i18n?.t("settings.targetWindow.options.15s", "15 seconds") },
-      { value: "20000", label: this.i18n?.t("settings.targetWindow.options.20s", "20 seconds") },
-      { value: "30000", label: this.i18n?.t("settings.targetWindow.options.30s", "30 seconds") },
-    ];
-
     const allTargetsWindowOptions = [
       { value: "30000", label: this.i18n?.t("settings.allTargetsWindow.options.30s", "30 seconds") },
       { value: "60000", label: this.i18n?.t("settings.allTargetsWindow.options.1m", "1 minute") },
@@ -3204,20 +3321,6 @@ class DpsApp {
     window.ForkThemes?.renderSettings?.(this, setupDropdown, previewThemeVars); // fork
 
     setupDropdown(
-      this.targetWindowDropdownBtn,
-      this.targetWindowDropdownMenu,
-      targetWindowOptions,
-      this.settingsSelections.targetSelectionWindowMs,
-      (value) => {
-        if (!value) return;
-        this.settingsSelections.targetSelectionWindowMs = value;
-        this.safeSetSetting(this.storageKeys.targetSelectionWindowMs, value);
-        window.javaBridge?.setTargetSelectionWindowMs?.(value);
-        if (!this.isCollapse) this.fetchDps();
-      }
-    );
-
-    setupDropdown(
       this.allTargetsWindowDropdownBtn,
       this.allTargetsWindowDropdownMenu,
       allTargetsWindowOptions,
@@ -3274,14 +3377,11 @@ class DpsApp {
       }
     }
 
-    // One control for both axes of the main window: which skin, and how dense.
-    // They were two separate toggles, which made four states the user had to
-    // assemble themselves.
+    // Standard or Slim. The Classic skins are retired; the values keep their
+    // old names ("beta", "betaSlim") so a saved choice still reads the same.
     const meterLayoutOptions = [
-      { value: "beta", label: this.i18n?.t?.("settings.meterLayout.beta", "Beta UI") ?? "Beta UI" },
-      { value: "betaSlim", label: this.i18n?.t?.("settings.meterLayout.betaSlim", "Beta Slim") ?? "Beta Slim" },
-      { value: "classic", label: this.i18n?.t?.("settings.meterLayout.classic", "Classic UI") ?? "Classic UI" },
-      { value: "classicSlim", label: this.i18n?.t?.("settings.meterLayout.classicSlim", "Classic Slim") ?? "Classic Slim" },
+      { value: "beta", label: this.i18n?.t?.("settings.meterLayout.standard", "Standard") ?? "Standard" },
+      { value: "betaSlim", label: this.i18n?.t?.("settings.meterLayout.slim", "Slim") ?? "Slim" },
     ];
     setupDropdown(
       this.meterLayoutDropdownBtn,
@@ -3578,12 +3678,14 @@ class DpsApp {
 
 
   parseDetailsIconSize(value) {
+    // The web viewer (a2tools.app) sets a smaller default for compact rows.
+    const fallback = Number(globalThis.__A2_DETAILS_ICON_SIZE__) || 36;
     if (value === null || value === undefined || value === "") {
-      return 36;
+      return fallback;
     }
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) {
-      return 36;
+      return fallback;
     }
     return Math.min(this.DETAILS_ICON_SIZE_MAX, Math.max(this.DETAILS_ICON_SIZE_MIN, parsed));
   }
@@ -3926,6 +4028,27 @@ class DpsApp {
     }
   }
 
+  // A packet log is read beside the debug log of the same session, so packet
+  // logging keeps debug logging on: its switch is locked while packets are
+  // logged. Debug logging can still be on by itself.
+  syncLoggingLock() {
+    const box = this.debugLoggingCheckbox;
+    if (!box) return;
+    const locked = !!this.saveRawPacketsCheckbox?.checked;
+    if (locked && !box.checked) box.checked = true;
+    box.disabled = locked;
+    const row = box.closest?.(".settingsToggle");
+    if (!row) return;
+    row.classList.toggle("isLocked", locked);
+    if (locked) {
+      row.title = this.i18n?.t?.("settings.debugLoggingLocked",
+        "On while packet logging is on: packet logs need the debug log to be read.")
+        ?? "On while packet logging is on: packet logs need the debug log to be read.";
+    } else {
+      row.removeAttribute("title");
+    }
+  }
+
   setPinMeToTop(enabled, { persist = false } = {}) {
     this.pinMeToTop = !!enabled;
     if (this.pinMeToTopCheckbox && document.activeElement !== this.pinMeToTopCheckbox) {
@@ -4103,11 +4226,13 @@ class DpsApp {
       if (box) box.checked = defaultOn ? get(name) !== "false" : get(name) === "true";
     }
     this.setDebugLogging(get("debugLogging") === "true");
+    this.syncLoggingLock();
     // Refilling a form applies saved values without replaying input handlers
     // that would persist them again. A focused slider keeps its draft.
     for (const [name, value] of [
       ["meterFillOpacity", get("meterFillOpacity")],
       ["windowOpacity", get("windowOpacity")],
+      ["barGap", get("barGap")],
     ]) {
       if (isSet(value)) this.applyRemoteSettingChange(this.storageKeys[name], value);
     }
@@ -4115,7 +4240,7 @@ class DpsApp {
     const limit = get("playerLimit");
     if (isSet(limit)) this.setPlayerLimit(limit);
 
-    this.setBetaUi(get("betaUi") !== "false");
+    this.setBetaUi(true);
     this.setSlimMode(get("slimMode") === "true");
     this.applyTheme(get("theme") || this.theme);
     const language = get("language");
@@ -4127,7 +4252,7 @@ class DpsApp {
     this.trainSelectionMode = this.settingsSelections.trainSelectionMode;
     this.detailsMonitor = this.getDetailsMonitorSetting();
 
-    this._autoDetectDevice = !this.safeGetSetting("dpsMeter.manualDevice");
+    this._autoDetectDevice = this.readAutoDetectDevice();
     if (this.autoDetectDeviceCheckbox) this.autoDetectDeviceCheckbox.checked = this._autoDetectDevice;
     this._updateDeviceDropdownState();
     this._loadDeviceDropdown();
@@ -4303,19 +4428,17 @@ class DpsApp {
   }
 
   setMeterLayout(value, { persist = false } = {}) {
-    const beta = String(value).startsWith("beta");
+    // "classic"/"classicSlim" may still arrive from an old setting: Standard/Slim.
     const slim = String(value).endsWith("Slim");
-    this.setBetaUi(beta, { persist });
+    this.setBetaUi(true, { persist });
     this.setSlimMode(slim, { persist });
   }
 
-  // Beta UI is the redesigned main window and is the default. Switching it off
-  // adds body.legacyUi, which activates the pre-redesign skin in styles.css.
+  // The redesigned main window is the only skin since the Classic ones were
+  // retired; dpsMeter.betaUi stays "true" (a saved "false" is moved over at
+  // start, see the settings load).
   setBetaUi(enabled, { persist = false } = {}) {
-    this.betaUi = !!enabled;
-    document.body.classList.toggle("legacyUi", !this.betaUi);
-    // Both skins show the same placeholder text; only the type scale and the
-    // uppercase transform differ, so the fitted size has to be recomputed.
+    this.betaUi = true;
     this.fitBossName();
     this.syncSettingsDropdownSelection(this.meterLayoutDropdownBtn, this.meterLayoutDropdownMenu, this.getMeterLayout());
     if (window.A2_VIEW === "main") window.javaBridge?.updateOverlaySize?.();
@@ -4525,6 +4648,7 @@ class DpsApp {
     this.refreshPending = true;
     this.refreshPendingStartedAt = this.nowMs();
     this.lastSnapshot = null;
+    this._barsTargetLabel = null;
     this.lastJson = null;
     this.lastTargetMode = "";
     this.lastTargetName = "";
@@ -4585,7 +4709,7 @@ class DpsApp {
       return;
     }
     if (key === this.storageKeys.betaUi) {
-      this.setBetaUi(value !== "false", { persist: false });
+      this.setBetaUi(true, { persist: false });    // Classic is retired
       return;
     }
     if (key === this.storageKeys.slimMode) {
@@ -4598,6 +4722,13 @@ class DpsApp {
     }
     if (key === this.storageKeys.playerLimit) {
       this.setPlayerLimit(value, { persist: false });
+      return;
+    }
+    if (key === this.storageKeys.barGap) {
+      const next = this.applyBarGap(value, { persist: false });
+      const shown = next ?? this.defaultBarGap();
+      this.syncSettingsRangeValue(this.barGapInput, null, shown);
+      if (this.barGapValue && document.activeElement !== this.barGapInput) this.barGapValue.textContent = `${shown}px`;
       return;
     }
     if (key === this.storageKeys.meterFillOpacity || key === this.storageKeys.windowOpacity) {
@@ -4630,7 +4761,6 @@ class DpsApp {
       defaultMeterMode: "defaultMeterMode",
       trainSelectionMode: "trainSelectionMode",
       allTargetsWindowMs: "allTargetsWindow",
-      targetSelectionWindowMs: "targetWindow",
     };
     for (const [name, control] of Object.entries(choices)) {
       if (key !== this.storageKeys[name]) continue;
@@ -4651,9 +4781,9 @@ class DpsApp {
     const control = document.querySelector(selector);
     if (!control) return;
 
-    // Bail when the value already matches — this is what stops the echo. The
-    // handler below writes the setting straight back, and the backend only
-    // broadcasts real changes, so the round trip ends here.
+    // A slider being dragged here is ahead of the echoes of its own earlier
+    // values; taking one would move it back under the pointer.
+    if (control.type === "range" && document.activeElement === control) return;
     if (control.type === "checkbox") {
       const next = value !== "false";
       if (control.checked === next) return;
@@ -4662,9 +4792,18 @@ class DpsApp {
       if (String(control.value) === String(value)) return;
       control.value = value;
     }
-    control.dispatchEvent(new Event("change", { bubbles: true }));
-    if (control.type === "range") {
-      control.dispatchEvent(new Event("input", { bubbles: true }));
+    // Replay the control's handler to apply the value here, but without
+    // saving it: the handler used to write it straight back, and during a
+    // drag the Settings and meter windows then wrote each other's older
+    // values back and forth without end (Target name size, 2026-10-11).
+    this._applyingRemoteSetting = true;
+    try {
+      control.dispatchEvent(new Event("change", { bubbles: true }));
+      if (control.type === "range") {
+        control.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    } finally {
+      this._applyingRemoteSetting = false;
     }
   }
 
@@ -4755,7 +4894,7 @@ class DpsApp {
     };
     btn.addEventListener("click", async () => {
       const ok = window.confirm(t("settings.sendLogs.confirm",
-        "Send your 3 newest packet logs to the A2 Tools developer?\n\n" +
+        "Send your 3 most recent packet logs to the A2 Tools developer?\n\n" +
         "Packet logs are raw game traffic recorded while packet logging was on, " +
         "including character names. Only the developer can open them, and they " +
         "are deleted after 30 days."));
@@ -5000,6 +5139,7 @@ class DpsApp {
       item.textContent = opt.label;
       if (opt.value === selected) item.classList.add("isActive");
       item.addEventListener("click", () => {
+        this.safeSetSetting("dpsMeter.manualDevice", opt.value);
         window.javaBridge?.setManualDevice?.(opt.value);
         this.deviceDropdownMenu.classList.remove("isOpen");
         const textEl = this.deviceDropdownBtn.querySelector(".settingsDropdownText");
@@ -5202,7 +5342,14 @@ class DpsApp {
     return this.i18n?.t("header.title", "A2Tools DPS Meter") ?? "A2Tools DPS Meter";
   }
 
-  getTargetLabel({ targetId = 0, targetName = "", targetMode = "", dungeonId = 0 } = {}) {
+  // "Gatekeeper Pinopi · Level 2": a Nightmare boss's level is its own, and
+  // the name alone does not say which of its ten it is (i18n getNpcLevel).
+  withNpcLevel(id, name) {
+    const level = this.i18n?.getNpcLevel?.(id) ?? "";
+    return level ? `${name} · ${level}` : name;
+  }
+
+  getTargetLabel({ targetId = 0, targetName = "", targetMode = "", dungeonId = 0, targetMobCode = 0 } = {}) {
     // In a party instance the title is the boss being fought, and the dungeon
     // between pulls. It used to stay on the dungeon throughout, so a whole run
     // read "Urugugu Canyon" past every boss. The modes that track no single
@@ -5215,8 +5362,10 @@ class DpsApp {
       const numericId = Number(targetId);
       if (tracksOne && Number.isFinite(numericId) && numericId > 0) {
         const cleanName = typeof targetName === "string" ? targetName.trim() : "";
-        const bossName = this.i18n?.getNpcName?.(numericId, cleanName) ?? cleanName;
-        if (bossName) return bossName;
+        // By NPC code where the backend gave one: targetId is the entity.
+        const code = Number(targetMobCode) > 0 ? Number(targetMobCode) : numericId;
+        const bossName = this.i18n?.getNpcName?.(code, cleanName) ?? cleanName;
+        if (bossName) return this.withNpcLevel(code, bossName);
       }
       return dungeonLabel;
     }
@@ -5241,8 +5390,9 @@ class DpsApp {
     const numericTargetId = Number(targetId);
     const cleanTargetName = typeof targetName === "string" ? targetName.trim() : "";
     if (Number.isFinite(numericTargetId) && numericTargetId > 0) {
-      const localizedName = this.i18n?.getNpcName?.(numericTargetId, cleanTargetName) ?? cleanTargetName;
-      return localizedName || `Mob #${numericTargetId}`;
+      const code = Number(targetMobCode) > 0 ? Number(targetMobCode) : numericTargetId;
+      const localizedName = this.i18n?.getNpcName?.(code, cleanTargetName) ?? cleanTargetName;
+      return localizedName ? this.withNpcLevel(code, localizedName) : `Mob #${numericTargetId}`;
     }
     if (cleanTargetName) {
       return cleanTargetName;
@@ -5796,6 +5946,7 @@ class DpsApp {
   async maybeShowAccountPromo() {
     const promo = document.querySelector("#accountPromo");
     if (!promo) return;
+    if ((await window.a2BuildReady)?.online === false) return;
     if (this.safeGetSetting(this.storageKeys.accountPromoShown) === "true") return;
     const current = this.safeGetSetting(this.storageKeys.autoUpload);
     if (current === "true" || current === "false") return;

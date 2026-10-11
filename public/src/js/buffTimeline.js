@@ -255,7 +255,31 @@ const createBuffTimeline = ({ root, describeActor = () => null }) => {
     const name = names[id];
     if (typeof name === "string" && name.trim()) return name;
     const skillName = track.skill ? i18n?.getSkillName?.(track.skill, "") : "";
-    return skillName || `#${id}`;
+    return skillName || familyName(track.skill) || `#${id}`;
+  };
+
+  // A skill code the table lacks (a summon's aura, 17150001) is one of a
+  // skill's codes: the table names its siblings (17150000 to 17150240 are
+  // all "Divine Aura"). The nearest code below it, then above, in the same
+  // first six digits; otherwise nothing.
+  const familyName = (skill) => {
+    const code = Number(skill);
+    if (!(code > 0)) return "";
+    const base = Math.floor(code / 100) * 100;
+    for (let d = 1; d < 100; d += 1) {
+      for (const c of [code - d, code + d]) {
+        if (c < base || c >= base + 100) continue;
+        const n = i18n?.getSkillName?.(c, "");
+        if (n) return n;
+      }
+    }
+    // Wider: the skill's first five digits (17150001 -> 1715000x..).
+    const wide = Math.floor(code / 1000) * 1000;
+    for (let c = wide; c < wide + 1000; c += 10) {
+      const n = i18n?.getSkillName?.(c, "");
+      if (n) return n;
+    }
+    return "";
   };
 
   const casterInfo = (id) => {
@@ -330,7 +354,9 @@ const createBuffTimeline = ({ root, describeActor = () => null }) => {
       el = createIcon(icon, track.skill);
       iconEls.set(key, el);
     }
-    if (iconsUsed.has(key)) return el.cloneNode(true);
+    // A second row gets an icon of its own: a copy taken while the first
+    // was still loading kept its placeholder. The image is cached by then.
+    if (iconsUsed.has(key)) return createIcon(icon, track.skill);
     iconsUsed.add(key);
     return el;
   };
@@ -354,12 +380,14 @@ const createBuffTimeline = ({ root, describeActor = () => null }) => {
 
   // The bar's color says who cast it: the player themselves, a party
   // member (their class color), or anyone else (the boss, a stranger).
+  // Your own buffs too are in your class colour: a generic "self" blue made
+  // nearly every row of a player's own buffs the same blue.
   const barColor = (track) => {
     const by = Number(track.by);
-    if (data && by && by === Number(data.playerId) && Number(track.on) === by) return "var(--buff-self)";
     const caster = casterInfo(by);
     if (caster.isTarget) return "var(--buff-hostile)";
-    return caster.color || "var(--buff-other)";
+    if (caster.color) return caster.color;
+    return data && by && by === Number(data.playerId) ? "var(--buff-self)" : "var(--buff-other)";
   };
 
   const row = (track, rowIndex) => {
@@ -367,20 +395,18 @@ const createBuffTimeline = ({ root, describeActor = () => null }) => {
     el.className = "buffRow";
     el.dataset.row = String(rowIndex);
 
+    // The name is in its bar's colour: who cast it (you, a party member in
+    // their class colour, or the boss). Their name is in the tooltip; beside
+    // the buff's own name it read as part of it.
+    const color = barColor(track);
     const label = document.createElement("div");
     label.className = "buffLabel";
     label.appendChild(iconFor(track));
     const name = document.createElement("span");
     name.className = "buffName";
     name.textContent = buffName(track);
+    name.style.color = color;
     label.appendChild(name);
-    const by = Number(track.by);
-    if (by && by !== Number(track.on)) {
-      const caster = document.createElement("span");
-      caster.className = "buffCaster";
-      caster.textContent = casterInfo(by).name;
-      label.appendChild(caster);
-    }
     if (track.summon) {
       const tag = document.createElement("span");
       tag.className = "buffTag";
@@ -393,7 +419,6 @@ const createBuffTimeline = ({ root, describeActor = () => null }) => {
     lane.className = "buffLane";
     const bars = layoutBuffSegments(track._segments, data.durationMs);
     const maxStacks = Math.max(1, ...bars.map((b) => b.stacks));
-    const color = barColor(track);
     bars.forEach((bar, barIndex) => {
       const b = document.createElement("div");
       b.className = "buffBar";

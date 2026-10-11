@@ -511,6 +511,7 @@ impl StreamProcessor {
                 skill_code,
                 amount_info.value as i64,
                 effect_type == 0x0B,
+                self.override_timestamp.unwrap_or_else(crate::clock::now_ms),
             );
             return;
         }
@@ -789,7 +790,9 @@ impl StreamProcessor {
         for record in masked_records(data) {
             let id = record.id;
             let Some(sanitized) = record.name else {
-                // A tutorial character's placeholder: still you, with no name.
+                // A tutorial character's placeholder: still you, with no name,
+                // and on no server the record states.
+                self.data_storage.note_self_server(0);
                 if self.data_storage.set_local_identity_from_game(id as i64, None) {
                     tracing::info!("self record: unnamed tutorial character -> entity {}", id);
                 }
@@ -812,6 +815,7 @@ impl StreamProcessor {
                     tracing::info!("self record: local player '{}' -> entity {}", sanitized, id);
                 }
                 self.data_storage.note_player_server(&sanitized, server);
+                self.data_storage.note_self_server(server);
                 // A byte, then level (u32). Confirmed by a level-up, 28
                 // then 29 (Naicha, 2026-10-04), and against the roster's
                 // levels for three other players. Only in the layout whose
@@ -1746,8 +1750,13 @@ impl StreamProcessor {
                 // second_value, so `final_damage` is the correct heal amount. Recording
                 // it as healing makes the HEAL view capture instant self-heals, not just
                 // HoTs. (The cast-marker variant breaks out earlier on its and_result.)
-                self.data_storage
-                    .append_heal(actor_value, resolved_skill_code, final_damage as i64, false);
+                self.data_storage.append_heal(
+                    actor_value,
+                    resolved_skill_code,
+                    final_damage as i64,
+                    false,
+                    self.override_timestamp.unwrap_or_else(crate::clock::now_ms),
+                );
             }
 
             parsed_any = true;

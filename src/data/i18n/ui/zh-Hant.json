@@ -86,7 +86,11 @@
       "avgDmg": "平均",
       "avgDmgTooltip": "平均傷害",
       "maxDmg": "最大",
-      "maxDmgTooltip": "最大傷害"
+      "maxDmgTooltip": "最大傷害",
+      "heal": "治療",
+      "healTooltip": "治療量",
+      "healPct": "治療%",
+      "healPctTooltip": "治療占比"
     },
     "stats": {
       "totalDamage": "總傷害",
@@ -111,7 +115,7 @@
     "history": {
       "allPlayers": "全體玩家"
     },
-    "dpsChart": "DPS 圖表",
+    "dpsChart": "每秒傷害",
     "historyBtn": "歷史",
     "timeline": "時間軸",
     "buffs": {
@@ -152,7 +156,18 @@
         "stillOn": "戰鬥結束時仍生效",
         "replaced": "被新等級取代"
       }
-    }
+    },
+    "fightTimeline": "戰鬥時間軸",
+    "casts": "施放",
+    "resize": "拖曳調整大小",
+    "healTimingNote": "此戰鬥沒有治療時間資料（由舊版本記錄）。",
+    "chart": {
+      "bossHp": "首領 HP",
+      "ping": "延遲"
+    },
+    "hpsChart": "每秒治療",
+    "sectionChart": "圖表",
+    "showSections": "顯示的部分"
   },
   "history": {
     "title": "戰鬥歷史",
@@ -185,21 +200,19 @@
   },
   "settings": {
     "title": "設定",
-    "lockedPort": "偵測到的裝置/連接埠",
-    "resetDetection": "重置偵測",
-    "characterName": "Name#ID",
+    "lockedPort": "偵測到的連線",
+    "resetDetection": "重新偵測",
+    "characterName": "我的角色",
     "characterNamePlaceholder": "輸入你的角色名稱",
-    "pinMeToTop": "將我置頂",
+    "pinMeToTop": "將我的列置頂",
     "slimMode": "精簡模式",
     "meterLayout": {
       "label": "儀表佈局",
-      "beta": "Beta 介面",
-      "betaSlim": "Beta 精簡",
-      "classic": "經典介面",
-      "classicSlim": "經典精簡"
+      "standard": "標準",
+      "slim": "緊湊"
     },
     "detailsMonitor": {
-      "label": "在螢幕上顯示詳情",
+      "label": "在副螢幕上顯示詳細資料",
       "off": "關閉",
       "primary": "主螢幕",
       "missing": "該螢幕未連接。",
@@ -216,30 +229,30 @@
     "connection": "連線",
     "diagnostics": "診斷",
     "device": {
-      "label": "擷取網卡",
+      "label": "網路介面卡",
       "autoDetect": "自動偵測"
     },
     "advanced": "進階",
     "bossLogs": "啟用每場Boss記錄",
-    "saveRawPackets": "啟用封包日誌",
+    "saveRawPackets": "封包記錄",
     "resetAllSettings": "重置所有設定",
     "bold": {
-      "label": "加粗",
+      "label": "粗體文字",
       "names": "名稱",
       "dps": "DPS"
     },
     "showPing": "顯示延遲",
-    "showTtk": "顯示預計擊殺時間（TTK）",
-    "showTotalDps": "顯示總DPS/DMG",
-    "roundDps": "DPS取整",
-    "showDpsSuffix": "在 DPS 後顯示 /s",
-    "autoHideMeter": "自動隱藏面板",
-    "showSuspendBtn": "顯示暫停按鈕",
-    "showLockBtn": "顯示鎖定按鈕（點擊穿透）",
+    "showTtk": "顯示預估擊殺時間",
+    "showTotalDps": "顯示隊伍總計",
+    "roundDps": "DPS 以千為單位顯示 (13k)",
+    "showDpsSuffix": "DPS 後顯示 /s",
+    "autoHideMeter": "AION2 不在前景時隱藏",
+    "showSuspendBtn": "顯示暫停擷取按鈕",
+    "showLockBtn": "顯示點擊穿透鎖定按鈕",
     "playerLimit": {
       "label": "最大顯示人數"
     },
-    "debugLogging": "啟用除錯記錄",
+    "debugLogging": "除錯記錄",
     "quit": "結束",
     "discord": {
       "title": "Discord",
@@ -267,7 +280,7 @@
     },
     "version": "版本",
     "theme": {
-      "label": "主題",
+      "label": "配色主題",
       "options": {
         "aion2": "AION2",
         "asmodian": "魔族",
@@ -285,23 +298,13 @@
       "label": "語言"
     },
     "windowOpacity": {
-      "label": "主視窗不透明度"
+      "label": "背景不透明度"
     },
     "meterOpacity": {
-      "label": "計量條不透明度"
+      "label": "條形不透明度"
     },
     "bossNameSize": {
-      "label": "目標名稱大小"
-    },
-    "targetWindow": {
-      "label": "目標時間範圍",
-      "options": {
-        "5s": "5秒",
-        "10s": "10秒",
-        "15s": "15秒",
-        "20s": "20秒",
-        "30s": "30秒"
-      }
+      "label": "標題大小"
     },
     "targetSelection": {
       "label": "目標選擇（實驗性）",
@@ -313,7 +316,7 @@
       }
     },
     "allTargetsWindow": {
-      "label": "所有目標時間窗",
+      "label": "全部目標時間範圍",
       "options": {
         "30s": "30秒",
         "1m": "1分鐘",
@@ -332,10 +335,10 @@
       "lock": "鎖定/解鎖懸浮視窗"
     },
     "defaultMeterMode": {
-      "label": "預設計量模式"
+      "label": "啟動時的目標模式"
     },
     "trainingMode": {
-      "label": "訓練模式",
+      "label": "訓練模式下的詳細資料",
       "options": {
         "all": "全部",
         "highestDamage": "最高傷害"
@@ -365,6 +368,32 @@
       "sending": "傳送中...",
       "sent": "已傳送。你的回報代碼是 {code}，請在 Discord 上告訴開發者。",
       "failed": "無法傳送：{error}"
+    },
+    "barGap": {
+      "label": "條形間距"
+    },
+    "debugLoggingLocked": "開啟封包記錄時保持開啟：分析封包記錄需要除錯記錄。",
+    "tips": {
+      "characterName": "你的遊戲角色名稱和 ID，讓計量器知道哪一列是你。通常會自動識別。",
+      "device": "計量器讀取遊戲流量的網路連線。自動偵測會找到它；使用 VPN 時請手動選擇。",
+      "lockedPort": "發現遊戲所用的介面卡和連接埠。",
+      "defaultMeterMode": "計量器啟動時的目標模式：首領、目標、訓練或全部。",
+      "playerLimit": "計量器顯示的玩家列數，其餘的不顯示。",
+      "pinMeToTop": "無論傷害多少，你的列都排在第一。",
+      "autoHideMeter": "其他視窗位於遊戲前方時計量器會隱藏，回到遊戲後再出現。",
+      "detailsMonitor": "在所選螢幕上開啟詳細資料視窗並保持在那裡。",
+      "showTtk": "在戰鬥計時器旁顯示整場首領戰的預估時長。",
+      "showTotalDps": "在各列下方顯示隊伍總 DPS 和總傷害的條。",
+      "roundDps": "13,412 顯示為 13k。",
+      "showSuspendBtn": "在計量器上顯示一個按鈕，按下後停止讀取遊戲流量，再按一次恢復。",
+      "showLockBtn": "讓計量器忽略滑鼠、點擊直接作用於遊戲的按鈕。",
+      "windowOpacity": "計量器背景的透明程度。條形和文字不受影響。",
+      "meterOpacity": "彩色傷害條的不透明程度。",
+      "bossNameSize": "條形上方首領或目標名稱的大小。",
+      "trainingMode": "訓練模式下詳細資料視窗顯示哪些木樁：全部一起，或只顯示你打得最多的那個。",
+      "allTargetsWindow": "全部目標模式下，計量器彙總最後一次命中前這段時間內命中的所有目標。",
+      "debugLogging": "寫入開發者用於排查問題的診斷記錄。",
+      "saveRawPackets": "記錄原始遊戲流量以便回報錯誤。除錯記錄會隨之開啟。"
     }
   },
   "support": {

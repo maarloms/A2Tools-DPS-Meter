@@ -7,6 +7,19 @@
   "use strict";
 
   const { invoke } = window.__TAURI__.core;
+
+  // Which optional parts this build has (app.rs build_features). The private
+  // build, compiled without online features, has no account, uploads, update
+  // check, Send Logs to Dev, Discord activity or stream overlay: html.a2-offline
+  // hides them (styles.css) and the code below skips them.
+  window.a2Build = { online: true };
+  window.a2BuildReady = invoke("build_features")
+    .then((features) => {
+      window.a2Build = { online: features?.online !== false };
+      document.documentElement.classList.toggle("a2-offline", !window.a2Build.online);
+      return window.a2Build;
+    })
+    .catch(() => window.a2Build);
   const { listen } = window.__TAURI__.event;
   const { open: shellOpen } = window.__TAURI__.opener;
 
@@ -622,7 +635,6 @@
       invoke("bind_local_nickname", { actorId: id, nickname }).catch(() => {});
     },
     setAllTargetsWindowMs() {},
-    setTargetSelectionWindowMs() {},
     setTrainSelectionMode() {},
 
     // --- Window ---
@@ -912,6 +924,12 @@
     // --- Fetch ---
     fetchUrlAsync(url, callbackId) {
       // checkRelease.js registers a callback via window._fetchUrlCallback(id, raw)
+      if (window.a2Build?.online === false) {
+        if (callbackId && typeof window._fetchUrlCallback === "function") {
+          window._fetchUrlCallback(callbackId, JSON.stringify({ error: "not in this build" }));
+        }
+        return;
+      }
       // Add cache-buster and no-cache headers to avoid stale CDN responses
       const bustUrl = url + (url.includes("?") ? "&" : "?") + "_t=" + Date.now();
       fetch(bustUrl, { cache: "no-store" })
@@ -980,11 +998,7 @@
   let nativeResize = null;
   let primaryHeld = false;
 
-  const overlayPadding = () => {
-    const ping = document.body.classList.contains("legacyUi")
-      ? document.querySelector(".pingDisplay") : null;
-    return { w: 16, h: 10 + (ping ? ping.offsetHeight + 8 : 0) };
-  };
+  const overlayPadding = () => ({ w: 16, h: 10 });
 
   const overlayMinimum = (meter) => {
     const height = meter.style.height;
@@ -1160,15 +1174,8 @@
     if (meter) {
       contentW = Math.ceil(meter.offsetWidth) + 16;
       const meterH = Math.max(meter.offsetHeight, meter.scrollHeight);
-      // In the beta UI the ping sits inside the footer row, so it is already
-      // part of offsetHeight. The legacy skin hangs it below the window, where
-      // it still needs its own allowance.
-      let pingH = 0;
-      if (document.body.classList.contains("legacyUi")) {
-        const ping = document.querySelector(".pingDisplay");
-        pingH = ping ? ping.offsetHeight + 8 : 0;
-      }
-      contentH = Math.ceil(meterH + pingH) + 10;
+      // The ping sits inside the footer row, so it is part of offsetHeight.
+      contentH = Math.ceil(meterH) + 10;
     }
 
     // The tooltip's extra room stops at the screen edge; the meter itself

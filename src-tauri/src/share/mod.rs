@@ -9,8 +9,9 @@
 //!
 //! - `<fight>.a2es` — the Evidence Slice, the packets themselves. See
 //!   `capture::evidence_slice`.
-//! - `<fight>.a2es.gz` — the same thing, gzipped: byte for byte what an upload
-//!   would put on the wire. Both are written because the compressed one is what
+//! - `<fight>.a2es.gz` — the same thing, gzipped: what an upload would put on
+//!   the wire, except the name tokens, which every cut draws with its own key.
+//!   Both are written because the compressed one is what
 //!   gets sent and the uncompressed one is what is easy to check, and making
 //!   people choose between those would defeat the point. (`a2t-inspect` reads
 //!   either.)
@@ -366,10 +367,18 @@ pub fn slice_for(
     packets.sort_by_key(|p| p.captured_at_ms);
 
     let names = resolve_names(&packets);
-    let mut slice = evidence_slice::build(&packets, start, end, &names).map_err(|e| e.to_string())?;
+    let mut slice = evidence_slice::build(&packets, start, end, &names, slice_key()?).map_err(|e| e.to_string())?;
     without_roster_ids(&mut slice);
     let encoded = evidence_slice::encode(&slice);
     Ok((encoded, slice, sources))
+}
+
+/// A fresh key for one slice's tokens, from the OS random source. No fallback:
+/// a guessable key would bring back the name test it is there to stop.
+fn slice_key() -> Result<evidence_slice::SliceKey, String> {
+    let mut key = [0u8; 32];
+    getrandom::fill(&mut key).map_err(|e| format!("no random key for the slice: {e}"))?;
+    Ok(key)
 }
 
 /// Blank the roster ids in a slice's blind table before it is written or sent.
@@ -397,10 +406,12 @@ pub fn preview(
     let compressed = gzip(&encoded)?;
 
     std::fs::create_dir_all(out_dir).map_err(|e| e.to_string())?;
-    // Both: the `.a2es` is what `a2t-inspect` reads, the `.gz` is byte for byte
-    // what an upload would put on the wire. Writing only the compressed one
-    // would make the artifact harder to check, which is the opposite of why
-    // this exists.
+    // Both: the `.a2es` is what `a2t-inspect` reads, the `.gz` is what an
+    // upload would put on the wire, cut the same way. Not byte for byte: every
+    // cut blinds names with its own random key (`slice_key`), so an upload's
+    // tokens differ from the preview's; everything else is the same. Writing
+    // only the compressed one would make the artifact harder to check, which
+    // is the opposite of why this exists.
     let slice_path = out_dir.join(format!("{}.a2es", record.id));
     let compressed_path = out_dir.join(format!("{}.a2es.gz", record.id));
     let envelope_path = out_dir.join(format!("{}.upload.json", record.id));
@@ -526,6 +537,7 @@ mod tests {
 
 // ===== slices kept automatically, and uploading them =====
 
+#[cfg(feature = "online")]
 pub mod dev_logs;
 pub mod ring;
 
@@ -634,8 +646,9 @@ pub fn save_slice(
     if !covers(&packets, start, start + record.duration_ms) {
         return Err("no packets in memory for this fight".into());
     }
-    let mut slice = evidence_slice::build(&packets, start, start + record.duration_ms, &names_from(storage))
-        .map_err(|e| e.to_string())?;
+    let mut slice =
+        evidence_slice::build(&packets, start, start + record.duration_ms, &names_from(storage), slice_key()?)
+            .map_err(|e| e.to_string())?;
     without_roster_ids(&mut slice);
     let compressed = gzip(&evidence_slice::encode(&slice))?;
 
@@ -682,14 +695,17 @@ pub fn prune_slices(app_data_dir: &Path) {
     }
 }
 
+#[cfg(feature = "online")]
 /// The setting that turns automatic uploads on. Off unless the player turns
 /// it on: an upload publishes a fight, and that is theirs to decide.
 pub const AUTO_UPLOAD_KEY: &str = "dpsMeter.autoUpload";
 
+#[cfg(feature = "online")]
 /// How long after the last hit a fight counts as over. The same rule the
 /// snapshot uses to stop re-saving a boss.
 const ENDED_AFTER_MS: i64 = 10_000;
 
+#[cfg(feature = "online")]
 /// Should the auto-save upload this fight now?
 ///
 /// Only a finished fight, once, with its packets behind it. A boss still being
@@ -705,13 +721,16 @@ pub fn wants_auto_upload(app_data_dir: &Path, record: &FightRecord, now_ms: i64)
         && meta.auto_attempts == 0
 }
 
+#[cfg(feature = "online")]
 /// How long to wait before each retry of a failed automatic upload, in
 /// minutes; one more failure after the last and it stops.
 const AUTO_RETRY_MINUTES: [i64; 6] = [1, 2, 5, 15, 30, 60];
 
+#[cfg(feature = "online")]
 /// How long to wait between tries while the keyring is locked.
 const KEYRING_RETRY_MINUTES: i64 = 5;
 
+#[cfg(feature = "online")]
 /// An automatic upload of `id` failed. Schedule the next try, or stop: when
 /// the failure is one waiting cannot fix (not signed in, a refused fight),
 /// or the retries are used up. A locked keyring uses up no retries.
@@ -730,6 +749,7 @@ pub fn note_auto_upload_failure(app_data_dir: &Path, id: &str, failure: &UploadF
     });
 }
 
+#[cfg(feature = "online")]
 /// Fights whose automatic upload failed and is due to be tried again.
 pub fn auto_upload_retries_due(app_data_dir: &Path, now_ms: i64) -> Vec<String> {
     let Ok(rd) = std::fs::read_dir(slices_dir(app_data_dir)) else { return Vec::new() };
@@ -773,6 +793,7 @@ pub fn share_status(app_data_dir: &Path) -> HashMap<String, ShareStatus> {
     out
 }
 
+#[cfg(feature = "online")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadResult {
@@ -789,12 +810,14 @@ pub struct UploadResult {
 /// both number their servers 1001–1058 and 2001–2058. The language and the
 /// computer's time zone are what the site has to go on; a player on Korean
 /// servers almost always has one or the other Korean.
+#[cfg_attr(not(feature = "online"), allow(dead_code))]
 pub(crate) fn ui_language(settings: &crate::config::settings::Settings) -> String {
     // Settings writes are queued. Uploads must observe an accepted change even
     // when its disk write is still pending or failed.
     settings.get("dpsMeter.language").unwrap_or_default()
 }
 
+#[cfg(feature = "online")]
 /// Upload a saved fight as a log.
 ///
 /// Sends the slice and the names to show, never a number: the service derives
@@ -810,6 +833,7 @@ pub async fn upload(
     upload_detailed(client, app_data_dir, record, settings).await.map_err(|f| f.message)
 }
 
+#[cfg(feature = "online")]
 /// Why an upload failed, and whether trying the same upload later could work.
 #[derive(Debug, Clone)]
 pub struct UploadFailure {
@@ -821,6 +845,7 @@ pub struct UploadFailure {
     pub keyring_locked: bool,
 }
 
+#[cfg(feature = "online")]
 impl UploadFailure {
     fn retry(message: impl Into<String>) -> Self {
         Self { message: message.into(), retryable: true, keyring_locked: false }
@@ -833,6 +858,7 @@ impl UploadFailure {
     }
 }
 
+#[cfg(feature = "online")]
 /// `upload`, saying whether a failure is worth retrying.
 pub async fn upload_detailed(
     client: &reqwest::Client,
@@ -932,6 +958,7 @@ pub async fn upload_detailed(
 }
 
 /// Standard base64. Small enough that a dependency is not worth having.
+#[cfg_attr(not(feature = "online"), allow(dead_code))]
 pub(crate) fn base64(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
@@ -947,6 +974,7 @@ pub(crate) fn base64(data: &[u8]) -> String {
     out
 }
 
+#[cfg(feature = "online")]
 #[cfg(test)]
 mod upload_tests {
     use super::*;

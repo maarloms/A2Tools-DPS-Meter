@@ -608,7 +608,9 @@ body.linuxOverlay .meter {
 
 .list {
   display: grid;
-  gap: var(--hud-gap);
+  /* --meter-bar-gap: "Spacing between player bars" in Settings; unset, each
+     layout keeps its own (3px, 2px slim). */
+  gap: var(--meter-bar-gap, var(--hud-gap));
   padding: 0 8px;
 }
 .list.hasRows { padding: 7px 8px; }
@@ -1086,7 +1088,6 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 .meter.slim .footerBtns .collapseBtn svg { width: 11px; height: 11px; }
 .meter.slim .resizeHandle { width: 10px; height: 10px; }
 
-
 /* ============================================================
    SETTINGS PANEL
    ------------------------------------------------------------
@@ -1096,16 +1097,17 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 
    Three rules drive the layout:
 
-   1. Groups, not a list. Every control belongs to a named
-      section — Connection, Appearance, Meter, Keybinds,
-      Diagnostics — and each section header is a tracked-caps
-      rail so the eye can jump between them.
-   2. One control geometry. Dropdowns, keybind buttons, actions
-      and text fields are all the same 26px chip, so a row is
-      read by its label, never by the shape of its control.
-   3. Labels whisper, values speak. Labels sit at 12.5px in the
-      technical face; the numbers they control are tabular and
-      brighter.
+   1. Sections, not a list. A sidebar names each section; one
+      is shown at a time, in a single column of label | control
+      rows, so nothing is read left-right-left.
+   2. The selected section is drawn like your own meter row: the
+      row tint with the player's fill. It is the one loud thing;
+      everything else is hairlines and quiet labels.
+   3. One control geometry. Dropdowns, keybind buttons, actions
+      and text fields are the same 26px chip, so a row is read by
+      its label, never by the shape of its control.
+   4. Sentence case throughout. Section names, buttons and the
+      title read as words, not as tracked-caps rails.
    ============================================================ */
 
 .settingsPanel {
@@ -1134,6 +1136,7 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   border: 1px solid var(--panel-border);
   border-radius: var(--rounded-lg);
   box-shadow: 0 18px 46px rgba(0, 0, 0, 0.55);
+  max-height: 86vh;
 }
 
 .settingsPanel.isOpen {
@@ -1156,28 +1159,18 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 .settingsPanel:lang(zh-Hans) .settingsLabel,
 .settingsPanel:lang(zh-TW) .settingsLabel,
 .settingsPanel:lang(zh-Hant) .settingsLabel,
-.settingsPanel:lang(ko) .settingsMiniTitle,
-.settingsPanel:lang(zh-CN) .settingsMiniTitle,
-.settingsPanel:lang(zh-Hans) .settingsMiniTitle,
-.settingsPanel:lang(zh-TW) .settingsMiniTitle,
-.settingsPanel:lang(zh-Hant) .settingsMiniTitle {
+.settingsPanel:lang(ko) .settingsSectionTitle,
+.settingsPanel:lang(zh-CN) .settingsSectionTitle,
+.settingsPanel:lang(zh-Hans) .settingsSectionTitle,
+.settingsPanel:lang(zh-TW) .settingsSectionTitle,
+.settingsPanel:lang(zh-Hant) .settingsSectionTitle,
+.settingsPanel:lang(ko) .settingsNavItem,
+.settingsPanel:lang(zh-CN) .settingsNavItem,
+.settingsPanel:lang(zh-Hans) .settingsNavItem,
+.settingsPanel:lang(zh-TW) .settingsNavItem,
+.settingsPanel:lang(zh-Hant) .settingsNavItem {
   font-family: var(--cjk-font-stack);
-  letter-spacing: 0.04em;
-}
-/* Full-width CJK glyphs carry less detail per pixel than tracked Latin
-   caps, so the section rails need a step up to stay legible. */
-.settingsPanel:lang(ko) .settingsMiniTitle,
-.settingsPanel:lang(zh-CN) .settingsMiniTitle,
-.settingsPanel:lang(zh-Hans) .settingsMiniTitle,
-.settingsPanel:lang(zh-TW) .settingsMiniTitle,
-.settingsPanel:lang(zh-Hant) .settingsMiniTitle,
-.settingsPanel:lang(ko) .settingsAdvancedBtn .settingsLabel,
-.settingsPanel:lang(zh-CN) .settingsAdvancedBtn .settingsLabel,
-.settingsPanel:lang(zh-Hans) .settingsAdvancedBtn .settingsLabel,
-.settingsPanel:lang(zh-TW) .settingsAdvancedBtn .settingsLabel,
-.settingsPanel:lang(zh-Hant) .settingsAdvancedBtn .settingsLabel {
-  font-size: 11.5px;
-  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 /* ---------- header ---------- */
@@ -1193,21 +1186,33 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   flex: 1;
   min-width: 0;
   font-variation-settings: "wght" 700, "wdth" 87.5;
-  font-size: 12.5px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-size: 14px;
+  letter-spacing: 0.01em;
   color: var(--title);
 }
-.settingsPanel .settingsHeader .settingsVersionLink {
-  flex: 0 0 auto;
+/* The version closes the sections column: clicking it opens the release
+   notes (core.js). */
+/* The tab list is the nav's own children, for the layout. */
+.settingsPanel .settingsTabs { display: contents; }
+.settingsPanel .settingsNav .settingsVersionLink {
+  margin-top: auto;
+  align-self: flex-start;
+  padding: 8px 10px 2px;
   font-variant-numeric: tabular-nums;
-  font-variation-settings: "wght" 500, "wdth" 87.5;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--hud-faint);
+  font-variation-settings: "wght" 600, "wdth" 87.5;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  color: rgba(255, 255, 255, 0.72);
 }
-.settingsPanel .settingsHeader .settingsVersionLink:hover {
-  color: var(--hud-sub);
+.settingsPanel .settingsNav .settingsVersionLink:hover {
+  color: #fff;
+}
+@media (max-width: 560px) {
+  .settingsPanel .settingsNav .settingsVersionLink {
+    margin: 0 0 0 auto;
+    align-self: center;
+    padding: 0 6px;
+  }
 }
 .settingsPanel .settingsHeader .closeX {
   flex: 0 0 auto;
@@ -1233,42 +1238,158 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* ---------- body / groups ---------- */
+/* ---------- body: sections beside their settings ---------- */
 
 .settingsPanel .settingsBody {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-  padding: 13px 14px 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--set-nav-w, 148px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "nav pane"
+    "foot foot";
 }
 
-.settingsPanel .settingsGroup {
+.settingsPanel .settingsNav {
+  grid-area: nav;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 2px;
   min-width: 0;
+  padding: 12px 8px;
+  border-right: 1px solid var(--hud-hairline);
+  overflow-y: auto;
 }
-
-/* Section rail: tracked caps that terminate in a hairline running to
-   the edge of the column. Cheap, quiet, and it makes the panel read as
-   five short lists instead of one long one. */
-.settingsPanel .settingsMiniTitle {
+.settingsPanel .settingsNavItem {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-variation-settings: "wght" 700, "wdth" 75;
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--hud-sub);
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: transparent;
+  color: rgba(214, 224, 240, 0.8);
+  font-family: inherit;
+  font-variation-settings: "wght" 500, "wdth" 87.5;
+  font-size: 12.5px;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
 }
-.settingsPanel .settingsMiniTitle::after {
+.settingsPanel .settingsNavItem { gap: 9px; }
+/* Each section's Lucide icon, in the label's colour. */
+.settingsPanel .settingsNavItem svg {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
+  color: var(--isUser-fill);
+  opacity: 0.9;
+}
+.settingsPanel .settingsNavItem.isActive svg { color: inherit; opacity: 1; }
+.settingsPanel .settingsNavItem span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.settingsPanel .settingsNavItem:hover {
+  color: rgba(255, 255, 255, 0.9);
+  background: var(--hud-row-bg, rgba(255, 255, 255, 0.05));
+}
+/* The selected section is your own meter row: the player's fill under
+   white, shadowed text. */
+.settingsPanel .settingsNavItem.isActive {
+  color: #fff;
+  font-variation-settings: "wght" 650, "wdth" 87.5;
+  text-shadow: var(--player-name-shadow, var(--text-shadow));
+}
+.settingsPanel .settingsNavItem.isActive::before {
   content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--hud-hairline);
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--isUser-fill);
+  opacity: 0.62;
+}
+.settingsPanel .settingsNavItem:focus-visible {
+  outline: 2px solid var(--isUser-fill);
+  outline-offset: -2px;
+}
+.settingsPanel .settingsNavItem { isolation: isolate; }
+/* Streaming is listed only where the meter can serve it (core.js shows
+   its body then). */
+.settingsPanel:has(.streamOverlayGroup[style*="none"]) .settingsNavItem[data-section="streaming"] {
+  display: none;
 }
 
+.settingsPanel .settingsPane {
+  grid-area: pane;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 18px 18px;
+}
+.settingsPanel .settingsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 560px;
+}
+.settingsPanel .settingsSection[hidden] {
+  display: none;
+}
+.settingsPanel .settingsSectionTitle {
+  margin: 0 0 4px;
+  font-variation-settings: "wght" 700, "wdth" 87.5;
+  font-size: 15px;
+  font-weight: normal;
+  line-height: 1.2;
+  color: var(--title);
+}
+
+/* A group's heading inside a section (Advanced: Diagnostics). */
+.settingsPanel .settingsSubTitle {
+  margin: 14px 0 2px;
+  font-variation-settings: "wght" 650, "wdth" 87.5;
+  font-size: 13px;
+  font-weight: normal;
+  line-height: 1.2;
+  color: var(--hud-sub);
+}
+/* Send Logs to Dev: what it sends, then the button, centred under the
+   logging switches. The line also reports the result (core.js
+   initSendLogs), which the hidden-by-default hint never showed. */
+.settingsPanel .sendLogsRow {
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 0 6px;
+  text-align: center;
+}
+.settingsPanel .sendLogsRow .settingsInfo { align-items: center; }
+.settingsPanel .sendLogsRow .sendLogsStatus {
+  display: block;
+  max-width: 46ch;
+  text-wrap: balance;
+}
+/* Debug logging while packet logging holds it on (core.js syncLoggingLock). */
+.settingsPanel .settingsToggle.isLocked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.settingsPanel .settingsToggle.isLocked input[type="checkbox"] {
+  cursor: not-allowed;
+}
+/* Reset all settings closes Advanced, apart from its groups. */
+.settingsPanel .settingsSection > .settingsRowAction {
+  margin-top: 12px;
+}
 .settingsPanel .settingsGroupBody {
   display: flex;
   flex-direction: column;
@@ -1278,25 +1399,28 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   border-top: 1px solid var(--hud-hairline);
 }
 
-/* Two independent stacks; collapses to one when the panel is narrowed. */
-.settingsPanel .settingsColumns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 15px 24px;
-  align-items: start;
-}
-.settingsPanel .settingsColumn {
-  min-width: 0;
-}
-
-/* Short lists that read better side by side than stacked. */
-.settingsPanel .settingsGroupSplit {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  column-gap: 24px;
-}
-.settingsPanel .settingsGroupSplit > * + * {
-  border-top: 0;
+/* Narrow window: the sections become a strip of tabs above the settings. */
+@media (max-width: 560px) {
+  .settingsPanel .settingsBody {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "nav"
+      "pane"
+      "foot";
+  }
+  .settingsPanel .settingsNav {
+    flex-direction: row;
+    padding: 8px 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--hud-hairline);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .settingsPanel .settingsPane {
+    padding: 12px 14px 16px;
+  }
 }
 
 /* ---------- rows ---------- */
@@ -1306,9 +1430,9 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  min-height: 30px;
-  padding: 3px 0;
+  gap: 16px;
+  min-height: 34px;
+  padding: 4px 0;
   min-width: 0;
 }
 .settingsPanel .settingsInfo {
@@ -1323,6 +1447,13 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   line-height: 1.25;
   color: var(--set-label);
 }
+/* A label with more to say on hover (its tip, settings.tips.*) is marked
+   by a faint dotted underline. */
+.settingsPanel .settingsLabel[data-i18n-title] {
+  cursor: help;
+  text-decoration: underline dotted rgba(255, 255, 255, 0.28);
+  text-underline-offset: 3px;
+}
 .settingsPanel .settingsRowEnd {
   display: flex;
   align-items: center;
@@ -1333,53 +1464,33 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
   justify-content: flex-end;
 }
 
-/* Connection is status, not preference: three readouts side by side with
-   the label sitting above its control. As full-width rows the two ends of
-   each pair would end up 600px apart with nothing in between. */
-.settingsPanel .settingsGroupStrip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(196px, 1fr));
-  gap: 10px 22px;
-  align-items: start;
-}
-.settingsPanel .settingsGroupStrip > * + * {
-  border-top: 0;
-}
-/* A row with a long value (the detected device's name and port) takes the
-   strip's whole width rather than one of its columns. */
-.settingsPanel .settingsGroupStrip > .settingsRowFullWidth {
-  grid-column: 1 / -1;
-}
-/* Send logs sits under the packet logging toggle it sends the logs of: the
-   Diagnostics grid's last column (its only one when the window is narrow). */
-.settingsPanel .settingsGroupSplit > .sendLogsRow {
-  grid-column: -2 / -1;
-}
-.settingsPanel .settingsRowStacked {
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 6px;
-  min-height: 0;
-  padding: 0;
-}
-.settingsPanel .settingsRowStacked .settingsCharacterIdentity,
-.settingsPanel .settingsRowStacked .settingsDeviceRow,
-.settingsPanel .settingsRowStacked .settingsRowEnd {
-  flex: 1 1 auto;
-  width: 100%;
+/* Connection rows carry two controls at once (name and id; auto-detect and
+   device; the detected port and Reset), so their control side is wider. */
+.settingsPanel .settingsRowWide .settingsCharacterIdentity,
+.settingsPanel .settingsRowWide .settingsDeviceRow,
+.settingsPanel .settingsRowWide .settingsRowEnd {
+  flex: 0 1 300px;
   min-width: 0;
+  justify-content: flex-end;
 }
-.settingsPanel .settingsRowStacked .settingsRowEnd {
-  justify-content: space-between;
+/* Capture devices have long names ("Intel(R) Ethernet Connection ..."): the
+   device row gets the most room. */
+.settingsPanel .settingsRowWide .settingsDeviceRow { flex-basis: 420px; }
+.settingsPanel .settingsRowWide .deviceDropdownWrapper { flex: 1 1 240px; }
+.settingsPanel .settingsRowWide > .settingsInfo,
+.settingsPanel .settingsRowWide > .settingsLabel {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
-.settingsPanel .settingsRowStacked .characterNameInput {
-  flex: 1 1 60px;
+.settingsPanel .settingsRowWide .characterNameInput {
+  flex: 1 1 120px;
   min-width: 0;
   max-width: none;
 }
-/* The account sits in a half-width cell beside the A2 Tools switches: its
-   state stays on one line next to its button. */
+.settingsPanel .settingsRowWide .localActorIdInput {
+  flex: 0 0 68px;
+  width: 68px;
+}
 .settingsPanel .accountRow .accountState {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1388,10 +1499,6 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 .settingsPanel .accountRow .accountState.isLong {
   white-space: normal;
   overflow-wrap: anywhere;
-}
-.settingsPanel .settingsRowStacked .localActorIdInput {
-  flex: 0 0 68px;
-  width: 68px;
 }
 
 /* ---------- readouts ---------- */
@@ -1615,8 +1722,7 @@ body.mainPlayerDpsBold .meter .item .content .dps > p {
 .settingsPanel .settingsDropdownBtn:focus-visible,
 .settingsPanel .keybindBtn:focus-visible,
 .settingsPanel .settingsAction:focus-visible,
-.settingsPanel .settingsRange:focus-visible,
-.settingsPanel .settingsAdvancedBtn:focus-visible {
+.settingsPanel .settingsRange:focus-visible {
   outline: 2px solid var(--isUser-fill);
   outline-offset: 1px;
 }
@@ -1733,10 +1839,10 @@ body.mainPlayerNamesBold .settingsPanel .themeDropdownMenu .settingsDropdownItem
 .settingsPanel .settingsAction {
   justify-content: center;
   padding: 0 12px;
-  font-variation-settings: "wght" 600, "wdth" 75;
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-variation-settings: "wght" 600, "wdth" 87.5;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 .settingsPanel .settingsActionDanger {
   color: var(--error-fill);
@@ -1871,51 +1977,8 @@ body.mainPlayerNamesBold .settingsPanel .themeDropdownMenu .settingsDropdownItem
 .settingsPanel .settingsToggleInline .settingsToggleLabel {
   flex: 0 0 auto;
   font-variation-settings: "wght" 500, "wdth" 87.5;
-  font-size: 11.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 12px;
   color: var(--hud-sub);
-}
-
-/* ---------- advanced disclosure ---------- */
-
-.settingsPanel .settingsAdvancedToggle {
-  margin-top: 4px;
-}
-.settingsPanel .settingsAdvancedBtn {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 2px 0;
-  background: none;
-  border: 0;
-  color: var(--hud-sub);
-  font-family: inherit;
-  cursor: pointer;
-  transition: color 120ms ease;
-}
-.settingsPanel .settingsAdvancedBtn:hover {
-  color: rgba(255, 255, 255, 0.85);
-}
-.settingsPanel .settingsAdvancedBtn .settingsLabel {
-  font-variation-settings: "wght" 700, "wdth" 75;
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: inherit;
-}
-.settingsPanel .settingsAdvancedCaret {
-  font-size: 9px;
-  line-height: 1;
-  transition: transform 150ms ease;
-}
-.settingsPanel .settingsAdvancedToggle.isOpen .settingsAdvancedCaret {
-  transform: rotate(180deg);
-}
-.settingsPanel .settingsAdvancedBody {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 
 /* ---------- footer ---------- */
@@ -1926,8 +1989,8 @@ body.mainPlayerNamesBold .settingsPanel .themeDropdownMenu .settingsDropdownItem
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 10px 12px;
-  margin-top: 2px;
-  padding-top: 13px;
+  grid-area: foot;
+  padding: 10px 14px;
   border-top: 1px solid var(--hud-hairline);
 }
 .settingsPanel .settingsFooterLinks {
@@ -2006,6 +2069,7 @@ body.mainPlayerNamesBold .settingsPanel .themeDropdownMenu .settingsDropdownItem
 /* Quit is destructive, so it is outlined rather than filled — present,
    but never the brightest thing in the footer. */
 .settingsPanel .quitButton {
+  margin-left: auto;
   background: transparent;
   border-color: var(--error-fill);
   color: var(--error-fill);
@@ -2021,7 +2085,6 @@ body.mainPlayerNamesBold .settingsPanel .themeDropdownMenu .settingsDropdownItem
   .settingsPanel .keybindBtn.recording { animation: none; }
   .settingsPanel .settingsToggleTrack::after { transition: none; }
 }
-
 
 /* Shared close button — used in settingsPanel, detailsPanel, and historyPanel */
 .closeX {
@@ -2280,28 +2343,13 @@ body.mainPlayerNamesBold .settingsPanel .themeDropdownMenu .settingsDropdownItem
   max-height: 540px;
   overflow-y: auto;
 }
-.historyList::-webkit-scrollbar {
-  width: 10px;
-}
-.historyList::-webkit-scrollbar-track {
-  background: rgb(30, 30, 30);
-  border-radius: 999px;
-}
-.historyList::-webkit-scrollbar-thumb {
-  background-color: rgb(77, 77, 77);
-  border-radius: 999px;
-}
-.historyList::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
 /* The dry-run button. Unlike the delete button it is always visible: previewing
    what an upload contains is a thing you should be able to do without first
    entering a mode that exists to make deletion deliberate. */
 /* Supporter names. Cosmetic only: never the bar, never the ordering, never a
    number — a meter that flatters whoever paid is not one anyone should trust.
-   One rule per layout because the four "layouts" are one DOM under two CSS
-   switches (body.legacyUi and .meter.slim), and each sets its own name colour.
+   One rule per layout because Standard and Slim are one DOM under the
+   .meter.slim switch, and each sets its own name colour.
 
    Two layers, and the split is deliberate. The base rule is a plain gold with
    the standard name shadow, which is what keeps the text readable over whatever
@@ -2309,7 +2357,6 @@ body.mainPlayerNamesBold .settingsPanel .themeDropdownMenu .settingsDropdownItem
    where the browser can clip a gradient to text — if that ever fails, the name
    is still gold and still legible rather than turning invisible. */
 .meter .item .content .name.isSupporter,
-body.legacyUi .meter .item .content .name.isSupporter,
 .detailsPanel .detailsPartyBarName.isSupporter,
 .hoverDetailsTooltipHeader .isSupporter {
   /* !important for the details party bars, which set colour inline from
@@ -2379,7 +2426,6 @@ body.legacyUi .meter .item .content .name.isSupporter,
 
 @supports ((background-clip: text) or (-webkit-background-clip: text)) {
   .meter .item .content .name.isSupporter,
-  body.legacyUi .meter .item .content .name.isSupporter,
   .detailsPanel .detailsPartyBarName.isSupporter,
   .hoverDetailsTooltipHeader .isSupporter {
     /* Two highlight bands, not one. The element only ever shows about a third of
@@ -2428,7 +2474,6 @@ body.legacyUi .meter .item .content .name.isSupporter,
    never stops moving. Keep the gradient — it still looks gold — and stop it. */
 @media (prefers-reduced-motion: reduce) {
   .meter .item .content .name.isSupporter,
-  body.legacyUi .meter .item .content .name.isSupporter,
   .detailsPanel .detailsPartyBarName.isSupporter,
   .hoverDetailsTooltipHeader .isSupporter {
     animation: none;
@@ -3103,25 +3148,6 @@ body.legacyUi .meter .item .content .name.isSupporter,
       scrollbar-gutter: stable;
       contain: layout;
 
-      &::-webkit-scrollbar {
-        width: 10px;
-      }
-
-      &::-webkit-scrollbar-track {
-        background: rgba(30, 30, 30);
-        border-radius: 999px;
-        margin-top: 8px;
-        margin-bottom: -8px;
-      }
-
-      &::-webkit-scrollbar-thumb {
-        background-color: rgb(77, 77, 77);
-        border-radius: 999px;
-      }
-
-      &::-webkit-scrollbar-corner {
-        background: transparent;
-      }
       .skillRow {
         display: grid;
         grid-template-columns: var(--skill-grid-cols);
@@ -3259,9 +3285,6 @@ body.legacyUi .meter .item .content .name.isSupporter,
 }
 
 /* Compatibility: flatten nested rules for environments without CSS nesting support. */
-
-
-
 
 .detailsPanel.open {
   display: flex;
@@ -3801,6 +3824,12 @@ body.legacyUi .meter .item .content .name.isSupporter,
 .detailsPanel.hide-col-maxdmg .detailsSkills .cell.maxdmg {
   display: none;
 }
+/* HEAL: casts, amount and share only (details.js HEAL_COLUMNS); the
+   damage columns and the note about damage over time step aside. */
+.detailsPanel.isHealMode .detailsSkills .cell:not(.name):not(.hit):not(.dmg):not(.dmgpct),
+.detailsPanel.isHealMode .detailsSkills .detailsFootnote {
+  display: none;
+}
 .detailsPanel .detailsSkills .skillHeader .cell[data-sort-key] {
   cursor: pointer;
 }
@@ -3955,53 +3984,6 @@ body.legacyUi .meter .item .content .name.isSupporter,
   box-sizing: border-box;
   contain: layout;
 }
-.detailsPanel .detailsSkills::-webkit-scrollbar {
-  height: 10px;
-}
-.detailsPanel .detailsSkills::-webkit-scrollbar-track {
-  background: rgb(30, 30, 30);
-  border-radius: 999px;
-}
-.detailsPanel .detailsSkills::-webkit-scrollbar-thumb {
-  background-color: rgb(77, 77, 77);
-  border-radius: 999px;
-}
-.detailsPanel .detailsSkills::-webkit-scrollbar-corner {
-  background: transparent;
-}
-.detailsPanel .detailsSkills .skills::-webkit-scrollbar {
-  width: 10px;
-}
-.detailsPanel .detailsSkills .skills::-webkit-scrollbar-track {
-  background: rgb(30, 30, 30);
-  border-radius: 999px;
-  margin-top: 8px;
-  margin-bottom: -8px;
-}
-.detailsPanel .detailsSkills .skills::-webkit-scrollbar-thumb {
-  background-color: rgb(77, 77, 77);
-  border-radius: 999px;
-}
-.detailsPanel .detailsSkills .skills::-webkit-scrollbar-corner {
-  background: transparent;
-}
-.detailsPanel .detailsBody::-webkit-scrollbar {
-  width: 10px;
-}
-.detailsPanel .detailsBody::-webkit-scrollbar-track {
-  background: rgb(30, 30, 30);
-  border-radius: 999px;
-  margin-top: 8px;
-  margin-bottom: 8px;
-}
-.detailsPanel .detailsBody::-webkit-scrollbar-thumb {
-  background-color: rgb(77, 77, 77);
-  border-radius: 999px;
-}
-.detailsPanel .detailsBody::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
 @keyframes meterBarHoverRipple {
   0% {
     transform: translateX(-100%); /* GPU optimized */
@@ -4015,7 +3997,6 @@ body.legacyUi .meter .item .content .name.isSupporter,
     opacity: 0;
   }
 }
-
 
 .detailsPanel .detailsSkills .skills .skillRow {
   display: grid;
@@ -4178,21 +4159,6 @@ body.legacyUi .meter .item .content .name.isSupporter,
   overflow-x: auto;
   overflow-y: auto;
   padding: 0 12px;
-}
-.detailsPanel .timelineViewport::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-.detailsPanel .timelineViewport::-webkit-scrollbar-track {
-  background: rgb(30, 30, 30);
-  border-radius: 999px;
-}
-.detailsPanel .timelineViewport::-webkit-scrollbar-thumb {
-  background-color: rgb(77, 77, 77);
-  border-radius: 999px;
-}
-.detailsPanel .timelineViewport::-webkit-scrollbar-corner {
-  background: transparent;
 }
 .detailsPanel .timelineCanvas {
   display: block;
@@ -4572,7 +4538,6 @@ body.legacyUi .meter .item .content .name.isSupporter,
   text-align: center;
 }
 
-
 .windowDragFreeze {
   -webkit-user-select: none !important;
   user-select: none !important;
@@ -4688,933 +4653,6 @@ body.legacyUi .meter .item .content .name.isSupporter,
 }
 
 /* ========== Slim Mode ========== */
-
-
-
-
-/* ============================================================
-   LEGACY METER SKIN
-   ------------------------------------------------------------
-   The pre-redesign main window, restored when Settings > Beta UI
-   is switched off. Everything is scoped under body.legacyUi, so
-   with the toggle on none of it matches and the redesign stands
-   on its own.
-
-   The rules up to "legacy bridges" are the original stylesheet's
-   meter rules, unchanged apart from the scoping prefix.
-   ============================================================ */
-
-body.legacyUi .meter {
-  width: 380px;
-  background: rgba(12, 22, 40, var(--window-opacity));
-
-  /* backdrop-filter: blur(1px) saturate(180%); */
-  /* background-color: rgba(255, 255, 255, 0.1); */
-  border: 1px solid rgba(255, 255, 255, min(0.3, calc(var(--window-opacity) * 0.3)));
-  border-radius: var(--rounded);
-  position: relative;
-  min-width: 300px;
-  min-height: 30px;
-  padding-bottom: 20px;
-
-  &.flash {
-    animation: detailsFlash 1s ease-out;
-  }
-}
-body.legacyUi .header {
-  display: flex;
-  align-items: center;
-  align-content: center;
-  gap: 8px;
-  padding: 8px 12px;
-  .bossIcon {
-    display: flex;
-    align-items: center;
-    width: 88px;
-    position: relative;
-    img {
-      -webkit-user-drag: none;
-
-      width: 100%;
-    }
-  }
-  .bossIconOverlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    background: rgba(0, 0, 0, 0.35);
-    color: #ffffff;
-    transition: opacity 150ms ease;
-    pointer-events: none;
-    border-radius: 8px;
-  }
-  .bossIconOverlay svg {
-    width: 22px;
-    height: 22px;
-  }
-  .bossIcon:hover .bossIconOverlay {
-    opacity: 1;
-  }
-
-  .bossNames {
-    flex: 1;
-    color: var(--title);
-    text-shadow: var(--text-shadow);
-    font-weight: bold;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    font-size: 18px;
-  }
-
-  .headerBtns {
-    display: flex;
-    align-items: center;
-    font-weight: bold;
-    color: white;
-    gap: 8px;
-    text-shadow: var(--text-shadow);
-    cursor: pointer;
-    .headerBtn {
-      display: flex;
-      align-items: center;
-      width: 20px;
-      height: 20px;
-    }
-    /* When suspend button is visible, shrink all header buttons */
-    &.hasSuspendBtn .headerBtn,
-    &.hasLockBtn .headerBtn {
-      width: 16px;
-      height: 16px;
-    }
-    &.hasSuspendBtn,
-    &.hasLockBtn {
-      gap: 6px;
-    }
-    .lockBtn {
-      color: rgba(255, 255, 255, 0.85);
-      transition: color 150ms ease;
-    }
-    .lockBtn.isLocked {
-      color: #ffc857;
-    }
-    .suspendBtn {
-      color: rgba(255, 255, 255, 0.85);
-      transition: color 150ms ease;
-    }
-    .suspendBtn.isSuspended {
-      color: #ff6b6b;
-    }
-    .metricToggleBtn {
-      width: auto;
-      height: auto;
-      min-width: 26px;
-      padding: 0;
-      border: none;
-      background: transparent;
-      color: inherit;
-      font-size: 17px;
-      font-weight: 700;
-      cursor: pointer;
-      text-align: center;
-    }
-  }
-
-  .footerBtns {
-    position: absolute;
-    right: 24px;
-    bottom: 4px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: bold;
-    color: white;
-    text-shadow: var(--text-shadow);
-    cursor: pointer;
-
-    .footerBtn {
-      display: flex;
-      align-items: center;
-      width: 20px;
-      height: 20px;
-    }
-
-    .metricToggleBtn {
-      width: auto;
-      height: auto;
-      min-width: 26px;
-      padding: 0;
-      border: none;
-      background: transparent;
-      color: inherit;
-      font-size: 17px;
-      font-weight: 700;
-      cursor: pointer;
-      text-align: center;
-    }
-  }
-}
-body.legacyUi .meterTotalBar {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
-  padding: 0 20px 6px 12px;
-  font-size: 13px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.7);
-}
-body.legacyUi .meter.slim .meterTotalBar {
-  font-size: 11px;
-  padding: 0 20px 0 12px;
-}
-body.legacyUi .meterTotalBar .meterTotalDps,
-body.legacyUi .meterTotalBar .meterTotalDmg {
-  color: rgba(255, 255, 255, 0.55);
-}
-body.legacyUi .meterTotalBar .meterTotalSep {
-  opacity: 0.3;
-}
-body.legacyUi .list {
-  display: grid;
-  gap: 4px;
-  padding: 0 12px;
-  &:has(.item:not([style*="display: none"])) {
-    padding: 4px 12px 16px;
-  }
-  &:has(.item:not([style*="display: none"])) + .meterTotalBar {
-    margin-top: -13px;
-  }
-  .item {
-    position: relative;
-    height: 36px;
-    padding: 0 8px;
-    border-radius: var(--rounded-xs);
-    overflow: hidden;
-    background: rgba(0, 0, 0, 0.3);
-    cursor: pointer;
-  }
-
-  /* .item.isUser {
-    cursor: pointer;
-  } */
-  .item.isUser .fill {
-    background: var(--isUser-fill);
-  }
-  .item.warning .fill {
-    background: var(--warning-fill);
-  }
-  .item.error .fill {
-    background: var(--error-fill);
-  }
-  .fill {
-    position: absolute;
-    inset: 0;
-
-    background: var(--row-fill);
-    opacity: 0.8;
-    transform-origin: left center;
-    transform: scaleX(0);
-    overflow: hidden;
-
-    &::after {
-      content: "";
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: -40%;
-      width: 40%;
-      opacity: 0;
-      pointer-events: none;
-      background: linear-gradient(
-              110deg,
-              rgba(255, 255, 255, 0) 0%,
-              rgba(255, 255, 255, 0.35) 50%,
-              rgba(255, 255, 255, 0) 100%
-      );
-    }
-  }
-
-  .item.hoverRippleOnce .fill::after {
-    opacity: 1;
-    animation: meterBarHoverRipple 900ms ease-out;
-  }
-
-  .content {
-    position: relative;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-
-    .classIcon {
-      width: 26px;
-      display: flex;
-
-      align-items: center;
-      justify-content: center;
-      .classIconImg {
-        width: 100%;
-        height: 100%;
-      }
-    }
-
-    .name {
-      flex: 1;
-      color: var(--text-color);
-      font-size: 21px;
-      line-height: 1;
-      padding-bottom: 1px;
-      text-shadow:
-              0 0 2px rgba(0,0,0,0.95),
-              0 1px 3px rgba(0,0,0,0.90),
-              0 3px 6px rgba(0,0,0,0.70);
-      font-weight: 500;
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-    }
-    .name.isCjk {
-      font-family: var(--cjk-font-stack);
-      letter-spacing: 0;
-    }
-    .dps {
-      color: var(--dps-text);
-      font-size: var(--font);
-      text-shadow: var(--dps-shadow, var(--text-shadow));
-      font-weight: 400;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-  }
-}
-body.legacyUi .meter .item.isIdentifying .content .name {
-  font-size: 18px;
-  font-weight: 400;
-}
-body.legacyUi.mainPlayerNamesBold .meter .item .content .name {
-  font-weight: 700;
-}
-body.legacyUi.mainPlayerNamesBold .meter .item .content .name.isCjk {
-  font-weight: 700;
-}
-body.legacyUi.mainPlayerDpsBold .meter .item .content .dps {
-  font-weight: 700;
-}
-body.legacyUi .battleTime {
-  display: none;
-  align-items: center;
-  gap: 8px;
-  position: absolute;
-  bottom: 8px;
-  left: 12px;
-  margin-bottom: 0;
-  padding: 0;
-
-  &.isVisible {
-    display: flex;
-  }
-  .tick {
-    color: var(--text-color);
-    text-shadow: var(--text-shadow);
-    font-weight: 700;
-    font-size: 17px;
-  }
-
-  .analysisStatus {
-    color: rgba(255, 255, 255, 0.75);
-    text-shadow: var(--text-shadow);
-    font-size: 12px;
-    white-space: nowrap;
-  }
-
-  .status {
-    width: 10px;
-    height: 10px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.25);
-    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
-    flex: 0 0 auto;
-    position: relative;
-  }
-
-  &.state-fighting .status {
-    background: var(--indicator-combat);
-  }
-
-  &.state-fighting .status::after {
-    content: "";
-    position: absolute;
-    inset: -3px;
-    border-radius: 999px;
-    background: var(--indicator-combat);
-    opacity: 0.35;
-  }
-  &.state-grace .status {
-    background: var(--indicator-wait);
-  }
-  &.state-ended .status {
-    background: var(--indicator-end);
-  }
-  &.state-idle .status {
-    background: var(--indicator-idle);
-  }
-}
-body.legacyUi .resizeHandle {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 14px;
-  height: 14px;
-  cursor: se-resize;
-  opacity: 0.65;
-}
-body.legacyUi .resizeHandle::before {
-  content: "";
-  position: absolute;
-  right: 2px;
-  bottom: 2px;
-  width: 10px;
-  height: 10px;
-  border-right: 2px solid rgba(255, 255, 255, 0.7);
-  border-bottom: 2px solid rgba(255, 255, 255, 0.7);
-}
-body.legacyUi .header .bossIcon {
-  display: flex;
-  align-items: center;
-  width: 88px;
-}
-body.legacyUi .header .bossIcon img {
-  -webkit-user-drag: none;
-  width: 100%;
-}
-body.legacyUi .header .bossNames {
-  flex: 1;
-  min-width: 0;
-  color: var(--title);
-  text-shadow: var(--text-shadow);
-  font-weight: bold;
-  /* override the fixed `height: 24px` from the base `.header .bossNames` rule
-     above — a fixed height crams the name + HP bar into one line and overlaps. */
-  height: auto;
-  min-height: 24px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: stretch;
-  gap: 4px;
-  font-size: 17px;
-  overflow: visible;
-}
-body.legacyUi .header .bossNames .bossName {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.1;
-}
-body.legacyUi .header .headerBtns {
-  display: flex;
-  align-items: center;
-  font-weight: bold;
-  color: white;
-  gap: 8px;
-  text-shadow: var(--text-shadow);
-  cursor: pointer;
-}
-body.legacyUi .header .headerBtns .headerBtn {
-  display: flex;
-  align-items: center;
-  width: 20px;
-  height: 20px;
-}
-body.legacyUi .footerBtns {
-  position: absolute;
-  right: 24px;
-  bottom: 4px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: bold;
-  color: white;
-  text-shadow: var(--text-shadow);
-  cursor: pointer;
-}
-body.legacyUi .footerBtns .footerBtn {
-  display: flex;
-  align-items: center;
-  width: 20px;
-  height: 20px;
-}
-body.legacyUi .footerBtns .metricToggleBtn {
-  width: auto;
-  height: auto;
-  min-width: 26px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: 17px;
-  font-weight: 700;
-  cursor: pointer;
-  text-align: center;
-}
-body.legacyUi .footerBtns .targetModeBtn {
-  width: auto;
-  height: auto;
-  min-width: 62px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: 17px;
-  font-weight: 700;
-  cursor: pointer;
-  text-align: right;
-  justify-content: flex-end;
-}
-body.legacyUi .list .item {
-  position: relative;
-  height: 36px;
-  padding: 0 8px;
-  border-radius: var(--rounded-xs);
-  overflow: hidden;
-  background: rgba(0, 0, 0, 0.3);
-  cursor: pointer;
-}
-body.legacyUi .list .item.isUser .fill {
-  background: var(--isUser-fill);
-}
-body.legacyUi .list .item.warning .fill {
-  background: var(--warning-fill);
-}
-body.legacyUi .list .item.error .fill {
-  background: var(--error-fill);
-}
-body.legacyUi .list .item .content {
-  position: relative;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-body.legacyUi .list .item .classIcon {
-  width: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-body.legacyUi .list .item .classIcon .classIconImg {
-  width: 100%;
-  height: 100%;
-}
-body.legacyUi .list .item .name {
-  flex: 0 1 auto;
-  color: var(--text-color);
-  font-size: 18px;
-  text-shadow: var(--player-name-shadow, var(--text-shadow));
-  font-weight: 500;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-body.legacyUi .list .item .name.isCjk {
-  font-family: var(--cjk-font-stack);
-  font-weight: 500;
-  letter-spacing: 0;
-  text-shadow:
-          0 0 2px rgba(0,0,0,0.95),
-          0 1px 3px rgba(0,0,0,0.90),
-          0 3px 6px rgba(0,0,0,0.70);
-}
-body.legacyUi .list .item .dps {
-  color: var(--dps-text);
-  font-size: var(--font);
-  text-shadow: var(--dps-shadow, var(--text-shadow));
-  font-weight: 400;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-body.legacyUi .battleTime.isVisible {
-  display: flex;
-}
-body.legacyUi .battleTime .tick {
-  color: var(--text-color);
-  text-shadow: var(--text-shadow);
-  font-weight: 700;
-  font-size: 17px;
-}
-body.legacyUi .battleTime .status {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.25);
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
-  flex: 0 0 auto;
-  position: relative;
-}
-body.legacyUi .battleTime.state-fighting .status {
-  background: var(--indicator-combat);
-}
-body.legacyUi .battleTime.state-fighting .status::after {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  border-radius: 999px;
-  background: var(--indicator-combat);
-  opacity: 0.35;
-}
-body.legacyUi .battleTime.state-grace .status {
-  background: var(--indicator-wait);
-}
-body.legacyUi .battleTime.state-ended .status {
-  background: var(--indicator-end);
-}
-body.legacyUi .battleTime.state-idle .status {
-  background: var(--indicator-idle);
-}
-body.legacyUi .list.dragInteracting .item {
-  pointer-events: none;
-}
-body.legacyUi .meter.slim .header {
-  padding: 6px 10px;
-  gap: 8px;
-}
-body.legacyUi .meter.slim .header .bossIcon {
-  width: 72px;
-}
-body.legacyUi .meter.slim .header .bossIcon img {
-  border: none;
-  border-radius: 0;
-}
-body.legacyUi .meter.slim .header .bossIcon .bossIconOverlay {
-  display: none;
-}
-body.legacyUi .meter.slim .header .bossNames {
-  font-size: 15px;
-  min-height: 20px;
-  overflow: visible;
-}
-body.legacyUi .meter.slim .header .bossNames .bossHpBar {
-  height: 11px;
-}
-body.legacyUi .meter.slim .header .bossNames .bossHpBar .bossHpText {
-  font-size: 9px;
-}
-body.legacyUi .meter.slim .header .headerBtns .headerBtn {
-  width: 16px;
-  height: 16px;
-}
-body.legacyUi .meter.slim .footerBtns {
-  bottom: 1px;
-  right: 16px;
-}
-body.legacyUi .meter.slim .footerBtns .footerBtn {
-  width: 16px;
-  height: 16px;
-}
-body.legacyUi .meter.slim .footerBtns .metricToggleBtn,
-body.legacyUi .meter.slim .footerBtns .targetModeBtn {
-  font-size: 13px;
-}
-body.legacyUi .meter.slim .list:has(.item:not([style*="display: none"])) + .meterTotalBar {
-  margin-top: 0;
-}
-body.legacyUi .meter.slim .list {
-  gap: 2px;
-}
-body.legacyUi .meter.slim .list:has(.item:not([style*="display: none"])) {
-  padding: 2px 10px 6px;
-}
-body.legacyUi .meter.slim .list .item {
-  height: 24px;
-  padding: 0 6px;
-}
-body.legacyUi .meter.slim .list .item .content {
-  gap: 5px;
-}
-body.legacyUi .meter.slim .list .item .classIcon {
-  width: 18px;
-}
-body.legacyUi .meter.slim .list .item .name {
-  font-size: 14px;
-}
-body.legacyUi .meter.slim .list .item .name.isCjk {
-  font-size: 16px;
-}
-body.legacyUi .meter.slim .list .item .dps {
-  font-size: 13px;
-  gap: 4px;
-}
-body.legacyUi .meter.slim .battleTime {
-  bottom: 1px;
-  left: 10px;
-}
-body.legacyUi .meter.slim .battleTime .tick {
-  font-size: 14px;
-}
-body.legacyUi .meter.slim .battleTime .status {
-  width: 8px;
-  height: 8px;
-}
-body.legacyUi .meter.slim .resizeHandle {
-  width: 12px;
-  height: 12px;
-}
-
-/* ---------- legacy bridges ----------
-   The redesign moved a few elements in the DOM (the HP bar left the header,
-   the footer fragments were gathered into one row, the bar gained a track
-   wrapper). These rules put those elements back where the legacy rules above
-   expect to find them, so the old layout reassembles from the new markup. */
-
-/* The footer row dissolves, handing its children back to .meter — which is
-   what the legacy absolute positioning for the timer and buttons assumes. */
-body.legacyUi .meterFooter {
-  display: contents;
-}
-
-/* Ping sat below the window, not inside it. */
-body.legacyUi .pingDisplay {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 2px;
-  padding: 2px 8px;
-  font-family: inherit;
-  font-variation-settings: normal;
-  font-size: 13px;
-  font-weight: 600;
-  width: fit-content;
-  gap: 5px;
-}
-body.legacyUi .pingDisplay .pingIcon {
-  width: 15px;
-  height: 15px;
-}
-
-/* Boss HP: back to an inset pill under the boss name rather than a
-   full-bleed band, and without the redesign's lit leading edge. */
-body.legacyUi .bossHpBar {
-  height: 13px;
-  margin: -2px 12px 6px;
-  border: 0;
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
-}
-body.legacyUi .bossHpFill {
-  border-radius: 4px;
-  background: linear-gradient(90deg, #36c46a, #5be08a);
-}
-body.legacyUi .bossHpBar.isMid .bossHpFill {
-  background: linear-gradient(90deg, #e0a23c, #f0c45b);
-}
-body.legacyUi .bossHpBar.isLow .bossHpFill {
-  background: linear-gradient(90deg, #d24b4b, #f06b6b);
-}
-body.legacyUi .bossHpFill::after {
-  content: none;
-}
-body.legacyUi .bossHpText {
-  justify-content: center;
-  gap: 6px;
-  padding: 0;
-  font-family: inherit;
-  font-variation-settings: normal;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-}
-body.legacyUi .bossHpText .bossHpAmt {
-  color: #fff;
-}
-
-/* Header: the classic skin keeps the redesign's screenshot button — an icon
-   grouped with the other controls on the right — rather than the 88px AION 2
-   wordmark that used to open the row with the action hidden on hover. */
-body.legacyUi .header .bossIcon {
-  order: 2;
-  position: relative;
-  width: 20px;
-  height: 20px;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  cursor: pointer;
-}
-body.legacyUi .header .bossIcon img {
-  display: none;
-}
-body.legacyUi .header .bossIconOverlay {
-  position: static;
-  inset: auto;
-  opacity: 1;
-  background: none;
-  border-radius: 0;
-  color: inherit;
-  pointer-events: none;
-}
-body.legacyUi .header .bossIconOverlay svg {
-  width: 20px;
-  height: 20px;
-}
-/* The old slim rules sized .bossIcon for the 72px wordmark and hid the hover
-   overlay outright; both have to be undone now that it is an icon button. */
-body.legacyUi .meter.slim .header .bossIcon {
-  width: 17px;
-  height: 17px;
-}
-body.legacyUi .meter.slim .header .bossIcon .bossIconOverlay {
-  display: flex;
-}
-body.legacyUi .meter.slim .header .bossIconOverlay svg {
-  width: 17px;
-  height: 17px;
-}
-body.legacyUi .header .bossNames .bossName {
-  font-family: inherit;
-  font-variation-settings: normal;
-  font-size: 18px;
-  letter-spacing: normal;
-  text-transform: none;
-}
-
-/* Bars: solid slab spanning the whole row, no reserved readout column and no
-   lit edge. meter.js drives width, which reproduces the old scaleX look. */
-body.legacyUi .list .item .fillTrack {
-  display: contents;
-}
-body.legacyUi .list .item .fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  right: auto;
-  transform: none;
-  border-radius: 0;
-  overflow: hidden;
-  background: var(--row-fill);
-  opacity: var(--meter-fill-opacity, 0.8);
-  transition: none;
-}
-body.legacyUi .list .item .fill::after {
-  content: none;
-}
-body.legacyUi .list .item.isUser .fill {
-  background: var(--isUser-fill);
-}
-body.legacyUi .list .item.warning .fill {
-  background: var(--warning-fill);
-}
-body.legacyUi .list .item.error .fill {
-  background: var(--error-fill);
-}
-
-/* Elements the old UI simply did not have. */
-body.legacyUi .list .item .rank {
-  display: none;
-}
-body.legacyUi .list .item.isUser::before {
-  content: none;
-}
-
-/* Mode switches were bare text, not chips. */
-body.legacyUi .footerBtns .footerBtn {
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  font-family: inherit;
-  font-variation-settings: normal;
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: normal;
-}
-body.legacyUi .footerBtns .targetModeBtn {
-  min-width: 62px;
-  text-align: right;
-  justify-content: flex-end;
-}
-body.legacyUi .footerBtns .metricToggleBtn {
-  min-width: 26px;
-}
-body.legacyUi .footerBtns .footerBtn:hover {
-  background: transparent;
-  border-color: transparent;
-}
-body.legacyUi .footerBtns .collapseBtn {
-  width: 20px;
-}
-body.legacyUi .footerBtns .collapseBtn svg {
-  width: 20px;
-  height: 20px;
-}
-
-/* Header buttons were 20px icons without the dimmed resting state. */
-body.legacyUi .header .headerBtns {
-  color: #fff;
-}
-body.legacyUi .header .headerBtns .headerBtn,
-body.legacyUi .header .headerBtns .headerBtn svg {
-  width: 20px;
-  height: 20px;
-}
-body.legacyUi .header .headerBtns.hasSuspendBtn .headerBtn,
-body.legacyUi .header .headerBtns.hasSuspendBtn .headerBtn svg,
-body.legacyUi .header .headerBtns.hasLockBtn .headerBtn,
-body.legacyUi .header .headerBtns.hasLockBtn .headerBtn svg {
-  width: 16px;
-  height: 16px;
-}
-
-/* Status dot / analysis text sizing predates the footer row. */
-body.legacyUi .battleTime .analysisStatus {
-  font-family: inherit;
-  font-variation-settings: normal;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.75);
-}
-body.legacyUi .battleTime .tick {
-  font-family: inherit;
-  font-variation-settings: normal;
-}
-body.legacyUi .meterTotalBar {
-  font-family: inherit;
-  font-variation-settings: normal;
-}
-body.legacyUi .list .item .name,
-body.legacyUi .list .item .dps,
-body.legacyUi .list .item .dps > p {
-  font-variation-settings: normal;
-}
-body.legacyUi .list .item .dps > p {
-  font-family: inherit;
-  font-size: inherit;
-  font-weight: inherit;
-  color: inherit;
-  letter-spacing: normal;
-}
-body.legacyUi .list .item .dps {
-  margin-right: 0;
-  padding: 0;
-  background: none;
-}
-body.legacyUi .list .item .dps .dpsContribution {
-  font-family: inherit;
-  font-size: inherit;
-  font-weight: inherit;
-  color: inherit;
-  min-width: 0;
-}
 
 /* ============================================================
    HISTORY & DETAILS PANELS
@@ -6124,6 +5162,11 @@ body.isHistoryWindow .historyPanel .historyHeader .closeX {
 }
 /* Dungeon tier, in History rows and the Details title: green Exploration,
    blue Normal, red Hard, violet Level n. */
+/* The dungeon beside the boss in the Details header. */
+.detailsPanel .detailsHeader .detailsFightTitle .fightTitleDungeon {
+  color: var(--hud-sub, rgba(255, 255, 255, 0.6));
+  font-variation-settings: "wght" 500, "wdth" 87.5;
+}
 .difficultyBadge {
   --tier: #8a94a6;
   display: inline-block;
@@ -6146,37 +5189,6 @@ body.isHistoryWindow .historyPanel .historyHeader .closeX {
 .difficulty-normal { --tier: #4a8fe0; }
 .difficulty-hard { --tier: #e0524a; }
 .difficulty-level { --tier: #a07ae0; }
-
-/* ---------- scrollbars: hairline, not hardware ---------- */
-
-.historyPanel .historyList::-webkit-scrollbar,
-.detailsPanel .detailsBody::-webkit-scrollbar,
-.detailsPanel .detailsSkills .skills::-webkit-scrollbar,
-.detailsPanel .timelineViewport::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-.historyPanel .historyList::-webkit-scrollbar-track,
-.detailsPanel .detailsBody::-webkit-scrollbar-track,
-.detailsPanel .detailsSkills .skills::-webkit-scrollbar-track,
-.detailsPanel .timelineViewport::-webkit-scrollbar-track {
-  margin: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.03);
-}
-.historyPanel .historyList::-webkit-scrollbar-thumb,
-.detailsPanel .detailsBody::-webkit-scrollbar-thumb,
-.detailsPanel .detailsSkills .skills::-webkit-scrollbar-thumb,
-.detailsPanel .timelineViewport::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background-color: rgba(255, 255, 255, 0.15);
-}
-.historyPanel .historyList::-webkit-scrollbar-thumb:hover,
-.detailsPanel .detailsBody::-webkit-scrollbar-thumb:hover,
-.detailsPanel .detailsSkills .skills::-webkit-scrollbar-thumb:hover,
-.detailsPanel .timelineViewport::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.26);
-}
 
 /* ---------- details: shell & header ---------- */
 
@@ -6741,11 +5753,12 @@ body.isHistoryWindow .historyPanel .historyHeader .closeX {
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.75));
 }
 /* Nested inside the row cell's own 0.875em, so this multiplier compounds:
-   0.875 × 0.92 = 0.805em of the panel font. details.js measures the name
-   column with the same product — keep the two in step. */
+   0.875 x 0.84 = 0.735em of the panel font, a step under the figures
+   beside it. details.js measures the name column with the same product:
+   keep the two in step. */
 .detailsPanel .detailsSkills .cell.name .skillNameText {
   font-family: var(--hud-ident);
-  font-size: 0.92em;
+  font-size: 0.84em;
   letter-spacing: 0.01em;
   color: var(--hud-name);
 }
@@ -6878,17 +5891,6 @@ body.isHistoryWindow .historyPanel .historyHeader .closeX {
   max-height: 420px;
   overflow-x: hidden;
   overflow-y: auto;
-}
-.detailsPanel .buffBody::-webkit-scrollbar {
-  width: 8px;
-}
-.detailsPanel .buffBody::-webkit-scrollbar-track {
-  background: rgb(30, 30, 30);
-  border-radius: 999px;
-}
-.detailsPanel .buffBody::-webkit-scrollbar-thumb {
-  background-color: rgb(77, 77, 77);
-  border-radius: 999px;
 }
 .detailsPanel .buffRow {
   display: grid;
@@ -7073,7 +6075,6 @@ body.isHistoryWindow .historyPanel .historyHeader .closeX {
   .historyPanel .historyLiveBadge { animation: none; }
   .detailsPanel .detailsSettings .detailsSettingsToggleTrack::after { transition: none; }
 }
-
 
 /* ============================================================
    DETAILS WINDOW
@@ -7394,7 +6395,8 @@ html.settingsWindow .settingsPanel {
   border: 0;
   border-radius: 0;
   background: #0a0e16;
-  overflow-y: auto;
+  overflow: hidden;
+  --set-nav-w: 204px;
 }
 html.settingsWindow .settingsPanel.isOpen { display: flex; }
 
@@ -7404,16 +6406,16 @@ html.settingsWindow .settingsPanel.isOpen { display: flex; }
    panel itself it would also scale the 100% height and push the bottom of
    the scroll area out of the window. */
 html.settingsWindow .settingsHeader,
-html.settingsWindow .settingsBody {
+html.settingsWindow .settingsNav,
+html.settingsWindow .settingsSection,
+html.settingsWindow .settingsFooter {
   zoom: 1.2;
 }
 
 /* Frameless, so the panel header is the drag surface (started by the page,
    see tauriBridge.js; not -webkit-app-region, which froze the app). */
 html.settingsWindow .settingsHeader {
-  position: sticky;
-  top: 0;
-  z-index: 5;
+  flex: 0 0 auto;
   background: #0a0e16;
 }
 
@@ -7509,4 +6511,443 @@ body:not(.isSettingsWindow):not(.isHistoryWindow):not(.isDetailsWindow) {
 body:not(.isSettingsWindow):not(.isHistoryWindow):not(.isDetailsWindow) :is(input, textarea, [contenteditable="true"]) {
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* The private build: compiled without online features (app.rs build_features,
+   tauriBridge.js sets html.a2-offline). What would reach a service is hidden:
+   the account and uploads, Streaming, Send Logs to Dev, the A2Tools.app link,
+   the account and Discord offers. */
+html.a2-offline .settingsNavItem[data-section="account"],
+html.a2-offline .settingsNavItem[data-section="streaming"],
+html.a2-offline #settingsSection-account,
+html.a2-offline #settingsSection-streaming,
+html.a2-offline .settingsPanel .sendLogsRow,
+html.a2-offline .settingsPanel .a2toolsButton,
+html.a2-offline .discordPromo,
+html.a2-offline .historyUploadBtn {
+  display: none !important;
+}
+
+/* ============================================================
+   DETAILS LAYOUT
+   ------------------------------------------------------------
+   Party and stats in a sidebar beside the skill table; under
+   both, one fight timeline where the DPS chart, the buffs and
+   the casts share a time axis. Nothing collapses, so no section
+   squeezes another; a bar between the halves sets the split.
+   The sidebar's width is the timeline's label gutter, so the
+   page has one vertical line from top to bottom.
+   ============================================================ */
+.detailsPanel {
+  --details-sidebar-w: 300px;
+}
+.detailsPanel .detailsBody {
+  display: grid;
+  grid-template-columns: var(--details-sidebar-w) minmax(0, 1fr);
+  grid-template-rows: minmax(0, var(--details-top, 0.52fr)) 8px minmax(0, var(--details-bottom, 0.48fr));
+  overflow: hidden;
+}
+
+/* Sidebar: the party, then the fight's figures as tiles. */
+.detailsPanel .detailsBody > .detailsStatsRow {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  border-bottom: 0;
+  border-right: 1px solid var(--hud-hairline);
+}
+.detailsPanel .detailsBody > .detailsStatsRow .detailsPartyList {
+  flex: none;
+  width: auto;
+  border-right: 0;
+  border-bottom: 1px solid var(--hud-hairline);
+}
+.detailsPanel .detailsBody > .detailsStatsRow .detailsStats {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+  padding: 6px 12px 10px;
+}
+.detailsPanel .detailsBody > .detailsStatsRow .detailsStats .stat {
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 1px;
+  min-height: 0;
+  padding: 4px 0;
+}
+.detailsPanel .detailsBody > .detailsStatsRow .detailsStats .stat .value {
+  font-size: 15px;
+}
+.detailsPanel .detailsBody > .detailsStatsRow .detailsStats .stat .label {
+  max-width: 100%;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+/* Skills: the whole top right, every column, scrolling on its own. */
+.detailsPanel .detailsBody > .skillsSection {
+  grid-column: 2;
+  grid-row: 1;
+  flex: none;
+  min-height: 0;
+}
+.detailsPanel .detailsBody > .skillsSection > .detailsSectionContent {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.detailsPanel .detailsBody > .skillsSection .detailsSkills .skills {
+  max-height: none;
+}
+
+/* Wider than its column (a large font): the rows scroll sideways and the
+   header follows; every row is as wide as its columns need. */
+.detailsPanel .detailsBody > .skillsSection .detailsSkills .skills {
+  overflow-x: auto;
+}
+.detailsPanel .detailsBody > .skillsSection .detailsSkills .skillHeader {
+  overflow-x: hidden;
+}
+.detailsPanel .detailsBody > .skillsSection .detailsSkills .skillHeader,
+.detailsPanel .detailsBody > .skillsSection .detailsSkills .skillRow {
+  min-width: min-content;
+}
+
+/* The bar between the halves. */
+.detailsPanel .detailsSplitter {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  position: relative;
+  cursor: row-resize;
+  touch-action: none;
+  border-top: 1px solid var(--hud-hairline);
+  border-bottom: 1px solid var(--hud-hairline);
+  background: rgba(255, 255, 255, 0.025);
+}
+.detailsPanel .detailsSplitter::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 3px;
+  margin: -1.5px 0 0 -22px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.28);
+  transition: background 120ms ease;
+}
+.detailsPanel .detailsSplitter:hover::after,
+.detailsPanel .detailsSplitter.isDragging::after,
+.detailsPanel .detailsSplitter:focus-visible::after {
+  background: var(--isUser-fill);
+}
+.detailsPanel .detailsSplitter:focus-visible {
+  outline: none;
+}
+
+/* The fight timeline: one gutter, one margin, one axis. */
+.detailsPanel .fightTimeline {
+  --ftl-gutter: var(--details-sidebar-w);
+  --ftl-right: 52px;
+  --ftl-chart-h: 150px;
+  --buff-label-w: calc(var(--ftl-gutter) - 20px);
+  --buff-up-w: calc(var(--ftl-right) - 8px);
+  grid-column: 1 / -1;
+  grid-row: 3;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+}
+.detailsPanel .fightTimelineBar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--hud-hairline);
+}
+.detailsPanel .fightTimelineTitle {
+  width: calc(var(--ftl-gutter) - 24px);
+  font-family: var(--hud-tech);
+  font-variation-settings: "wght" 700, "wdth" 87.5;
+  font-size: 13px;
+  color: var(--title, #fff);
+}
+.detailsPanel .fightTimelineBar .buffToolbar {
+  padding: 0;
+}
+/* The section chips sit at the bar's right; a hidden section's group goes,
+   and the buff filters with the buffs. */
+.detailsPanel .fightTimelineBar .ftlSectionToggles {
+  margin-left: auto;
+}
+.detailsPanel .fightTimeline.hide-dps .ftlGroupDps,
+.detailsPanel .fightTimeline.hide-buffs .ftlGroupBuffs,
+.detailsPanel .fightTimeline.hide-buffs .fightTimelineBar .buffToolbar,
+.detailsPanel .fightTimeline.hide-casts .ftlGroupCasts {
+  display: none;
+}
+/* HEAL without heal times has no chart or casts to show. */
+.detailsPanel .fightTimeline.isHealMode.noHealTiming [data-ftl-section="dps"],
+.detailsPanel .fightTimeline.isHealMode.noHealTiming [data-ftl-section="casts"] {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.detailsPanel .fightTimelineScroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.detailsPanel .ftlGroup {
+  position: relative;
+  border-bottom: 1px solid var(--hud-hairline);
+}
+.detailsPanel .ftlGroupTitle {
+  padding: 7px 12px 2px;
+  font-family: var(--hud-tech);
+  font-variation-settings: "wght" 650, "wdth" 87.5;
+  font-size: 11.5px;
+  color: var(--hud-sub);
+}
+/* DPS: the chart spans the width; its legend sits in the gutter. */
+.detailsPanel .ftlGroupDps .dpsChartWrap {
+  position: relative;
+  padding: 0 0 6px;
+}
+.detailsPanel .ftlGroupDps .dpsChartLegend {
+  position: absolute;
+  left: 12px;
+  top: 4px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+.detailsPanel .ftlGroupDps .dpsChartXAxis,
+.detailsPanel .ftlGroupCasts .timelineXAxis,
+.detailsPanel .ftlGroupCasts .timelineLegend,
+.detailsPanel .ftlGroupBuffs .buffAxis {
+  display: none;
+}
+/* Buffs: no scroll of their own; the label column is the gutter. */
+.detailsPanel .ftlGroupBuffs .buffBody {
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
+  padding: 0 0 6px;
+}
+.detailsPanel .ftlGroupBuffs .buffRow {
+  padding: 0 0 0 12px;
+}
+.detailsPanel .ftlGroupBuffs .buffNote,
+.detailsPanel .ftlGroupBuffs .buffGroupHeader,
+.detailsPanel .ftlGroupBuffs .buffPassives {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+/* Casts: drawn to the width, labels in the gutter, no sideways scroll. */
+.detailsPanel .ftlGroupCasts .timelineChart {
+  padding: 0;
+}
+.detailsPanel .ftlGroupCasts .timelineViewport {
+  max-height: none;
+  min-height: 0;
+  padding: 0 0 6px;
+  overflow: visible;
+}
+.detailsPanel .fightTimelineAxis {
+  position: relative;
+  flex: none;
+  display: grid;
+  grid-template-columns: var(--ftl-gutter) minmax(0, 1fr) calc(var(--ftl-right) + var(--ftl-sb, 0px));
+  height: 22px;
+  border-top: 1px solid var(--hud-hairline);
+}
+.detailsPanel .fightTimelineAxisLane {
+  grid-column: 2;
+  position: relative;
+  font-family: var(--hud-tech);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--hud-sub);
+}
+.detailsPanel .fightTimelineAxisLane span {
+  position: absolute;
+  top: 4px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.detailsPanel .fightTimelineAxisLane span:first-child {
+  transform: none;
+}
+.detailsPanel .fightTimelineAxisLane span.isEnd {
+  transform: translateX(-100%);
+}
+
+/* HEAL draws healing per second and the heal casts; a fight saved before
+   heals had times keeps only the buffs, with a note. */
+.detailsPanel .ftlHealNote {
+  display: none;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hud-hairline);
+  font-size: 12px;
+  color: var(--hud-sub);
+}
+.detailsPanel .fightTimeline.isHealMode.noHealTiming .ftlHealNote {
+  display: block;
+}
+.detailsPanel .fightTimeline.isHealMode.noHealTiming .ftlGroupDps,
+.detailsPanel .fightTimeline.isHealMode.noHealTiming .ftlGroupCasts {
+  display: none;
+}
+.detailsPanel .ftlGroupDps .dpsChartLegend .legendItem span {
+  max-width: calc(var(--ftl-gutter) - 120px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The time cursor through the lanes, and its time on the axis. */
+.detailsPanel .fightTimelineCursor {
+  position: absolute;
+  top: 0;
+  width: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.75);
+  pointer-events: none;
+  z-index: 30;
+}
+.detailsPanel .fightTimelineCursor[hidden],
+.detailsPanel .fightTimelineAxisTag[hidden] {
+  display: none;
+}
+.detailsPanel .fightTimelineAxisTag {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--isUser-fill);
+  color: #fff;
+  font-family: var(--hud-tech);
+  font-variation-settings: "wght" 650, "wdth" 87.5;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  pointer-events: none;
+  z-index: 30;
+}
+
+/* The timeline's text follows the Details font size, as the skill table
+   does: its labels match the skill names (0.875 x 0.84 of the font),
+   headings and the axis a step under. Everything below is in em of it. */
+.detailsPanel .fightTimeline {
+  font-size: calc(var(--details-font-size, 16px) * 0.74);
+}
+.detailsPanel .fightTimelineTitle { font-size: 1.1em; }
+.detailsPanel .fightTimelineBar .buffChip { font-size: 0.9em; }
+.detailsPanel .ftlGroupTitle { font-size: 0.92em; }
+.detailsPanel .ftlHealNote { font-size: 1em; }
+.detailsPanel .ftlGroupDps .dpsChartLegend .legendItem { font-size: 0.95em; }
+.detailsPanel .fightTimeline .buffGroupHeader { font-size: 1em; }
+.detailsPanel .fightTimeline .buffGroupCount { font-size: 0.9em; }
+.detailsPanel .fightTimeline .buffLabel { font-size: 1em; }
+.detailsPanel .fightTimeline .buffCaster,
+.detailsPanel .fightTimeline .buffTag { font-size: 0.85em; }
+.detailsPanel .fightTimeline .buffUptime { font-size: 0.95em; }
+.detailsPanel .fightTimeline .buffStacks { font-size: 0.8em; }
+.detailsPanel .fightTimeline .buffPassives { font-size: 0.9em; }
+.detailsPanel .fightTimeline .buffNote { font-size: 1em; max-width: none; }
+.detailsPanel .fightTimeline .buffRow { height: 1.85em; }
+.detailsPanel .fightTimeline .buffLane { height: 1.15em; }
+.detailsPanel .fightTimeline .buffIcon { width: 1.35em; height: 1.35em; }
+.detailsPanel .fightTimelineAxis { height: 1.9em; }
+.detailsPanel .fightTimelineAxisLane { font-size: 0.9em; }
+.detailsPanel .fightTimelineAxisTag { font-size: 0.9em; }
+
+/* Narrow (a phone on the web, a small window): one column that scrolls,
+   the party and stats on top as before, a narrower gutter. */
+@media (max-width: 999px) {
+  .detailsPanel {
+    --details-sidebar-w: 150px;
+  }
+  .detailsPanel .detailsBody {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .detailsPanel .detailsBody > .detailsStatsRow {
+    flex: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--hud-hairline);
+  }
+  .detailsPanel .detailsBody > .detailsStatsRow .detailsPartyList,
+  .detailsPanel .detailsBody > .detailsStatsRow .detailsStats {
+    flex: 1 1 260px;
+  }
+  .detailsPanel .detailsBody > .skillsSection,
+  .detailsPanel .fightTimeline {
+    flex: none;
+  }
+  .detailsPanel .detailsBody > .skillsSection .detailsSkills .skills {
+    max-height: 60vh;
+  }
+  .detailsPanel .detailsSplitter {
+    display: none;
+  }
+  .detailsPanel .fightTimelineScroll {
+    overflow: visible;
+  }
+}
+
+/* ---------- scrollbars ----------
+   One style for every scrolling area: a visible groove with a solid light
+   thumb that turns blue under the pointer, so it reads as something to drag;
+   no arrow buttons. Areas that hide their bar keep `scrollbar-width: none`,
+   which wins over these. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  min-height: 28px;
+  min-width: 28px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.5);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  border-width: 1px;
+  background-color: rgb(120, 170, 245);
+}
+::-webkit-scrollbar-thumb:active {
+  border-width: 1px;
+  background-color: rgb(150, 192, 255);
+}
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }

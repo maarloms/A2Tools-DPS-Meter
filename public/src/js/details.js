@@ -62,6 +62,7 @@ const createDetailsUI = ({
   let fightBossName = "";
   // The instance the fight was in (0 in the open world), for its difficulty.
   let fightDungeonId = 0;
+  let fightMobCode = 0;
   let lastUnfilteredDetails = null;
   const detailsCacheByRowId = new Map();
   const COMPACT_MAX_SKILLS = 5;
@@ -161,11 +162,23 @@ const createDetailsUI = ({
     if (!bossName) { detailsFightTitleEl.innerHTML = ""; return; }
     const fightVs = labelText("details.fightVs", "Fight vs");
     const suffix = dateStr ? ` - ${dateStr}` : "";
-    const tier = fightDungeonId > 0 ? window.i18n?.getDungeonDifficulty?.(fightDungeonId) : null;
+    // Where and how hard: "Krao Cave" with its tier, or for an instance the
+    // dungeon table does not name (Nightmare), the boss's category and its own
+    // level.
+    const i18n = window.i18n;
+    let place = fightDungeonId > 0 ? (i18n?.getDungeonName?.(fightDungeonId) || "") : "";
+    let tier = fightDungeonId > 0 ? i18n?.getDungeonDifficulty?.(fightDungeonId) : null;
+    if (fightMobCode > 0) {
+      if (!place) place = i18n?.getNpcCategory?.(fightMobCode) || "";
+      const level = i18n?.getNpcLevel?.(fightMobCode) || "";
+      if (level) tier = { key: "level", label: level };
+    }
+    const escape = (text) => String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    const placeHtml = place ? ` <span class="fightTitleDungeon">${escape(place)}</span>` : "";
     const tierBadge = tier
-      ? ` <span class="difficultyBadge difficulty-${tier.key}">${tier.label}</span>`
+      ? ` <span class="difficultyBadge difficulty-${tier.key}">${escape(tier.label)}</span>`
       : "";
-    detailsFightTitleEl.innerHTML = `${fightVs} <span class="fightTitleBossName">${bossName}</span>${tierBadge}${suffix}`;
+    detailsFightTitleEl.innerHTML = `${fightVs} <span class="fightTitleBossName">${bossName}</span>${placeHtml}${tierBadge}${suffix}`;
   };
 
   const STATUS = [
@@ -343,6 +356,7 @@ const createDetailsUI = ({
     }
     updateHeaderText();
     updateGridColumns();
+    syncSkillHeaderMode?.();
   };
 
   const resolveStatValue = (statKey, data) => {
@@ -880,34 +894,50 @@ const createDetailsUI = ({
   };
 
   // Column definitions: name → grid track template fragment
+  // Each column's least width is in characters of its own figures
+  // ("302.93k", "18.95k", "100%"), so a bigger Details font widens the
+  // columns instead of clipping their digits; past the table's width it
+  // scrolls sideways (the header follows, see syncSkillHeaderScroll).
   const GRID_COL_DEFS = {
     name: "minmax(90px, 3fr)",
-    hit: "minmax(38px, 0.75fr)",
-    dmg: "minmax(36px, 1.0fr)",
-    dmgpct: "minmax(26px, 0.85fr)",
-    mhit: "minmax(20px, 0.6fr)",
-    mdmg: "minmax(30px, 0.9fr)",
-    crit: "minmax(24px, 0.65fr)",
-    parry: "minmax(20px, 0.6fr)",
-    perfect: "minmax(22px, 0.65fr)",
-    double: "minmax(22px, 0.65fr)",
-    back: "minmax(18px, 0.6fr)",
+    hit: "minmax(4.2ch, 0.75fr)",
+    dmg: "minmax(6.6ch, 1.0fr)",
+    dmgpct: "minmax(4.8ch, 0.85fr)",
+    mhit: "minmax(4.2ch, 0.6fr)",
+    mdmg: "minmax(6ch, 0.9fr)",
+    crit: "minmax(4.2ch, 0.65fr)",
+    parry: "minmax(4.2ch, 0.6fr)",
+    perfect: "minmax(4.2ch, 0.65fr)",
+    double: "minmax(4.2ch, 0.65fr)",
+    back: "minmax(4.2ch, 0.6fr)",
     // "FRONT" is the widest header in the 0.6fr group and clips at the shared
     // share; it needs the extra room its neighbours don't.
-    frontal: "minmax(20px, 0.72fr)",
-    block: "minmax(20px, 0.6fr)",
-    perfectblock: "minmax(24px, 0.65fr)",
-    ironwall: "minmax(24px, 0.65fr)",
-    regeneration: "minmax(22px, 0.65fr)",
-    miss: "minmax(22px, 0.65fr)",
-    resist: "minmax(20px, 0.6fr)",
-    regen: "minmax(28px, 0.8fr)",
-    mindmg: "minmax(28px, 0.8fr)",
-    avgdmg: "minmax(28px, 0.8fr)",
-    maxdmg: "minmax(28px, 0.8fr)",
+    frontal: "minmax(4.8ch, 0.72fr)",
+    block: "minmax(4.2ch, 0.6fr)",
+    perfectblock: "minmax(4.2ch, 0.65fr)",
+    ironwall: "minmax(4.2ch, 0.65fr)",
+    regeneration: "minmax(4.2ch, 0.65fr)",
+    miss: "minmax(4.2ch, 0.65fr)",
+    resist: "minmax(4.2ch, 0.6fr)",
+    regen: "minmax(6ch, 0.8fr)",
+    mindmg: "minmax(6ch, 0.8fr)",
+    avgdmg: "minmax(6ch, 0.8fr)",
+    maxdmg: "minmax(6ch, 0.8fr)",
   };
+  const HEAL_COLUMNS = new Set(["name", "hit", "dmg", "dmgpct"]);
   const GRID_COL_ORDER = ["name", "hit", "dmg", "dmgpct", "mhit", "mdmg", "crit", "parry", "perfect", "double", "back", "frontal",
     ...HIT_RESULTS.map(([col]) => col), "regen", "mindmg", "avgdmg", "maxdmg"];
+
+  // The header scrolls sideways with the rows when the table is wider than
+  // its column (a large Details font beside the sidebar).
+  const syncSkillHeaderScroll = (() => {
+    const rows = detailsPanel?.querySelector?.(".detailsSkills .skills");
+    const header = detailsPanel?.querySelector?.(".detailsSkills .skillHeader");
+    if (!rows || !header) return () => {};
+    const sync = () => { header.scrollLeft = rows.scrollLeft; };
+    rows.addEventListener("scroll", sync, { passive: true });
+    return sync;
+  })();
 
   let lastMeasuredNameWidth = 0;
   const updateGridColumns = () => {
@@ -922,13 +952,22 @@ const createDetailsUI = ({
       skillsContainer.style.setProperty("--scrollbar-w", `${scrollbarW}px`);
     }
 
-    const visibleCols = GRID_COL_ORDER.filter((col) => !detailsPanel.classList.contains(`hide-col-${col}`));
+    // HEAL shows what a heal has: its casts, its amount and its share. The
+    // damage columns (multi-hit, crit, parry, positionals, min/avg/max) are
+    // all zero for heals.
+    const visibleCols = GRID_COL_ORDER.filter((col) => !detailsPanel.classList.contains(`hide-col-${col}`)
+      && (detailsMode !== "heal" || HEAL_COLUMNS.has(col)));
     // Fork skin scrolls the entire table when all metrics cannot fit.
     skillsContainer.style.setProperty('--fork-skill-min-width',
       `${Math.max(120, lastMeasuredNameWidth) + (visibleCols.length - 1) * 58 + 28}px`);
     if (lastMeasuredNameWidth > 0) {
       const dataCols = visibleCols.filter((c) => c !== "name");
-      const template = `${lastMeasuredNameWidth}px ${dataCols.map((col) => GRID_COL_DEFS[col]).join(" ")}`;
+      // Beside the sidebar the table is narrower: the longest name takes at
+      // most about a quarter of it (the rest ends in "..."), so the figures
+      // keep their room.
+      const cap = Math.max(170, Math.round((skillsContainer.clientWidth || 0) * 0.24));
+      const nameWidth = skillsContainer.clientWidth > 0 ? Math.min(lastMeasuredNameWidth, cap) : lastMeasuredNameWidth;
+      const template = `${nameWidth}px ${dataCols.map((col) => GRID_COL_DEFS[col]).join(" ")}`;
       skillsContainer.style.setProperty("--skill-grid-cols", template);
     } else {
       const cols = visibleCols.map((col) => GRID_COL_DEFS[col]);
@@ -1029,9 +1068,9 @@ const createDetailsUI = ({
     const namePad = 4;
     const measureCanvas = document.createElement("canvas").getContext("2d");
     // .skillRow .cell is 0.875em of the panel font and .skillNameText another
-    // 0.92em inside it, so the name renders at their product. Measuring at any
-    // other size sizes the column for text that is never drawn.
-    const fontSize = parseFloat(getComputedStyle(skillsListEl).fontSize) * 0.875 * 0.92;
+    // 0.84em inside it (styles.css), so the name renders at their product.
+    // Measuring at any other size sizes the column for text never drawn.
+    const fontSize = parseFloat(getComputedStyle(skillsListEl).fontSize) * 0.875 * 0.84;
     measureCanvas.font = `700 ${fontSize}px ${getComputedStyle(skillsListEl).fontFamily}`;
     let maxNameWidth = 0;
     topDisplay.forEach((skill) => {
@@ -1250,35 +1289,192 @@ const createDetailsUI = ({
 
   };
 
-  // ── Collapsible section toggle ──
-  const sectionHeaders = detailsPanel?.querySelectorAll?.(".detailsSectionHeader");
-  sectionHeaders?.forEach?.((header) => {
-    header.setAttribute('role', 'button');
-    header.tabIndex = 0;
-    header.setAttribute('aria-expanded', String(header.closest('.detailsSection')?.classList.contains('isExpanded')));
-    header.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); header.click(); }
+  // ── Fight timeline ──
+  // Skills sit beside the party and stats; under them, the DPS chart, the
+  // buffs and the casts share one time axis: the same label gutter on the
+  // left, the same margin on the right (--ftl-gutter, --ftl-right) and one
+  // axis at the bottom. Nothing collapses, so nothing squeezes anything.
+  const fightTimeline = detailsPanel?.querySelector?.(".fightTimeline");
+  const fightTimelineScroll = fightTimeline?.querySelector?.(".fightTimelineScroll");
+  const fightTimelineAxisLane = fightTimeline?.querySelector?.(".fightTimelineAxisLane");
+  const ftlMetrics = () => {
+    const cs = fightTimeline ? getComputedStyle(fightTimeline) : null;
+    const num = (name, fallback) => {
+      const v = parseFloat(cs?.getPropertyValue?.(name));
+      return Number.isFinite(v) ? v : fallback;
+    };
+    // The timeline's text follows the Details font size (styles.css): the
+    // canvases draw theirs at the same size, and grow their rows with it.
+    const text = parseFloat(cs?.fontSize) || 12;
+    return {
+      gutter: num("--ftl-gutter", 300),
+      right: num("--ftl-right", 52),
+      chartHeight: Math.max(num("--ftl-chart-h", 150), Math.round(text * 12)),
+      text,
+    };
+  };
+  // One grid step for the chart, the casts and the axis, so their lines meet.
+  const ftlStepSec = (durationSec) =>
+    durationSec > 600 ? 120 : durationSec > 300 ? 60 : durationSec > 120 ? 30 : durationSec > 40 ? 10 : 5;
+  const ftlTime = (sec) => {
+    const whole = Math.max(0, Math.round(sec));
+    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+  };
+  // The fight's length on the axis: what the chart drew, and what buffs and
+  // the cursor are laid out against.
+  let ftlDurationMs = 0;
+  const renderFightAxis = (durationMs) => {
+    ftlDurationMs = Number(durationMs) || 0;
+    syncFtlScrollbar?.();
+    if (!fightTimelineAxisLane) return;
+    fightTimelineAxisLane.replaceChildren();
+    if (ftlDurationMs <= 0) return;
+    const durationSec = ftlDurationMs / 1000;
+    const step = ftlStepSec(durationSec);
+    const ticks = [];
+    for (let sec = 0; sec < durationSec - step * 0.4; sec += step) ticks.push(sec);
+    ticks.push(durationSec);
+    ticks.forEach((sec, i) => {
+      const span = document.createElement("span");
+      span.style.left = `${(sec / durationSec) * 100}%`;
+      if (i === ticks.length - 1) span.classList.add("isEnd");
+      span.textContent = ftlTime(sec);
+      fightTimelineAxisLane.appendChild(span);
     });
-    header.addEventListener("click", () => {
-      const section = header.closest(".detailsSection");
-      if (section) {
-        section.classList.toggle('isExpanded');
-        header.setAttribute('aria-expanded', String(section.classList.contains('isExpanded')));
-        // Re-render charts when sections are expanded (canvas needs non-zero size)
-        if (section.classList.contains("isExpanded") && lastDetails) {
-          if (section.classList.contains("dpsChartSection")) {
-            requestAnimationFrame(() => renderDpsChart(lastDetails));
-          } else if (section.classList.contains("timelineSection")) {
-            requestAnimationFrame(() => renderTimeline(lastDetails));
-          }
-        }
-        // Buffs need no details: a History fight carries them.
-        if (section.classList.contains("isExpanded") && section.classList.contains("buffsSection")) {
-          renderBuffs();
-        }
-      }
-    });
+  };
+
+  // The axis's right column also covers the timeline's scrollbar, which the
+  // lanes above it do not have, so the two ends meet.
+  const syncFtlScrollbar = () => {
+    if (!fightTimeline || !fightTimelineScroll) return;
+    const sb = Math.max(0, fightTimelineScroll.offsetWidth - fightTimelineScroll.clientWidth);
+    fightTimeline.style.setProperty("--ftl-sb", `${sb}px`);
+  };
+
+  // The time cursor: a line through every lane under the pointer, and its
+  // time on the axis.
+  const ftlCursor = fightTimeline?.querySelector?.(".fightTimelineCursor");
+  const ftlAxis = fightTimeline?.querySelector?.(".fightTimelineAxis");
+  const ftlAxisTag = (() => {
+    if (!ftlAxis) return null;
+    const tag = document.createElement("span");
+    tag.className = "fightTimelineAxisTag";
+    tag.hidden = true;
+    ftlAxis.appendChild(tag);
+    return tag;
+  })();
+  const hideFtlCursor = () => {
+    if (ftlCursor) ftlCursor.hidden = true;
+    if (ftlAxisTag) ftlAxisTag.hidden = true;
+  };
+  fightTimelineScroll?.addEventListener("mousemove", (event) => {
+    if (!ftlCursor || ftlDurationMs <= 0) return hideFtlCursor();
+    const m = ftlMetrics();
+    const rect = fightTimelineScroll.getBoundingClientRect();
+    const laneLeft = m.gutter;
+    const laneRight = fightTimelineScroll.clientWidth - m.right;
+    const x = event.clientX - rect.left;
+    if (x < laneLeft || x > laneRight || laneRight <= laneLeft) return hideFtlCursor();
+    const sec = ((x - laneLeft) / (laneRight - laneLeft)) * (ftlDurationMs / 1000);
+    ftlCursor.hidden = false;
+    ftlCursor.style.left = `${Math.round(x)}px`;
+    ftlCursor.style.height = `${fightTimelineScroll.scrollHeight}px`;
+    if (ftlAxisTag) {
+      ftlAxisTag.hidden = false;
+      ftlAxisTag.style.left = `${Math.round(x)}px`;
+      ftlAxisTag.textContent = ftlTime(sec);
+    }
   });
+  fightTimelineScroll?.addEventListener("mouseleave", hideFtlCursor);
+
+  // The split between the top (party, stats, skills) and the timeline: drag
+  // the bar between them; kept as the top's share of the height.
+  const detailsBody = detailsPanel?.querySelector?.(".detailsBody");
+  const detailsSplitter = detailsPanel?.querySelector?.(".detailsSplitter");
+  const SPLIT_KEY = "dpsMeter.detailsSplit";
+  const applySplit = (share) => {
+    const top = Math.min(0.8, Math.max(0.2, Number(share) || 0.52));
+    detailsBody?.style?.setProperty("--details-top", `${top}fr`);
+    detailsBody?.style?.setProperty("--details-bottom", `${1 - top}fr`);
+    if (detailsBody) detailsBody.dataset.split = String(top);
+    return top;
+  };
+  try { applySplit(localStorage.getItem(SPLIT_KEY)); } catch { applySplit(0.52); }
+  detailsSplitter?.addEventListener("pointerdown", (event) => {
+    if (!detailsBody) return;
+    event.preventDefault();
+    detailsSplitter.setPointerCapture?.(event.pointerId);
+    detailsSplitter.classList.add("isDragging");
+    const rect = detailsBody.getBoundingClientRect();
+    let share = null;
+    const move = (e) => { share = applySplit((e.clientY - rect.top) / Math.max(1, rect.height)); };
+    const up = () => {
+      detailsSplitter.removeEventListener("pointermove", move);
+      detailsSplitter.removeEventListener("pointerup", up);
+      detailsSplitter.removeEventListener("pointercancel", up);
+      detailsSplitter.classList.remove("isDragging");
+      if (share !== null) {
+        try { localStorage.setItem(SPLIT_KEY, String(share)); } catch { /* not kept */ }
+      }
+    };
+    detailsSplitter.addEventListener("pointermove", move);
+    detailsSplitter.addEventListener("pointerup", up);
+    detailsSplitter.addEventListener("pointercancel", up);
+  });
+  detailsSplitter?.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const now = Number(detailsBody?.dataset?.split) || 0.52;
+    const share = applySplit(now + (event.key === "ArrowDown" ? 0.04 : -0.04));
+    try { localStorage.setItem(SPLIT_KEY, String(share)); } catch { /* not kept */ }
+  });
+
+  // Which of the timeline's sections show (chart, buffs, casts): the chips at
+  // the bar's right; kept between openings.
+  const SECTIONS_KEY = "dpsMeter.timelineSections";
+  const FTL_SECTIONS = ["dps", "buffs", "casts"];
+  const ftlShown = { dps: true, buffs: true, casts: true };
+  try {
+    const saved = JSON.parse(localStorage.getItem(SECTIONS_KEY) || "null");
+    if (saved && typeof saved === "object") {
+      for (const k of FTL_SECTIONS) if (typeof saved[k] === "boolean") ftlShown[k] = saved[k];
+    }
+  } catch { /* all shown */ }
+  const sectionChips = fightTimeline?.querySelectorAll?.("[data-ftl-section]") ?? [];
+  const applyFtlSections = () => {
+    for (const k of FTL_SECTIONS) fightTimeline?.classList?.toggle?.(`hide-${k}`, !ftlShown[k]);
+    sectionChips.forEach((chip) => {
+      const on = !!ftlShown[chip.dataset.ftlSection];
+      chip.classList.toggle("isActive", on);
+      chip.setAttribute("aria-pressed", String(on));
+    });
+  };
+  applyFtlSections();
+  sectionChips.forEach((chip) => chip.addEventListener("click", () => {
+    const k = chip.dataset.ftlSection;
+    if (!FTL_SECTIONS.includes(k)) return;
+    ftlShown[k] = !ftlShown[k];
+    applyFtlSections();
+    try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(ftlShown)); } catch { /* not kept */ }
+    // A canvas hidden has no width: draw it again when it shows.
+    if (ftlShown[k] && lastDetails) {
+      if (k === "dps") renderDpsChart(lastDetails);
+      if (k === "casts") renderTimeline(lastDetails);
+    }
+  }));
+
+  // The canvases are drawn to their width: draw again when it changes.
+  let ftlWidth = 0;
+  if (typeof ResizeObserver === "function" && fightTimeline) {
+    new ResizeObserver(() => {
+      const w = fightTimeline.clientWidth;
+      if (!w || w === ftlWidth) return;
+      ftlWidth = w;
+      syncFtlScrollbar();
+      updateGridColumns();
+      if (lastDetails) requestAnimationFrame(() => { renderDpsChart(lastDetails); renderTimeline(lastDetails); });
+    }).observe(fightTimeline);
+  }
 
   // ── DPS Chart ──
   const dpsChartCanvas = detailsPanel?.querySelector?.(".dpsChartCanvas");
@@ -1290,7 +1486,6 @@ const createDetailsUI = ({
   const timelineViewport = detailsPanel?.querySelector?.(".timelineViewport");
   const timelineLegend = detailsPanel?.querySelector?.(".timelineLegend");
   const timelineXAxis = detailsPanel?.querySelector?.(".timelineXAxis");
-  const timelineSection = detailsPanel?.querySelector?.(".timelineSection");
 
   // Color palette for skill lanes
   const LANE_COLORS = [
@@ -1357,13 +1552,21 @@ const createDetailsUI = ({
 
     // Use unfiltered skills for DPS lines + boss health; filtered details for ping + battleTime
     const unfilteredDetails = lastUnfilteredDetails || details;
-    const chartSkills = Array.isArray(unfilteredDetails?.skills) ? unfilteredDetails.skills : [];
+    // HEAL charts healing per second from the heals' own times, without the
+    // boss's HP; a fight saved before heals had times has none to draw.
+    const healMode = detailsMode === "heal";
+    const chartSource = healMode ? unfilteredDetails?.healSkills : unfilteredDetails?.skills;
+    const chartSkills = Array.isArray(chartSource) ? chartSource : [];
+    const noHealTiming = healMode
+      && !chartSkills.some((s) => Array.isArray(s?.hitTimestamps) && s.hitTimestamps.length > 0);
+    fightTimeline?.classList?.toggle?.("noHealTiming", noHealTiming);
     const battleTimeMs = Number(unfilteredDetails?.battleTimeMs) || Number(details?.battleTimeMs) || 0;
     if (battleTimeMs <= 0 || chartSkills.length === 0) {
       dpsChartCanvas.width = 0;
       dpsChartCanvas.height = 0;
       dpsChartXAxis.innerHTML = "";
       dpsChartLegend.innerHTML = "";
+      renderFightAxis(0);
       return;
     }
 
@@ -1423,12 +1626,14 @@ const createDetailsUI = ({
       return total / (windowMs / 1000);
     };
 
-    // Canvas dimensions
-    const CHART_HEIGHT = 120;
+    // Canvas dimensions: the plot runs between the timeline's label gutter and
+    // its right margin, like the buff and cast lanes under it.
+    const metrics = ftlMetrics();
+    const CHART_HEIGHT = metrics.chartHeight;
     const PAD_TOP = 8;
     const PAD_BOTTOM = 4;
-    const PAD_LEFT = 40;
-    const PAD_RIGHT = 40;
+    const PAD_LEFT = metrics.gutter;
+    const PAD_RIGHT = metrics.right;
     const plotHeight = CHART_HEIGHT - PAD_TOP - PAD_BOTTOM;
     const dpr = window.devicePixelRatio || 1;
     const chartWidth = dpsChartCanvas.parentElement
@@ -1465,7 +1670,7 @@ const createDetailsUI = ({
 
     // Determine time grid interval
     const durationSec = battleTimeMs / 1000;
-    const gridIntervalSec = durationSec > 300 ? 60 : durationSec > 60 ? 30 : 10;
+    const gridIntervalSec = ftlStepSec(durationSec);
 
     // Draw grid lines (horizontal)
     const gridCount = 4;
@@ -1494,7 +1699,7 @@ const createDetailsUI = ({
       if (v >= 1_000) return (v / 1_000).toFixed(v >= 10_000 ? 0 : 1).replace(/\.0$/, "") + "K";
       return String(Math.round(v));
     };
-    ctx.font = "10px sans-serif";
+    ctx.font = `${Math.round(metrics.text * 0.85 * 10) / 10}px sans-serif`;
     ctx.textBaseline = "middle";
     // Left axis — DPS
     ctx.fillStyle = "rgba(255,255,255,0.5)";
@@ -1502,7 +1707,7 @@ const createDetailsUI = ({
     for (let g = 0; g <= gridCount; g++) {
       const y = PAD_TOP + (g / gridCount) * plotHeight;
       const val = globalMax * (1 - g / gridCount);
-      ctx.fillText(fmtDps(val), PAD_LEFT - 4, y);
+      ctx.fillText(fmtDps(val), PAD_LEFT - 8, y);
     }
     // Right axis — Ping (ms)
     if (hasPing) {
@@ -1517,7 +1722,7 @@ const createDetailsUI = ({
 
     // ── Boss cumulative damage (grey, dashed) ──
     const totalBossDmg = allHits.reduce((s, h) => s + h.dmg, 0) || 1;
-    if (allHits.length > 0) {
+    if (allHits.length > 0 && !healMode) {
       ctx.beginPath();
       ctx.strokeStyle = "rgba(220,60,60,0.85)";
       ctx.lineWidth = 1.5;
@@ -1596,15 +1801,28 @@ const createDetailsUI = ({
       ctx.setLineDash([]);
     }
 
-    // ── Legend (HTML, above chart, right-aligned) ──
-    const legendItems = [
-      { dash: "none",    color: "rgba(255,255,255,0.9)",  label: "DPS" },
-      { dash: "3,4",     color: "rgba(220,60,60,0.9)",    label: "Boss HP" },
-    ];
+    // ── Legend: a line per player, in the colour it is drawn in (the one
+    // selected solid, the rest dashed), then the boss's HP and the ping. ──
+    const escapeHtml = (text) => String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    const LEGEND_PLAYERS = 6;
+    const legendItems = allSamples.slice(0, LEGEND_PLAYERS).map(({ actor }) => {
+      const fallbackColor = LANE_COLORS[actorList.indexOf(actor) % LANE_COLORS.length];
+      const color = getJobColor(actor.job) || fallbackColor;
+      const info = detailsActors.get(actor.actorId);
+      const name = info?.nickname && info.nickname !== String(actor.actorId) ? info.nickname : `#${actor.actorId}`;
+      return { dash: isSelectedActor(actor.actorId) ? "none" : "5,3", color, label: escapeHtml(name) };
+    });
+    if (allSamples.length > LEGEND_PLAYERS) {
+      legendItems.push({ dash: "", color: "rgba(255,255,255,0.55)", label: `+${allSamples.length - LEGEND_PLAYERS}` });
+    }
+    if (!healMode) {
+      legendItems.push({ dash: "3,4", color: "rgba(220,60,60,0.9)", label: escapeHtml(labelText("details.chart.bossHp", "Boss HP")) });
+    }
     if (hasPing) {
-      legendItems.push({ dash: "2,4", color: "rgba(255,255,255,0.9)", label: "Ping" });
+      legendItems.push({ dash: "2,4", color: "rgba(255,255,255,0.9)", label: escapeHtml(labelText("details.chart.ping", "Ping")) });
     }
     dpsChartLegend.innerHTML = legendItems.map(({ dash, color, label }) => {
+      if (!dash) return `<span class="legendItem legendMore" style="color:${color}">${label}</span>`;
       const svgLine = dash === "none"
         ? `<line x1="0" y1="6" x2="22" y2="6" stroke="${color}" stroke-width="2"/>`
         : `<line x1="0" y1="6" x2="22" y2="6" stroke="${color}" stroke-width="2" stroke-dasharray="${dash}"/>`;
@@ -1631,12 +1849,14 @@ const createDetailsUI = ({
       span.textContent = `${minutes}:${String(seconds).padStart(2, "0")}`;
       dpsChartXAxis.appendChild(span);
     }
+    renderFightAxis(battleTimeMs);
   };
 
   const renderTimeline = (details) => {
     if (!timelineCanvas || !timelineViewport || !timelineLegend || !timelineXAxis) return;
 
-    const skills = Array.isArray(details?.skills) ? details.skills : [];
+    const laneSource = detailsMode === "heal" ? details?.healSkills : details?.skills;
+    const skills = Array.isArray(laneSource) ? laneSource : [];
     const battleTimeMs = Number(lastUnfilteredDetails?.battleTimeMs) || Number(details?.battleTimeMs) || 0;
     if (battleTimeMs <= 0 || skills.length === 0) {
       timelineCanvas.width = 0;
@@ -1687,15 +1907,18 @@ const createDetailsUI = ({
     // Sort timestamps within each lane
     lanes.forEach((lane) => lane.timestamps.sort((a, b) => a - b));
 
-    // Dimensions
-    const ICON_SIZE = 22;
-    const LANE_HEIGHT = 30;
+    // Dimensions: the whole timeline width, the lane between the shared label
+    // gutter and right margin; the skill's icon and name in the gutter.
+    const metrics = ftlMetrics();
+    const ICON_SIZE = Math.max(20, Math.round(metrics.text * 1.55));
+    const LANE_HEIGHT = ICON_SIZE + 8;
     const LANE_PAD = 4;
-    const LEFT_MARGIN = 0;
+    const LABEL_ICON = Math.max(18, Math.round(metrics.text * 1.35));
+    const LEFT_MARGIN = metrics.gutter;
+    const RIGHT_MARGIN = metrics.right;
     const durationSec = battleTimeMs / 1000;
-    const minCanvasWidth = timelineViewport.clientWidth - 24;
-    const pixelsPerSecond = Math.max(8, minCanvasWidth / durationSec);
-    const chartWidth = Math.max(minCanvasWidth, Math.ceil(durationSec * pixelsPerSecond));
+    const chartWidth = Math.max(LEFT_MARGIN + RIGHT_MARGIN + 100, timelineViewport.clientWidth);
+    const laneWidth = chartWidth - LEFT_MARGIN - RIGHT_MARGIN;
     const chartHeight = lanes.length * LANE_HEIGHT;
     const dpr = window.devicePixelRatio || 1;
 
@@ -1715,12 +1938,12 @@ const createDetailsUI = ({
       ctx.fillRect(0, y, chartWidth, LANE_HEIGHT);
     });
 
-    // Draw vertical grid lines (every 30s)
-    const gridIntervalSec = durationSec > 300 ? 60 : durationSec > 60 ? 30 : 10;
+    // Draw vertical grid lines, on the shared axis's steps
+    const gridIntervalSec = ftlStepSec(durationSec);
     ctx.strokeStyle = "rgba(255,255,255,0.08)";
     ctx.lineWidth = 1;
     for (let sec = gridIntervalSec; sec < durationSec; sec += gridIntervalSec) {
-      const x = Math.round((sec / durationSec) * chartWidth) + 0.5;
+      const x = Math.round(LEFT_MARGIN + (sec / durationSec) * laneWidth) + 0.5;
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, chartHeight);
@@ -1738,8 +1961,30 @@ const createDetailsUI = ({
         isDot: lane.isDot,
       });
 
+      // The lane's label in the gutter: its icon, then its name.
+      const labelY = laneIdx * LANE_HEIGHT + LANE_HEIGHT / 2;
+      if (entry && entry.ready && entry.img.complete && entry.img.naturalWidth > 0) {
+        ctx.drawImage(entry.img, 12, labelY - LABEL_ICON / 2, LABEL_ICON, LABEL_ICON);
+      } else {
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.7;
+        ctx.fillRect(12, labelY - LABEL_ICON / 2, LABEL_ICON, LABEL_ICON);
+        ctx.globalAlpha = 1.0;
+      }
+      ctx.font = `${metrics.text}px Bahnschrift, 'Segoe UI', sans-serif`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(255,255,255,0.86)";
+      const maxText = LEFT_MARGIN - 12 - LABEL_ICON - 8 - 12;
+      let label = lane.name || `Skill ${lane.code}`;
+      if (ctx.measureText(label).width > maxText) {
+        while (label.length > 1 && ctx.measureText(label + "…").width > maxText) label = label.slice(0, -1);
+        label += "…";
+      }
+      ctx.fillText(label, 12 + LABEL_ICON + 8, labelY);
+
       lane.timestamps.forEach((ts) => {
-        const x = LEFT_MARGIN + (ts / battleTimeMs) * (chartWidth - LEFT_MARGIN);
+        const x = LEFT_MARGIN + (ts / battleTimeMs) * laneWidth;
         const iconX = x - ICON_SIZE / 2;
         const iconY = y;
 
@@ -1802,11 +2047,10 @@ const createDetailsUI = ({
 
   // ── Buffs ──
   // A History fight's come with its record; a live fight's are asked for
-  // only while the section is open, once per refresh at most.
-  const buffsSection = detailsPanel?.querySelector?.(".buffsSection");
+  // once per refresh at most. They sit in the fight timeline, on its axis.
   const buffTimeline = typeof window.createBuffTimeline === "function"
     ? window.createBuffTimeline({
-      root: buffsSection?.querySelector?.(".buffTimeline"),
+      root: fightTimeline,
       describeActor: (id) => {
         const actor = detailsActors.get(Number(id));
         if (!actor) return null;
@@ -1825,6 +2069,35 @@ const createDetailsUI = ({
     return Number(id) || null;
   };
 
+  // Whose buffs "All" shows, rather than a "select a player" note that left
+  // the section looking empty: you, live; in a saved fight or an uploaded log
+  // its recorder, the one actor whose name is not masked; else whoever did
+  // the most damage to the target.
+  const defaultBuffPlayer = (target) => {
+    const ids = [...detailsActors.keys()];
+    if (!ids.length) return null;
+    if (!historyRecord) {
+      const local = Number(window._dpsApp?.localPlayerId);
+      if (local && detailsActors.has(local)) return local;
+    }
+    const named = ids.filter((id) => {
+      const nick = String(detailsActors.get(id)?.nickname || "").trim();
+      return nick && !nick.includes("*") && !nick.startsWith("#");
+    });
+    if (named.length === 1) return named[0];
+    const damage = target && typeof target.actorDamage === "object" ? target.actorDamage : {};
+    let best = null;
+    let bestDamage = -1;
+    for (const id of ids) {
+      const d = Number(damage[id]) || 0;
+      if (d > bestDamage) {
+        best = id;
+        bestDamage = d;
+      }
+    }
+    return best;
+  };
+
   const showBuffs = () => {
     if (!buffTimeline) return;
     const targetId = buffTargetId();
@@ -1833,7 +2106,7 @@ const createDetailsUI = ({
       targetId,
       targetName: (target ? getTargetLabel(target) : "") || fightBossName,
       playerId: Array.isArray(selectedAttackerIds) && selectedAttackerIds.length === 1
-        ? Number(selectedAttackerIds[0]) : null,
+        ? Number(selectedAttackerIds[0]) : defaultBuffPlayer(target),
       actorIds: [...detailsActors.keys()],
     };
     if (historyRecord) {
@@ -1841,7 +2114,7 @@ const createDetailsUI = ({
         ...common,
         older: !Array.isArray(historyRecord.buffs),
         tracks: Array.isArray(historyRecord.buffs) ? historyRecord.buffs : [],
-        durationMs: Number(historyRecord.durationMs) || 0,
+        durationMs: ftlDurationMs || Number(historyRecord.durationMs) || 0,
       });
       return;
     }
@@ -1849,13 +2122,13 @@ const createDetailsUI = ({
     buffTimeline.setData({
       ...common,
       tracks: shown ? shown.buffs : (targetId ? null : []),
-      durationMs: Number(shown?.durationMs) || 0,
+      durationMs: ftlDurationMs || Number(shown?.durationMs) || 0,
       loading: !!targetId && !shown,
     });
   };
 
   const renderBuffs = () => {
-    if (!buffTimeline || !buffsSection?.classList.contains("isExpanded")) return;
+    if (!buffTimeline) return;
     showBuffs();
     if (historyRecord || activeCompactMode || liveBuffsPending || !window.dpsData?.getFightBuffs) return;
     const targetId = buffTargetId();
@@ -2438,6 +2711,7 @@ const createDetailsUI = ({
       : 0;
     fightBossName = firstTarget ? getTargetLabel(firstTarget) : (row?.name ?? "");
     fightDungeonId = Number(getDungeonId?.()) || 0;
+    fightMobCode = Number(firstTarget?.mobCode) || 0;
     updateHeaderText();
     detailsPanel.classList.add("open");
     detailsPanel.style.removeProperty("width");
@@ -2501,6 +2775,7 @@ const createDetailsUI = ({
     fightStartMs = 0;
     fightBossName = "";
     fightDungeonId = 0;
+    fightMobCode = 0;
     window._resumeFpsMonitor?.();
   };
   detailsClose?.addEventListener("click", close);
@@ -2564,6 +2839,7 @@ const createDetailsUI = ({
     fightStartMs = Number(record.startTimeMs) || 0;
     fightBossName = record.bossName || (Number(record.targetId) > 0 ? `Mob #${record.targetId}` : "");
     fightDungeonId = Number(record.dungeonId) || 0;
+    fightMobCode = Number(record.mobCode) || 0;
     updateHeaderText();
     detailsPanel.classList.add("open");
     detailsPanel.style.removeProperty("width");
@@ -2612,10 +2888,39 @@ const createDetailsUI = ({
 
   const isPinned = () => pinnedRowId !== null;
 
+  // In HEAL the amount and share columns are healing, and the timeline keeps
+  // only the buffs: heals carry no hit times yet, so there is no HPS chart or
+  // heal cast lane to draw, and the damage ones would be the wrong fight.
+  const syncSkillHeaderMode = () => {
+    const heal = detailsMode === "heal";
+    const set = (col, key, fallback, tipKey, tipFallback) => {
+      const el = detailsPanel?.querySelector?.(`.detailsSkills .skillHeader .cell.${col}`);
+      if (!el) return;
+      el.dataset.i18n = key;
+      el.dataset.i18nTip = tipKey;
+      el.textContent = labelText(key, fallback);
+      el.dataset.tip = labelText(tipKey, tipFallback);
+    };
+    set("dmg", heal ? "details.skills.heal" : "details.skills.dmg", heal ? "Heal" : "Dmg",
+      heal ? "details.skills.healTooltip" : "details.skills.dmgTooltip", heal ? "Healing" : "Damage");
+    set("dmgpct", heal ? "details.skills.healPct" : "details.skills.dmgPct", heal ? "H%" : "D%",
+      heal ? "details.skills.healPctTooltip" : "details.skills.dmgPctTooltip", heal ? "Healing %" : "Damage %");
+    fightTimeline?.classList?.toggle?.("isHealMode", heal);
+    detailsPanel?.classList?.toggle?.("isHealMode", heal);
+    const chartTitle = fightTimeline?.querySelector?.(".ftlGroupDps .ftlGroupTitle");
+    if (chartTitle) {
+      chartTitle.dataset.i18n = heal ? "details.hpsChart" : "details.dpsChart";
+      chartTitle.textContent = heal
+        ? labelText("details.hpsChart", "Healing per second")
+        : labelText("details.dpsChart", "Damage per second");
+    }
+    updateGridColumns();
+  };
   const syncModeButtons = () => {
     detailsPanel?.querySelectorAll?.(".detailsModeBtn")?.forEach?.((btn) => {
       btn.classList.toggle("isActive", btn?.dataset?.mode === detailsMode);
     });
+    syncSkillHeaderMode();
   };
   const rerenderForMode = () => {
     if (!lastDetails) return;
@@ -2623,6 +2928,7 @@ const createDetailsUI = ({
     renderPartyBars(ctx?.stats || lastDetails?.perActorStats, ctx?.battleTimeMs || lastDetails?.battleTimeMs);
     renderStats(lastDetails, { compact: activeCompactMode });
     renderSkills(lastDetails, { compact: activeCompactMode });
+    renderDpsChart(lastDetails);
     renderTimeline(lastDetails);
   };
   const setDetailsMode = (mode) => {

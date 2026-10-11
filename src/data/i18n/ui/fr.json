@@ -86,7 +86,11 @@
       "avgDmg": "Moy",
       "avgDmgTooltip": "Dégâts moyens",
       "maxDmg": "Max",
-      "maxDmgTooltip": "Dégâts max."
+      "maxDmgTooltip": "Dégâts max.",
+      "heal": "Soin",
+      "healTooltip": "Soins",
+      "healPct": "S%",
+      "healPctTooltip": "Soins %"
     },
     "stats": {
       "totalDamage": "Dégâts totaux",
@@ -111,7 +115,7 @@
     "history": {
       "allPlayers": "Tous les joueurs"
     },
-    "dpsChart": "Graphique DPS",
+    "dpsChart": "Dégâts par seconde",
     "historyBtn": "Historique",
     "timeline": "Chronologie",
     "buffs": {
@@ -152,7 +156,18 @@
         "stillOn": "Encore actif à la fin du combat",
         "replaced": "Remplacé par un nouveau niveau"
       }
-    }
+    },
+    "fightTimeline": "Chronologie du combat",
+    "casts": "Lancers",
+    "resize": "Faire glisser pour redimensionner",
+    "healTimingNote": "Pas de moments de soin pour ce combat (enregistré par une version plus ancienne).",
+    "chart": {
+      "bossHp": "PV du boss",
+      "ping": "Ping"
+    },
+    "hpsChart": "Soins par seconde",
+    "sectionChart": "Graphique",
+    "showSections": "Sections affichées"
   },
   "history": {
     "title": "Historique des combats",
@@ -180,21 +195,19 @@
   },
   "settings": {
     "title": "Paramètres",
-    "lockedPort": "Périphérique/port détecté",
-    "resetDetection": "Réinitialiser",
-    "characterName": "Nom#ID",
+    "lockedPort": "Connexion détectée",
+    "resetDetection": "Détecter à nouveau",
+    "characterName": "Ton personnage",
     "characterNamePlaceholder": "Saisissez le nom de votre personnage",
-    "pinMeToTop": "Toujours m'afficher en haut",
+    "pinMeToTop": "Garder ma ligne en haut",
     "slimMode": "Mode compact",
     "meterLayout": {
       "label": "Disposition du meter",
-      "beta": "Beta UI",
-      "betaSlim": "Bêta compact",
-      "classic": "Interface classique",
-      "classicSlim": "Classique compact"
+      "standard": "Standard",
+      "slim": "Compact"
     },
     "detailsMonitor": {
-      "label": "Afficher les détails sur l'écran",
+      "label": "Détails sur le second écran",
       "off": "Désactivé",
       "primary": "principal",
       "missing": "Cet écran n'est pas connecté.",
@@ -211,30 +224,30 @@
     "connection": "Connexion",
     "diagnostics": "Diagnostics",
     "device": {
-      "label": "Périphérique de capture",
+      "label": "Carte réseau",
       "autoDetect": "Détection auto"
     },
     "advanced": "Avancé",
     "bossLogs": "Activer les journaux par boss",
-    "saveRawPackets": "Activer la journalisation des paquets",
+    "saveRawPackets": "Journal des paquets",
     "resetAllSettings": "Réinitialiser tous les paramètres",
     "bold": {
-      "label": "Gras",
+      "label": "Texte en gras",
       "names": "Noms",
       "dps": "DPS"
     },
     "showPing": "Afficher le ping",
-    "showTtk": "Afficher le temps avant la mort (TTK)",
-    "showTotalDps": "Afficher DPS/DGT total",
-    "roundDps": "Arrondir les DPS",
-    "showDpsSuffix": "Afficher /s après le DPS",
-    "autoHideMeter": "Masquer le meter automatiquement",
-    "showSuspendBtn": "Afficher le bouton pause",
-    "showLockBtn": "Afficher le bouton de verrouillage (clics traversants)",
+    "showTtk": "Afficher le temps de kill estimé",
+    "showTotalDps": "Afficher le total du groupe",
+    "roundDps": "Abréger le DPS en milliers (13k)",
+    "showDpsSuffix": "Ajouter /s au DPS",
+    "autoHideMeter": "Masquer quand AION2 n'est pas au premier plan",
+    "showSuspendBtn": "Afficher le bouton de pause de capture",
+    "showLockBtn": "Afficher le bouton de verrouillage (clic au travers)",
     "playerLimit": {
       "label": "Joueurs affichés max."
     },
-    "debugLogging": "Activer la journalisation de débogage",
+    "debugLogging": "Journal de débogage",
     "quit": "Quitter",
     "discord": {
       "title": "Discord",
@@ -262,7 +275,7 @@
     },
     "version": "Version",
     "theme": {
-      "label": "Thème",
+      "label": "Thème de couleurs",
       "options": {
         "aion2": "AION2",
         "asmodian": "Asmodian",
@@ -280,23 +293,13 @@
       "label": "Langue"
     },
     "windowOpacity": {
-      "label": "Opacité de la fenêtre principale"
+      "label": "Opacité du fond"
     },
     "meterOpacity": {
       "label": "Opacité des barres"
     },
     "bossNameSize": {
-      "label": "Taille du nom de la cible"
-    },
-    "targetWindow": {
-      "label": "Plage de temps de la cible",
-      "options": {
-        "5s": "5 secondes",
-        "10s": "10 secondes",
-        "15s": "15 secondes",
-        "20s": "20 secondes",
-        "30s": "30 secondes"
-      }
+      "label": "Taille du titre"
     },
     "targetSelection": {
       "label": "Sélection de cible (expérimental)",
@@ -308,7 +311,7 @@
       }
     },
     "allTargetsWindow": {
-      "label": "Plage de temps toutes cibles",
+      "label": "Fenêtre de toutes les cibles",
       "options": {
         "30s": "30 secondes",
         "1m": "1 minute",
@@ -327,10 +330,10 @@
       "lock": "Verrouiller/déverrouiller l'overlay"
     },
     "defaultMeterMode": {
-      "label": "Mode par défaut"
+      "label": "Mode de cible au démarrage"
     },
     "trainingMode": {
-      "label": "Cible du mode entraînement",
+      "label": "Détails en mode entraînement",
       "options": {
         "all": "Toutes",
         "highestDamage": "Dégâts les plus élevés"
@@ -358,6 +361,32 @@
       "sending": "Envoi...",
       "sent": "Envoyé. Ton code de rapport est {code} : donne-le au développeur sur Discord.",
       "failed": "Envoi impossible : {error}"
+    },
+    "barGap": {
+      "label": "Espacement des barres"
+    },
+    "debugLoggingLocked": "Activé tant que la journalisation des paquets l'est : les journaux de paquets ont besoin du journal de débogage.",
+    "tips": {
+      "characterName": "Ton nom et ton ID en jeu, pour que le compteur sache quelle ligne est la tienne. Il est en général trouvé tout seul.",
+      "device": "La connexion réseau dont le compteur lit le trafic du jeu. La détection automatique la trouve ; avec un VPN, choisis-la à la main.",
+      "lockedPort": "La carte et le port sur lesquels le jeu a été trouvé.",
+      "defaultMeterMode": "Le mode de cible à l'ouverture : Boss, Cible, Entraînement ou Tous.",
+      "playerLimit": "Combien de lignes de joueurs le compteur affiche ; les autres sont masquées.",
+      "pinMeToTop": "Ta ligne reste en premier, quels que soient tes dégâts.",
+      "autoHideMeter": "Le compteur disparaît quand une autre fenêtre passe devant le jeu, et revient avec lui.",
+      "detailsMonitor": "Ouvre la fenêtre Détails sur l'écran choisi et l'y garde.",
+      "showTtk": "À côté du chronomètre, une estimation de la durée totale du combat contre le boss.",
+      "showTotalDps": "Une barre sous les lignes avec le DPS et les dégâts de tout le groupe.",
+      "roundDps": "13 412 s'affiche 13k.",
+      "showSuspendBtn": "Un bouton sur le compteur qui arrête la lecture du trafic du jeu jusqu'à ce que tu appuies à nouveau.",
+      "showLockBtn": "Un bouton qui fait ignorer la souris au compteur, pour que les clics passent au jeu.",
+      "windowOpacity": "La transparence du fond du compteur. Les barres et le texte ne changent pas.",
+      "meterOpacity": "L'opacité des barres de dégâts colorées.",
+      "bossNameSize": "Taille du nom du boss ou de la cible au-dessus des barres.",
+      "trainingMode": "En mode entraînement, quels mannequins la fenêtre Détails affiche : tous ensemble, ou seulement celui que tu frappes le plus.",
+      "allTargetsWindow": "En mode Toutes les cibles, le compteur additionne chaque cible touchée dans ce délai avant le dernier coup.",
+      "debugLogging": "Écrit un journal de diagnostic que le développeur peut utiliser pour trouver les problèmes.",
+      "saveRawPackets": "Enregistre le trafic brut du jeu pour les rapports de bug. Le journal de débogage s'active avec."
     }
   },
   "support": {

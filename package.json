@@ -1,7 +1,7 @@
 {
   "name": "a2tools-dps-meter",
   "private": true,
-  "version": "2.0.55",
+  "version": "2.0.56",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "test:timer": "node --test tests/timer-schedule.test.mjs",
     "tauri": "tauri",
+    "build:offline": "tauri build -- --no-default-features --features desktop",
+    "dev:offline": "tauri dev -- --no-default-features --features desktop",
     "rename-msi": "node -e \"const fs=require('fs'),p=require('path'),d='src-tauri/target/release/bundle/msi';fs.readdirSync(d).filter(f=>f.endsWith('.msi')).forEach(f=>{const n=f.replace(/ /g,'-');if(n!==f){fs.renameSync(p.join(d,f),p.join(d,n));console.log(f+' -> '+n)}})\""
   },
   "dependencies": {

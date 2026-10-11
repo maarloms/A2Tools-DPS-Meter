@@ -131,7 +131,10 @@ upload is an *Evidence Slice*: rebuilt from an allowlist of the packet types the
 parser reads, with names replaced by opaque tokens. An allowlist, not a
 blocklist: we cannot prove we stripped every chat message from a format we only
 partly understand, but we can prove what we kept. The list is `ALLOWED_OPCODES`
-in `src-tauri/src/capture/evidence_slice.rs`, twelve entries, each named.
+in `src-tauri/src/capture/evidence_slice.rs`, sixteen entries, each named.
+Three of them (meter 2.0.56 on) are the buff and debuff records behind a log's
+Buffs timeline: which effect an entity gained, changed or lost, the skill and
+entity that applied it, its timings and a position. They hold no names.
 
 Two additions to the allowlist, both measured as necessary on real fights and
 both narrower than keeping more packet types:
@@ -168,8 +171,14 @@ appears in it. `no_readable_text_from_the_capture_survives_into_the_slice`
 asserts the same for every length-prefixed string in the capture, which is what
 catches chat and bystanders.
 
-**Names.** The slice contains no names. Separately, the upload sends the names
-the saved fight already holds: **yours in full, everyone else masked** the way
+**Names.** The slice contains no names. Each token is made with a random key
+that belongs to that one slice and is thrown away once it is cut, so a token
+cannot be worked out from a name or a roster id, and the same name gets a
+different token in every slice. That does not make a person unlinkable across
+uploads: the party roster record in a slice still carries each member's roster
+id, a stable per-character number, beside their token.
+Separately, the upload sends the names the saved fight already holds: **yours
+in full, everyone else masked** the way
 the meter shows them (`Ta****x`: first two characters, last character, at most
 four stars). The service applies that masking again itself, so a modified client
 cannot publish another player's full name. An earlier version of this document
