@@ -33,6 +33,8 @@ settings.properties
 
 # Copied static files (generated from src/ at build/dev time)
 /public/*
+# The plugin windows' host page (src-tauri/src/plugins).
+!/public/plugin-host.html
 !/public/src/
 /public/src/*
 !/public/src/js/
@@ -65,3 +67,5 @@ settings.properties
 
 # fork: themes, skin and fonts of the maarloms fork
 !/public/fork/
+# Never commit a signing key.
+*.pem

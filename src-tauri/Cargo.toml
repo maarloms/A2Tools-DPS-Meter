@@ -1,6 +1,6 @@
 [package]
 name = "a2tools-dps-meter"
-version = "2.0.56"
+version = "2.0.60"
 description = "A2Tools DPS Meter - AION 2 real-time DPS overlay"
 authors = ["taengu"]
 edition = "2024"
@@ -37,6 +37,7 @@ online = [
     "dep:futures-util",
     "dep:urlencoding",
     "dep:discord-rich-presence",
+    "dep:ed25519-dalek",
 ]
 desktop = [
     "dep:tauri",
@@ -54,6 +55,7 @@ desktop = [
     "dep:webkit2gtk",
     "dep:x11-dl",
     "dep:libc",
+    "dep:zbus",
 ]
 
 # Both binaries are declared rather than left to auto-discovery, so adding the
@@ -67,6 +69,13 @@ required-features = ["desktop"]
 # prints what is in it. Kept outside src/bin/, which .gitignore excludes for
 # scratch debug binaries — this one has to ship in the public repo to be worth
 # anything.
+# Linux global hotkeys, in a process without the meter's capture permission
+# (platform::linux::hotkeys). Packaged next to the meter, never given caps.
+[[bin]]
+name = "a2tools-hotkeys"
+path = "tools/a2t_hotkeys.rs"
+required-features = ["desktop"]
+
 [[bin]]
 name = "a2t-probe"
 path = "tools/a2t_probe.rs"
@@ -113,6 +122,8 @@ futures-util = { version = "0.3", optional = true }
 getrandom = { version = "0.3", optional = true }
 urlencoding = { version = "2", optional = true }
 sha2 = "0.11.0"
+# Checks the signature on the reviewed-plugin catalog (src/plugins/catalog.rs).
+ed25519-dalek = { version = "2", default-features = false, features = ["std"], optional = true }
 flate2 = { version = "1.1.10", optional = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -156,6 +167,9 @@ webkit2gtk = { version = "2", features = ["v2_40"], optional = true }
 # The pointer's position under XWayland, for the click-through lock. Loads
 # libX11 at run time; already in the tree through tao.
 x11-dl = { version = "2.21", optional = true }
+# Global hotkeys through the GlobalShortcuts portal (D-Bus). The zbus the
+# opener plugin and secret-service already bring in, so no second D-Bus stack.
+zbus = { version = "5", optional = true }
 
 [dev-dependencies]
 flate2 = "1"

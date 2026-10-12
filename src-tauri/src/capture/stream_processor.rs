@@ -274,6 +274,9 @@ impl StreamProcessor {
         }
         if let Some(hook) = FORK_PACKET_HOOK.get() { hook(packet); } // fork
 
+        // Plugin decoders (`crate::plugins`); nothing when none is loaded.
+        crate::capture::frame_tap::frame(packet);
+
         // Buffs, debuffs and stats, recorded alongside (see `capture::abnormal`).
         self.data_storage.note_abnormal_packet(packet);
 
