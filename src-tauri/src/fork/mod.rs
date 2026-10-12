@@ -207,9 +207,10 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 let _ = crate::capture::stream_processor::FORK_PACKET_HOOK.set(on_packet);
                 let manager = HotkeyManager::new();
                 let handle = app.clone();
+                // Only the timer key; Settings' keybind status is not about it.
                 manager.start(0, 0, 3, 0x54, 0, 0, || {}, move || {
                     spawn_toggle(handle.clone());
-                }, || {});
+                }, || {}, |_, _| {});
                 app.manage(manager);
                 if app.state::<AppState>().settings.get(VISIBLE).as_deref() == Some("true") {
                     spawn_toggle(app.clone());
