@@ -1,27 +1,23 @@
+**Wichtig: Einfrieren behoben**
+- Das Meter konnte unter Windows einfrieren („Keine Rückmeldung“, keine Aufnahme mehr), wenn eine Taste genau in dem Moment beim Meter-Fenster ankam, in dem der Fokus wechselte. Ursache war ein Fehler in der Fenster-Bibliothek; sie ist jetzt auf dem neuen Stand (Tauri 2.12), der Hänger tritt nicht mehr auf. Update wird allen empfohlen.
+
 **Neu**
-- Einstellungen neu aufgebaut: links eine Seitenleiste mit Bereichen (Verbindung, A2 Tools-Konto, Meter-Einstellungen, Darstellung, Streaming, Gruppe teilen, Tastenbelegung, Erweitert). Weniger offensichtliche Einstellungen erklären sich beim Drüberfahren mit der Maus.
-- „Gruppe teilen“ hat jetzt einen eigenen Eintrag in der Seitenleiste.
-- Einstellbarer „Balkenabstand“ zwischen den Spielerbalken (0–16 px). Das Meter-Layout heißt jetzt „Standard“ oder „Schmal“.
-- Details: Gruppe und Werte stehen neben der Skill-Tabelle, darunter eine gemeinsame Kampf-Zeitleiste mit DPS-Kurve, Buffs und Skill-Einsätzen. Die drei Teile lassen sich einzeln ein- und ausblenden.
-- Details → HEAL: eigene HPS-Kurve, Heil-Einsätze in der Zeitleiste und nur die Spalten, die für Heilungen Sinn ergeben.
-- Details: Der Kampf-Kopf nennt den Dungeon neben dem Schwierigkeitsgrad; Albtraum-Bosse zeigen ihre Stufe im Titel.
-- Buffs: Unter „Alle“ stehen deine eigenen Buffs (live), sonst die des stärksten Schadensverursachers. Buff-Namen stehen in der Farbe ihres Balkens, eigene Buffs in deiner Klassenfarbe.
+- Einstellungen → Tastenbelegung: Schalter „Tastenkürzel verwenden“. Ausschalten gibt die Tasten sofort frei, ohne Neustart.
+- Ist eine Tastenkombination schon von einem anderen Programm belegt (oder für zwei Aktionen vergeben), wird sie rot umrandet und der Grund steht darunter. Geänderte Tasten gelten sofort.
+- Einstellungen → Plugins: geprüfte Erweiterungen aus einem signierten Katalog installieren, aktualisieren und entfernen. Plugins laufen in einem eigenen, abgeschotteten Fenster ohne Internet und sehen nur die Daten, die sie vorher ausdrücklich anfragen. Für Entwickler gibt es einen Entwicklermodus für lokale Ordner.
 
 **Behoben**
-- HEAL zählt nur noch die Heilungen des jeweiligen Kampfes statt aller seit dem letzten Zurücksetzen.
-- Ein von Hand gewähltes Aufnahmegerät (z. B. bei VPN) bleibt nach Neustart erhalten.
-- Schieberegler laufen nach dem Loslassen nicht mehr von selbst weiter.
-- Der Titel im Hauptfenster bleibt nach Zonenwechsel beim Kampf, dessen Balken gerade angezeigt werden.
-- Beschwörungen, die Klassen-Skills ihres Besitzers einsetzen, werden im Verlauf dem Besitzer zugerechnet.
-- Schwierigkeitsgrade für Krao-Höhle, Vakron, Feuertempel und Dramata korrigiert.
-- Die wirkungslose Einstellung „Zielzeitraum“ wurde entfernt.
+- Buffs: Effekte, die das Spiel unter zwei Kennungen schickt (z. B. Sprint-Mantra), stehen nicht mehr doppelt da – eine Zeile pro Buff und Verursacher.
+- Tastenbelegung: Als Standard für „Zurücksetzen“ wird jetzt Strg+Alt+R angezeigt – die Taste, die auch wirklich funktioniert (vorher stand dort fälschlich Strg+Alt+Umschalt+R).
+- Details: Die Legende des Diagramms passt ins Diagramm und überdeckt den Bereich darunter nicht mehr.
+- Ältere gespeicherte Kämpfe lassen sich wieder neu auswerten, auch wenn ihnen Angaben zum eigenen Charakter fehlen.
 
 **Sonstiges**
-- Basis aktualisiert auf A2Tools 2.0.56 (aktueller Stand).
-- Einheitliche, besser sichtbare Scrollleisten in allen Fenstern.
+- Basis aktualisiert auf A2Tools 2.0.60 (aktueller Stand).
+- Strg+Alt+T für den Event-Timer funktioniert wie bisher und hängt nicht am neuen Schalter für Tastenkürzel.
 
 **Installation (neu)**
-1. `AION2-DPS-Meter_3.0.16_x64.msi` herunterladen und ausführen. Windows SmartScreen warnt, weil der Installer nicht signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
+1. `AION2-DPS-Meter_3.0.17_x64.msi` herunterladen und ausführen. Windows SmartScreen warnt, weil der Installer nicht signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
 2. Npcap: Fehlt es, bietet das Meter beim ersten Start an, es herunterzuladen und zu installieren (Standardoptionen übernehmen, danach Meter neu starten).
 3. Meter starten, im Spiel einloggen. Updates kommen danach automatisch (Meldung beim Start).
 4. Einstellungen → „Gruppe teilen“: Einladungslink einfügen.
