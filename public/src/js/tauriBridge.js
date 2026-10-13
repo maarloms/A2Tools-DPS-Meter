@@ -1175,7 +1175,8 @@
     const tooltip = fullPanel ? null : document.querySelector(".hoverDetailsTooltip.isVisible");
     // The one-time Discord popup needs room for its card, no more: a
     // full-panel window would block clicks on the game around it.
-    const promoOpen = !fullPanel && !!document.querySelector(".discordPromo.isOpen");
+    // fork: the patch-notes popup (public/fork/patchnotes.js) gets the same room.
+    const promoOpen = !fullPanel && !!document.querySelector(".discordPromo.isOpen, .forkPatchnotes");
 
     // Measure meter width (may be resized by user via drag handle) and height
     const meter = document.querySelector(".meter");

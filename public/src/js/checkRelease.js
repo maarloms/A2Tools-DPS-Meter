@@ -56,6 +56,7 @@
           result = { latest: v, msi: m.msiUrl || "", arch: m.archUrl || "", deb: m.debUrl || "", rpm: m.rpmUrl || "" };
           // SHA-256 of each package: the backend installs a download only when it matches.
           result.hashes = { msi: m.msiSha256 || "", arch: m.archSha256 || "", deb: m.debSha256 || "", rpm: m.rpmSha256 || "" };
+          result.notes = typeof m.notes === "string" ? m.notes : ""; // fork: for the patch-notes popup
         } catch (e) {
           console.error("[A2Tools] Update check failed:", e);
           return;
@@ -73,6 +74,13 @@
         if (!hasUpdate) return;
 
         console.log("[A2Tools] Update available:", current, "->", latest);
+        // fork: the patch-notes popup (public/fork/patchnotes.js) asks instead
+        // of the native dialog, which stays the fallback.
+        const update = {
+          msiUrl: result.msi, archUrl: result.arch, debUrl: result.deb, rpmUrl: result.rpm,
+          msiSha256: result.hashes.msi, archSha256: result.hashes.arch, debSha256: result.hashes.deb, rpmSha256: result.hashes.rpm,
+        };
+        if (window.ForkPatchnotes?.offer?.({ current, latest, notes: result.notes, update })) return;
         await window.__TAURI__.core.invoke("show_update_window", {
           current,
           latest,
