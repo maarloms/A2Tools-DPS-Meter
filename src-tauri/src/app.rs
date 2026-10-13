@@ -1112,7 +1112,8 @@ fn package_hash_matches(expected: &str, actual_hex: &str) -> bool {
 }
 
 #[cfg(feature = "online")]
-async fn download_and_install_update(app: &tauri::AppHandle, url: &str, expected_sha256: &str) -> Result<(), String> {
+// fork: pub(crate) for the patch-notes popup (fork/update.rs).
+pub(crate) async fn download_and_install_update(app: &tauri::AppHandle, url: &str, expected_sha256: &str) -> Result<(), String> {
     use tokio::io::AsyncWriteExt;
     use futures_util::StreamExt;
     use sha2::{Digest, Sha256};
@@ -3145,6 +3146,8 @@ pub fn run() {
             crate::fork::bosses::set_field_boss,
             crate::fork::bosses::merge_field_bosses,
             crate::fork::diagnostics::fork_send_diagnostics,
+            crate::fork::update::fork_update_can_install, // fork: patch-notes popup
+            crate::fork::update::fork_install_update,
             get_app_version,
             get_hotkey_status,
             crate::plugins::plugin_list,

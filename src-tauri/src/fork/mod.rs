@@ -3,6 +3,7 @@ pub mod gear;
 pub mod cloud;
 pub mod diagnostics;
 pub mod npcap;
+pub mod update;
 
 use crate::app::AppState;
 use crate::platform::hotkeys::HotkeyManager;
