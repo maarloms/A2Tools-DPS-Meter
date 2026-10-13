@@ -54,8 +54,10 @@ cloud/
   public/
     login.html/.js/.css     einzige öffentliche Seite
     index.html, app.js, style.css, js/*.js   Dashboard (nur mit Session)
-    shared/                 ← beim Build kopiert: events.json + schedule.js aus app/public/fork (nicht von Hand ändern)
+    js/patchnotes.js        Patchnotes-Tab: Release-Verlauf direkt von der GitHub-API (1 h in sessionStorage)
+    shared/                 ← beim Build kopiert: events.json, schedule.js, markdown.js aus app/public/fork (nicht von Hand ändern)
   scripts/sync-shared.mjs
+  test/releases.test.mjs    Unit-Test Release-Verlauf (Sortierung, Fehlertexte, Markdown)
   test/simulate.mjs         End-to-End-Test (Live, Upload, Statistik, Mitglieder, Session)
   test/seed.mjs             Testdaten: 3 Mitglieder (marloms, Lyrienne, Kaedros) + Fremde, ~45 Tage; optional Live-Kampf
 ```

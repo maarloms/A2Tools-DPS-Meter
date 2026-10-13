@@ -507,3 +507,35 @@ details.more[open] > summary::before { content: "▾ "; }
   display: flex; flex-direction: column; gap: 4px; opacity: 0; transform: translateY(10px); pointer-events: none; transition: opacity 0.25s, transform 0.25s; }
 .toast.on { opacity: 1; transform: none; pointer-events: auto; }
 @media (max-width: 600px) { .toast { left: 16px; right: 16px; max-width: none; } }
+
+/* Patchnotes */
+.patchnotes { max-width: 860px; }
+.rel { padding: 0; margin-bottom: 12px; }
+.rel > summary {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding: 14px 20px; cursor: pointer; list-style: none; border-radius: var(--radius-lg);
+}
+.rel > summary::-webkit-details-marker { display: none; }
+.rel > summary::before { content: "▸"; color: var(--gold); margin-right: -4px; transition: transform 0.15s; }
+.rel[open] > summary::before { transform: rotate(90deg); }
+.rel > summary:hover { background: rgba(255, 255, 255, 0.02); }
+.rel-title { flex: 1 1 auto; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.rel-title b { font-family: var(--title-font); color: var(--title); font-size: 18px; letter-spacing: 0.02em; }
+.rel-extra { color: var(--text); }
+.badge.new { color: #141826; background: var(--gold); border-color: transparent; }
+.notes { padding: 0 20px 4px; border-top: 1px solid var(--hair); overflow-wrap: anywhere; }
+.notes h4 { font-family: var(--title-font); color: var(--title); font-size: 15px; letter-spacing: 0.02em; margin: 16px 0 6px; }
+.notes p { margin: 8px 0; }
+.notes ul, .notes ol { margin: 6px 0 10px; padding-left: 22px; }
+.notes li { margin: 4px 0; }
+.notes li::marker { color: var(--gold); }
+.notes hr { border: 0; border-top: 1px solid var(--hair); margin: 14px 0; }
+.notes pre { background: rgba(0, 0, 0, 0.3); border-radius: var(--radius); padding: 10px 12px; overflow-x: auto; }
+.notes pre code { background: none; padding: 0; word-break: normal; white-space: pre; }
+.rel-foot { margin: 6px 0 0; padding: 0 20px 14px; }
+.pn-warn { padding: 10px 14px; margin: 0 0 16px; border-radius: var(--radius); border: 1px solid rgba(255, 207, 110, 0.4); color: var(--warn); font-size: 14px; }
+@media (max-width: 860px) {
+  .rel > summary { padding: 12px 14px; }
+  .notes { padding: 0 14px 4px; }
+  .rel-foot { padding: 0 14px 12px; }
+}

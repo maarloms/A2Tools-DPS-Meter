@@ -507,6 +507,10 @@ async function main() {
   const loginHtml = await (await fetch(`${BASE}/`, { headers: { accept: "text/html" } })).text();
   check("ohne Cookie: nur schlichte Login-Seite", loginHtml.includes("<title>Anmeldung</title>") && !loginHtml.includes("DPS") && loginHtml.includes("noindex"));
   check("mit Cookie: Dashboard + Dateien", (await (await fetch(`${BASE}/`, { headers: { ...ck, accept: "text/html" } })).text()).includes("app.js") && (await fetch(`${BASE}/app.js`, { headers: ck })).status === 200);
+  check("ohne Cookie: Patchnotes-Seite + Markdown-Modul gesperrt", (await fetch(`${BASE}/js/patchnotes.js`)).status === 401 && (await fetch(`${BASE}/js/releases.js`)).status === 401 && (await fetch(`${BASE}/shared/markdown.js`)).status === 401);
+  const mdJs = await fetch(`${BASE}/shared/markdown.js`, { headers: ck });
+  check("mit Cookie: Patchnotes-Seite + Markdown-Modul", (await fetch(`${BASE}/js/patchnotes.js`, { headers: ck })).status === 200 && mdJs.status === 200 && (await mdJs.text()).includes("export function renderNotes"));
+  check("CSP erlaubt GitHub-API für Patchnotes", /connect-src[^;]*https:\/\/api\.github\.com/.test(mdJs.headers.get("content-security-policy") || ""));
   check("mit Cookie: API ohne Secret", (await fetch(`${BASE}/api/rooms/${ROOM}/stats/overview`, { headers: ck })).status === 200);
   check("Cookie gilt nicht für fremden Raum", (await fetch(`${BASE}/api/rooms/anderer-raum/fights`, { headers: ck })).status === 401);
   // Ein Zeichen mitten in der Signatur: das letzte Base64-Zeichen trägt Füllbits, A↔B dort ändert nichts.

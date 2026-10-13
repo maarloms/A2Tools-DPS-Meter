@@ -9,10 +9,11 @@
     "db:migrate:local": "wrangler d1 migrations apply a2dps --local",
     "db:migrate:remote": "wrangler d1 migrations apply a2dps --remote",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.mjs",
+    "test": "node scripts/sync-shared.mjs && node --test test/releases.test.mjs && node test/run.mjs",
     "test:simulate": "node test/simulate.mjs",
     "sync-shared": "node scripts/sync-shared.mjs",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test:unit": "node scripts/sync-shared.mjs && node --test test/releases.test.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261002.1",
