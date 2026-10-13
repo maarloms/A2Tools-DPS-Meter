@@ -499,13 +499,13 @@ impl DpsCalculator {
         for (&uid, data) in &mut dps_data.map {
             // Combat power joins on the character name: the roster carries an
             // account-level dbid, not the session entity id keyed here.
-            data.combat_power = party_members
-                .get(&data.nickname)
-                .map(|m| m.combat_power)
-                .unwrap_or(0);
+            let member = party_members.get(&data.nickname);
+            data.combat_power = member.map(|m| m.combat_power).unwrap_or(0);
+            data.gear_score = member.map(|m| m.gear_score).unwrap_or(0);
             // fork: yours from the game's own update, fresher than the roster
-            if let (Some(cp), true) = (local_gear.1, local_name.as_deref() == Some(data.nickname.trim())) {
-                data.combat_power = cp;
+            if local_name.as_deref() == Some(data.nickname.trim()) {
+                if let Some(cp) = local_gear.1 { data.combat_power = cp; }
+                if let Some(gs) = local_gear.0 { data.gear_score = gs; }
             }
             if data.job.is_empty() {
                 if local_ids.as_ref().is_some_and(|ids| ids.contains(&uid)) {
@@ -635,6 +635,7 @@ impl DpsCalculator {
                 .or_else(|| self.cached_job(name))
                 .unwrap_or_else(|| "Unknown".to_string());
             entry.combat_power = member.combat_power;
+            entry.gear_score = member.gear_score;
             dps_data.map.entry(uid).or_insert(entry);
         }
     }
