@@ -32,7 +32,7 @@
     }
   ],
 
-  // Kopiert Event-Plan (events.json, schedule.js) aus app/public/fork ins Dashboard.
+  // Kopiert Event-Plan (events.json, schedule.js) und Patchnotes-Markdown (markdown.js) aus app/public/fork ins Dashboard.
   "build": { "command": "node scripts/sync-shared.mjs", "watch_dir": "../public/fork" },
 
   "vars": {
