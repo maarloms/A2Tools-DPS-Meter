@@ -6,7 +6,9 @@
 //                                              one of the plugin's decoders. Each event arrives once,
 //                                              in order, even those from while the window was closed
 //                                              (since the meter started); `character` is who was
-//                                              playing (with events:character), else null
+//                                              playing (with events:character), else null; `at` is
+//                                              when the meter read it (unix ms), or null on meters
+//                                              that don't say
 //   a2.on("character", (c) => ...)             your character (name, serverId, class, level)
 //   a2.on("language", (code) => ...)           the meter's language ("en", "ko", "zh-Hans", ...), at start and on change
 //   a2.on("compact", (on) => ...)              the window's fold button: show only the essentials
@@ -19,6 +21,9 @@
 //   a2.window.show() / a2.window.hide()        its own window, shown on top without taking focus
 //                                              (permission "window", plugin API 2)
 //   a2.ready()                                 call once the handlers are set
+//
+// A link (<a href="https://...">) clicked in the page opens in the browser
+// (meter 2.0.65 on; before, the click did nothing).
 (() => {
   const handlers = {};
   const pending = new Map();
@@ -43,7 +48,7 @@
     if (msg.event) {
       for (const fn of handlers[msg.event] || []) {
         try {
-          fn(msg.data, { character: msg.character ?? null });
+          fn(msg.data, { character: msg.character ?? null, at: msg.at ?? null });
         } catch (e) {
           console.error(e);
         }
@@ -64,5 +69,12 @@
       hide: () => call("window.hide", []),
     }),
     ready: () => call("ready", []),
+  });
+  // The frame may not open windows or leave its page: links go to the browser.
+  document.addEventListener("click", (event) => {
+    const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+    if (!link || !/^https:\/\//i.test(link.href)) return;
+    event.preventDefault();
+    call("openUrl", [link.href]).catch((e) => console.warn(e));
   });
 })();
