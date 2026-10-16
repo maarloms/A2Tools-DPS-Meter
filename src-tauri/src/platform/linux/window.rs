@@ -147,6 +147,40 @@ fn query_pointer() -> Option<(i32, i32, u32)> {
     })
 }
 
+/// The click-through lock as an input region: the window takes the mouse
+/// only over `keep` (the lock button: CSS-pixel x, y, width, height and the
+/// page's scale), or nowhere but its top-left pixel without one, as tao's
+/// own `set_ignore_cursor_events` does. `ignore` false takes it everywhere.
+///
+/// Under XWayland the pointer can be read only while it is over an X11
+/// window, so the pointer watch the lock uses elsewhere lost it over the
+/// desktop or a native Wayland window and the button could not be clicked.
+/// An input region needs no pointer. Returns whether it was applied.
+pub fn click_through_except(window: &tauri::WebviewWindow, ignore: bool, keep: Option<(f64, f64, f64, f64, f64)>) -> bool {
+    use gtk::{cairo, prelude::*};
+    let window = window.clone();
+    super::dialog::on_gtk_thread(move || {
+        let gtk_window = window.gtk_window().ok()?;
+        if !ignore {
+            gtk_window.input_shape_combine_region(None);
+            return Some(());
+        }
+        let surface = gtk_window.window()?;
+        // CSS pixels to GDK's: the page's scale over GDK's own.
+        let rect = keep.and_then(|(x, y, w, h, page_scale)| {
+            let k = page_scale / f64::from(gtk_window.scale_factor().max(1));
+            let (left, top) = ((x * k).floor() as i32, (y * k).floor() as i32);
+            let (right, bottom) = (((x + w) * k).ceil() as i32, ((y + h) * k).ceil() as i32);
+            (right > left && bottom > top).then(|| cairo::RectangleInt::new(left, top, right - left, bottom - top))
+        });
+        let region = cairo::Region::create_rectangle(&rect.unwrap_or_else(|| cairo::RectangleInt::new(0, 0, 1, 1)));
+        surface.input_shape_combine_region(&region, 0, 0);
+        Some(())
+    })
+    .flatten()
+    .is_some()
+}
+
 pub fn start_drag(window: &tauri::WebviewWindow) {
     let _ = window.start_dragging();
 }
@@ -176,9 +210,71 @@ pub fn hide_without_focus(window: &tauri::WebviewWindow) {
 /// Here a window can be built hidden and shown later as it is.
 pub const HIDE_AFTER_BUILD: bool = false;
 
+/// The windows `hide_in_place` has hidden, by label.
+fn hidden_in_place() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static HIDDEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+    HIDDEN.get_or_init(Default::default)
+}
+
+/// Hide a window without unmapping it: fully transparent, click-through and
+/// out of the taskbar. A compositor places a window anew each time it is
+/// mapped (KWin under the pointer, as a CachyOS player saw an alert bring a
+/// plugin window up, 2026-10-16), and Wayland lets no client move its own
+/// window back, so a window that stays mapped is the only one that stays where
+/// it was left. Without a compositor nothing can be transparent, and it is
+/// hidden as before.
+pub fn hide_in_place(window: &tauri::WebviewWindow) {
+    use gtk::prelude::*;
+    let target = window.clone();
+    let concealed = super::dialog::on_gtk_thread(move || {
+        let gtk_window = target.gtk_window().ok()?;
+        if !WidgetExt::screen(&gtk_window)?.is_composited() {
+            return None;
+        }
+        gtk_window.set_opacity(0.0);
+        Some(())
+    })
+    .flatten()
+    .is_some();
+    if !concealed {
+        hide_without_focus(window);
+        return;
+    }
+    let _ = window.set_ignore_cursor_events(true);
+    let _ = window.set_skip_taskbar(true);
+    hidden_in_place().lock().unwrap_or_else(|p| p.into_inner()).insert(window.label().to_string());
+}
+
+/// Show a window `hide_in_place` hid, where it is; false if it was not hidden
+/// that way (then it is shown as usual).
+pub fn reveal_in_place(window: &tauri::WebviewWindow) -> bool {
+    let was = hidden_in_place().lock().unwrap_or_else(|p| p.into_inner()).remove(window.label());
+    if !was {
+        return false;
+    }
+    let _ = window.set_ignore_cursor_events(false);
+    let _ = window.set_skip_taskbar(false);
+    let target = window.clone();
+    super::dialog::on_gtk_thread(move || {
+        use gtk::prelude::*;
+        if let Ok(gtk_window) = target.gtk_window() {
+            gtk_window.set_opacity(1.0);
+        }
+    });
+    let _ = window.set_always_on_top(true);
+    true
+}
+
+/// Whether `hide_in_place` has this window hidden.
+pub fn is_hidden_in_place(window: &tauri::WebviewWindow) -> bool {
+    hidden_in_place().lock().unwrap_or_else(|p| p.into_inner()).contains(window.label())
+}
+
+/// Hide the meter while the game is not in front. Kept mapped (see
+/// `hide_in_place`) rather than minimized: on Wayland an application cannot
+/// bring its own minimized window back.
 pub fn minimize_off_top(window: &tauri::WebviewWindow) {
-    let _ = window.set_always_on_top(false);
-    let _ = window.minimize();
+    hide_in_place(window);
 }
 
 /// Size a meter window and pin its size hints to that size. Window managers

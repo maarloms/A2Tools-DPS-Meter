@@ -54,3 +54,25 @@ pub fn resize_pointer_down(_window: &tauri::WebviewWindow) -> Option<bool> {
 pub async fn prepare_resize(_window: &tauri::WebviewWindow, _min: tauri::LogicalSize<f64>) -> Result<(), String> {
     Err("Compositor resize is unavailable".into())
 }
+
+/// The click-through lock as an input region, on Linux only (see
+/// `linux/window.rs`). Here the pointer watch in `app.rs` does it instead.
+pub fn click_through_except(_window: &tauri::WebviewWindow, _ignore: bool, _keep: Option<(f64, f64, f64, f64, f64)>) -> bool {
+    false
+}
+
+/// Hide a plugin window so it comes back where it was. Here a hidden window
+/// keeps its place, so it is simply hidden (Linux keeps it mapped instead).
+pub fn hide_in_place(window: &tauri::WebviewWindow) {
+    hide_without_focus(window);
+}
+
+/// Nothing is hidden in place here.
+pub fn is_hidden_in_place(_window: &tauri::WebviewWindow) -> bool {
+    false
+}
+
+/// Nothing is hidden in place here: windows are shown as usual.
+pub fn reveal_in_place(_window: &tauri::WebviewWindow) -> bool {
+    false
+}

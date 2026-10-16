@@ -146,6 +146,20 @@
                         aria-label="Skill icon size" />
                       <span class="detailsIconSizeValue">36px</span>
                     </div>
+                    <div class="detailsSettingsLabel" data-i18n="details.peak.label">
+                      Party list
+                    </div>
+                    <label class="detailsSettingsToggle">
+                      <span
+                        class="detailsSettingsToggleLabel"
+                        data-i18n="details.peak.show">
+                        Show peak DPS (best 5 s) beside the average
+                      </span>
+                      <span class="detailsSettingsToggleControl">
+                        <input type="checkbox" class="detailsShowPeakCheckbox" />
+                        <span class="detailsSettingsToggleTrack" aria-hidden="true"></span>
+                      </span>
+                    </label>
                     <div class="detailsSettingsLabel" data-i18n="details.screenshots.label">
                       Screenshots
                     </div>
@@ -629,6 +643,13 @@
                     </span>
                   </label>
                   <label class="settingsToggle">
+                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showOdyle" title="Below the meter, your Odyle energy as the game shows it: basic (+charged). It updates at login, after a server transfer and when the energy changes. Until then, for example after restarting the meter, the last value seen shows dimmed." data-i18n-title="settings.tips.showOdyle">Show Odyle energy</span>
+                    <span class="settingsToggleControl">
+                      <input type="checkbox" class="showOdyleCheckbox" />
+                      <span class="settingsToggleTrack" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                  <label class="settingsToggle">
                     <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showTtk" title="Beside the battle timer, an estimate of how long the whole boss fight will take." data-i18n-title="settings.tips.showTtk">Show time to kill estimate</span>
                     <span class="settingsToggleControl">
                       <input type="checkbox" class="showTtkCheckbox" />
@@ -1026,6 +1047,22 @@
                     </div>
                   </div>
                 </div>
+                <div class="settingsGroupBody shareBossTimersRow">
+                  <label class="settingsToggle">
+                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.partyPresence" title="Party members who also use A2Tools see a small A2 tag beside your name, and you see theirs. Anyone in your party using A2Tools can see it, so they'll know you use a third-party meter. Only hashes of character names and servers are sent." data-i18n-title="settings.tips.partyPresence">Show A2Tools users in my party</span>
+                    <span class="settingsToggleControl">
+                      <input type="checkbox" class="partyPresenceCheckbox" />
+                      <span class="settingsToggleTrack" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                  <label class="settingsToggle">
+                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.shareBossTimers" title="Shares field boss timers with other players through a2tools.app (and its partner Aion 2 Timers): the bosses on your map when you open it, and the field bosses you see killed, and their HP while you fight them. Only the server, the bosses, their times and HP are sent." data-i18n-title="settings.tips.shareBossTimers">Share field boss timers</span>
+                    <span class="settingsToggleControl">
+                      <input type="checkbox" class="shareBossTimersCheckbox" />
+                      <span class="settingsToggleTrack" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                </div>
                 <h3 class="settingsSubTitle" data-i18n="settings.diagnostics">Diagnostics</h3>
                 <div class="settingsGroupBody">
                   <label class="settingsToggle">
@@ -1198,7 +1235,7 @@
             <div class="tick"></div>
             <div class="ttk" data-i18n-title="battleTime.ttkTooltip" title="Estimated length of the whole boss fight"></div>
             <div class="analysisStatus" data-i18n="battleTime.analysing">
-              Monitoring data...
+              Monitoring
             </div>
           </div>
           <div class="meterTotalBar" style="display:none">
@@ -1225,6 +1262,10 @@
                 class="collapseIcon"
                 data-lucide="arrow-up-wide-narrow"></i>
             </div>
+          </div>
+          <div class="odyleDisplay" role="status" aria-label="Odyle Energy" data-i18n-aria-label="settings.odyleEnergy">
+            <img src="/src/assets/odyle.png" class="odyleIcon" alt="" />
+            <span class="odyleText"><span class="odyleBasic"></span><span class="odyleCharged"></span></span>
           </div>
           <div class="pingDisplay">
             <i data-lucide="wifi" class="pingIcon"></i>
@@ -1305,6 +1346,19 @@
         <button class="discordPromoDone" type="button" data-i18n="discordPromo.done">Done</button>
       </div>
     </div>
+    <div class="discordPromo partyPromo" id="partyPromo" aria-hidden="true">
+      <div class="discordPromoCard" role="dialog" aria-modal="true" aria-labelledby="partyPromoTitle">
+        <button class="discordPromoClose partyPromoClose" type="button" data-i18n-aria-label="discordPromo.close" aria-label="Close">×</button>
+        <div class="discordPromoTitle" id="partyPromoTitle" data-i18n="partyPromo.title">New: see A2Tools users in your party</div>
+        <div class="discordPromoText" data-i18n="partyPromo.text">Party members who also use A2Tools get a small A2 tag beside their name, and you get one beside yours on their meter.</div>
+        <label class="discordPromoToggle">
+          <input type="checkbox" class="partyPromoCheckbox" checked />
+          <span data-i18n="settings.partyPresence">Show A2Tools users in my party</span>
+        </label>
+        <div class="discordPromoHint" data-i18n="partyPromo.hint">Anyone in your party who uses A2Tools will be able to see that you use a third-party meter. Only hashes of character names and servers are sent. You can change this any time in Settings.</div>
+        <button class="discordPromoDone partyPromoDone" type="button" data-i18n="discordPromo.done">Done</button>
+      </div>
+    </div>
     <div class="discordPromo accountPromo" id="accountPromo" aria-hidden="true">
       <div
         class="discordPromoCard"
@@ -1358,6 +1412,8 @@
             src="/src/assets/afdian.png"
             alt="Afdian QR code" />
         </div>
+        <p class="supportPerks" data-i18n="support.perks">Every $5 gives you 12 months of supporter perks, up to 2 years per payment. Use the code from your A2 Tools account page in your Ko-fi message, or the same email on Patreon.</p>
+        <p class="supportLinksHint" data-i18n="support.linksHint">Ko-fi, Patreon, Afdian and PayPal open their site in your browser. The crypto buttons copy an address.</p>
         <div class="supportActions">
           <button
             class="supportIconButton supportPrimaryButton"
@@ -1368,6 +1424,16 @@
             aria-label="Afdian">
             <span class="supportLabel">爱发电</span>
             <span class="supportIcon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M13.5 2 5 13h5l-1.5 9L19 10h-5.5L13.5 2z" fill="currentColor"/></svg></span>
+          </button>
+          <button
+            class="supportIconButton"
+            type="button"
+            data-support="patreon"
+            data-url="https://www.patreon.com/hiddencube"
+            data-i18n-aria-label="support.aria.patreon"
+            aria-label="Patreon">
+            <span class="supportLabel">Patreon</span>
+            <span class="supportIcon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="14.5" cy="9.5" r="6.5" fill="currentColor"/><rect x="3" y="3" width="3.2" height="18" rx="0.6" fill="currentColor"/></svg></span>
           </button>
           <button
             class="supportIconButton"

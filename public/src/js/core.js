@@ -5,7 +5,7 @@ const SETTING_CHOICES = {
   updateRateMs: { allowed: ["100", "200", "250", "500"], fallback: "200" },
   trainSelectionMode: { allowed: ["all", "highestDamage"], fallback: "all" },
   // The figure beside each player's name, in the meter and in Details.
-  partyStat: { allowed: ["combatPower", "gearScore", "off"], fallback: "combatPower" },
+  partyStat: { allowed: ["combatPower", "gearScore", "both", "off"], fallback: "combatPower" },
   // A pattern over the meter's bars: a supporter's perk (applyBarTexture).
   barTexture: { allowed: ["none", "flames", "crystal", "glacier", "feathers", "wing", "storm", "nebula", "galaxy", "aura"], fallback: "none" },
 };
@@ -37,6 +37,7 @@ const REMOTE_APPLIED_SETTING_CONTROLS = {
   "dpsMeter.mainPlayerNamesBold": ".playerNamesBoldCheckbox",
   "dpsMeter.mainPlayerDpsBold": ".playerDpsBoldCheckbox",
   "dpsMeter.showPing": ".showPingCheckbox",
+  "dpsMeter.showOdyle": ".showOdyleCheckbox",
   "dpsMeter.showTtk": ".showTtkCheckbox",
   "dpsMeter.bossNameSize": ".bossNameSizeInput",
   "dpsMeter.showSupporterColors": ".showSupporterColorsCheckbox",
@@ -89,11 +90,14 @@ class DpsApp {
       displayMode: "dpsMeter.displayMode",
       language: "dpsMeter.language",
       debugLogging: "dpsMeter.debugLoggingEnabled",
+      shareBossTimers: "dpsMeter.shareBossTimers",
       pinMeToTop: "dpsMeter.pinMeToTop",
       mainPlayerNamesBold: "dpsMeter.mainPlayerNamesBold",
       showSupporterColors: "dpsMeter.showSupporterColors",
       mainPlayerDpsBold: "dpsMeter.mainPlayerDpsBold",
       showPing: "dpsMeter.showPing",
+      showOdyle: "dpsMeter.showOdyle",
+      odyleLast: "dpsMeter.odyleLast",
       showTtk: "dpsMeter.showTtk",
       showTotalDps: "dpsMeter.showTotalDps",
       roundDps: "dpsMeter.roundDps",
@@ -110,6 +114,8 @@ class DpsApp {
       autoUpload: "dpsMeter.autoUpload",
       discordActivity: "dpsMeter.discordActivity",
       discordPromoShown: "dpsMeter.discordPromoShown",
+      partyPresence: "dpsMeter.partyPresence",
+      partyPromoShown: "dpsMeter.partyPromoShown",
       accountPromoShown: "dpsMeter.accountPromoShown",
       windowOpacity: "dpsMeter.windowOpacity",
       bossNameSize: "dpsMeter.bossNameSize",
@@ -307,6 +313,7 @@ class DpsApp {
     if (window.A2_VIEW === "settings") {
       // Opening settings must not construct or lay out the hidden combat views.
       this.showPing = this.safeGetSetting(this.storageKeys.showPing) !== "false";
+      this.showOdyle = this.safeGetSetting(this.storageKeys.showOdyle) === "true";
       this.showTtk = this.safeGetSetting(this.storageKeys.showTtk) !== "false";
       this.showTotalDps = this.safeGetSetting(this.storageKeys.showTotalDps) !== "false";
       this.roundDps = this.safeGetSetting(this.storageKeys.roundDps) !== "false";
@@ -417,22 +424,22 @@ class DpsApp {
 
     const getBattleTimeStatusText = () => {
       if (this._captureSuspended) {
-        return this.i18n?.t?.("battleTime.suspended", "App suspended") ?? "App suspended";
+        return this.i18n?.t?.("battleTime.suspended", "Suspended") ?? "Suspended";
       }
       if (!this.aionRunning) {
-        const text = this.i18n?.t("battleTime.notRunning", "AION2 not running") ?? "AION2 not running";
+        const text = this.i18n?.t("battleTime.notRunning", "AION2 closed") ?? "AION2 closed";
         return withBacklog(text);
       }
       if (this.isDetectingPort) {
-        const text = this.i18n?.t("connection.detecting", "Detecting AION2 connection...") ??
-          "Detecting AION2 connection...";
+        const text = this.i18n?.t("connection.detecting", "Connecting...") ??
+          "Connecting...";
         return withBacklog(text);
       }
       if (this.battleTime?.getState?.() === "state-idle") {
         const text = this.i18n?.t("battleTime.idle", "Idle") ?? "Idle";
         return withBacklog(text);
       }
-      const text = this.i18n?.t("battleTime.analysing", "Monitoring data...") ?? "Monitoring data...";
+      const text = this.i18n?.t("battleTime.analysing", "Monitoring") ?? "Monitoring";
       return withBacklog(text);
     };
 
@@ -455,6 +462,14 @@ class DpsApp {
 
     this.pingEl = document.querySelector(".pingDisplay");
     this.showPing = this.safeGetSetting(this.storageKeys.showPing) !== "false";
+    // Odyle energy, pushed by the backend ("odyle-energy") once the game has
+    // sent it: at login, after a server transfer, and when it changes. Off
+    // unless turned on in Settings. Until then, the last value seen for this
+    // character, dimmed.
+    this.odyleEl = document.querySelector(".odyleDisplay");
+    this.showOdyle = this.safeGetSetting(this.storageKeys.showOdyle) === "true";
+    this.odyleEnergy = null;
+    this.updateOdyle();
     // Time to kill beside the battle timer, for bosses; on unless turned off.
     this.showTtk = this.safeGetSetting(this.storageKeys.showTtk) !== "false";
     this.ttk = typeof createTtkEstimator === "function" ? createTtkEstimator() : null;
@@ -734,6 +749,11 @@ class DpsApp {
       this.aionRunning = running;
       this.refreshConnectionInfo();
       this.updateConnectionStatusUi();
+    } else if (running && this.isDetectingPort) {
+      // The port locks a moment after the game is seen, and nothing else may
+      // ask again: in Boss mode no row appears until a boss is hit, so
+      // "Connecting..." stayed up. Ask on each poll until it locks.
+      this.refreshConnectionInfo({ skipSettingsRefresh: true });
     }
     if (!running) return;
     this.syncCharacterNameFromGame();
@@ -779,6 +799,7 @@ class DpsApp {
       const id = Number(info.localPlayerId);
       if (Number.isFinite(id) && id > 0) this.rememberLocalIdForName(name, id);
     }
+    this.updateOdyle();
     this.renderCurrentRows();
     return true;
   }
@@ -837,10 +858,10 @@ class DpsApp {
     if (this.analysisStatusEl) {
       if (this._captureSuspended) {
         this.analysisStatusEl.textContent =
-          this.i18n?.t?.("battleTime.suspended", "App suspended") ?? "App suspended";
+          this.i18n?.t?.("battleTime.suspended", "Suspended") ?? "Suspended";
       } else {
         this.analysisStatusEl.textContent =
-          this.i18n?.t("battleTime.analysing", "Monitoring data...") ?? "Monitoring data...";
+          this.i18n?.t("battleTime.analysing", "Monitoring") ?? "Monitoring";
       }
       this.analysisStatusEl.style.display = "";
     }
@@ -1221,6 +1242,7 @@ class DpsApp {
       targetIsBoss,
       dungeonId,
       targetMobCode,
+      partyGeneration,
     } = this.buildRowsFromPayload(raw);
     // Boss mode with no boss engaged: say what it is waiting for. The rows of
     // the last fight can still be on screen (the meter keeps them), so this
@@ -1255,7 +1277,12 @@ class DpsApp {
 
     this.lastJson = raw;
     this.applyLocalPlayerIdUpdate(localPlayerId, "backend local id update");
-    this.updateLocalPlayerIdentity(rows);
+    // The backend's id, once it has one, is who you are. A row still under
+    // your name from before an id change (a dungeon's second run, with the
+    // first run's rows on screen) took you back to the old id on every
+    // update, and the window asked the backend for it twice a poll
+    // (2026-10-14: "ignored 1566", 228 times in two minutes).
+    if (!(Number(localPlayerId) > 0)) this.updateLocalPlayerIdentity(rows);
     this._lastBattleTimeMs = battleTimeMs;
     const targetChanged = targetId !== previousTargetId || targetMode !== previousTargetMode;
     this.lastTargetMode = targetMode;
@@ -1297,6 +1324,24 @@ class DpsApp {
       this.resetPending = false;
     }
     const isOutOfCombat = this.isOutOfCombatState();
+    // Someone joined or left, or the party ended: the rows kept from the last
+    // fight name the old party, so they give way to what the backend sends.
+    // An empty update then clears the meter (the party ended, its fights
+    // flushed) instead of being ignored below.
+    const partyChanged = this._lastPartyGeneration != null && partyGeneration !== this._lastPartyGeneration;
+    this._lastPartyGeneration = partyGeneration;
+    if (partyChanged && rows.length === 0) {
+      // None kept: the next rows (yours, a new party's) are taken as they come.
+      this.lastSnapshot = null;
+      this._barsTargetLabel = null;
+      this._lastRenderedListSignature = "";
+      this._lastRenderedRowsSummary = null;
+      this.meterUI?.onResetMeterUi?.();
+      return;
+    }
+    if (partyChanged && isOutOfCombat) {
+      this.lastSnapshot = rows;
+    }
     // 빈값은 ui 안덮어씀
     let rowsToRender = rows;
     const listReasons = [];
@@ -1440,6 +1485,7 @@ class DpsApp {
       : -1;
     const targetIsBoss = payload?.targetIsBoss === true;
     const targetMobCode = Math.trunc(Number(payload?.targetMobCode)) || 0;
+    const partyGeneration = Math.trunc(Number(payload?.partyGeneration)) || 0;
 
     return {
       rows,
@@ -1454,6 +1500,7 @@ class DpsApp {
       targetIsBoss,
       dungeonId,
       targetMobCode,
+      partyGeneration,
     };
   }
 
@@ -1513,6 +1560,8 @@ class DpsApp {
         // Resolved in Rust against a downloaded roster; the frontend only
         // renders it. Cosmetic only — it must not reach sorting or bar colour.
         isSupporter: !!(isObj && value.isSupporter) && this.showSupporterColors !== false,
+        // A party member who runs A2Tools too (party_presence.rs).
+        usesA2tools: !!(isObj && value.usesA2tools),
       });
     }
 
@@ -2249,7 +2298,7 @@ class DpsApp {
       totalHits: totalTimes,
       multiHitCount: totalMultiHitCount,
       multiHitDamage: totalMultiHitDamage,
-      multiHitPct: totalTimes > 0 ? Math.round((totalMultiHitHits / totalTimes) * 1000) / 10 : 0,
+      multiHitPct: totalTimes > 0 ? Math.round((totalMultiHitCount / totalTimes) * 1000) / 10 : 0,
       totalRegen,
       combatTime,
       battleTimeMs: Number.isFinite(battleTimeMsRaw) ? battleTimeMsRaw : 0,
@@ -2470,7 +2519,10 @@ class DpsApp {
     this.showSuspendBtnCheckbox = document.querySelector(".showSuspendBtnCheckbox");
     this.bossLogsCheckbox = document.querySelector(".bossLogsCheckbox");
     this.debugLoggingCheckbox = document.querySelector(".debugLoggingCheckbox");
+    this.shareBossTimersCheckbox = document.querySelector(".shareBossTimersCheckbox");
+    this.partyPresenceCheckbox = document.querySelector(".partyPresenceCheckbox");
     this.showPingCheckbox = document.querySelector(".showPingCheckbox");
+    this.showOdyleCheckbox = document.querySelector(".showOdyleCheckbox");
     this.saveRawPacketsCheckbox = document.querySelector(".saveRawPacketsCheckbox");
     this.sendLogsBtn = document.querySelector(".sendLogsBtn");
     this.sendLogsStatus = document.querySelector(".sendLogsStatus");
@@ -2692,6 +2744,22 @@ class DpsApp {
         window.javaBridge?.setBossLogsEnabled?.(isChecked);
       });
     }
+    // A2Tools users in the party see each other (party_presence.rs): on
+    // unless turned off.
+    if (this.partyPresenceCheckbox) {
+      this.partyPresenceCheckbox.checked = this.safeGetSetting(this.storageKeys.partyPresence) !== "false";
+      this.partyPresenceCheckbox.addEventListener("change", (event) => {
+        this.safeSetSetting(this.storageKeys.partyPresence, event.target?.checked ? "true" : "false");
+      });
+    }
+    // Field boss timers from the player's map, shared through a2tools.app
+    // (boss_report.rs): on unless turned off.
+    if (this.shareBossTimersCheckbox) {
+      this.shareBossTimersCheckbox.checked = this.safeGetSetting(this.storageKeys.shareBossTimers) !== "false";
+      this.shareBossTimersCheckbox.addEventListener("change", (event) => {
+        this.safeSetSetting(this.storageKeys.shareBossTimers, event.target?.checked ? "true" : "false");
+      });
+    }
     if (this.debugLoggingCheckbox) {
       this.debugLoggingCheckbox.checked = this.debugLoggingEnabled;
       this.debugLoggingCheckbox.addEventListener("change", (event) => {
@@ -2704,6 +2772,14 @@ class DpsApp {
       this.showPingCheckbox.addEventListener("change", (event) => {
         this.showPing = !!event.target?.checked;
         this.safeSetSetting(this.storageKeys.showPing, String(this.showPing));
+      });
+    }
+    if (this.showOdyleCheckbox) {
+      this.showOdyleCheckbox.checked = this.showOdyle;
+      this.showOdyleCheckbox.addEventListener("change", (event) => {
+        this.showOdyle = !!event.target?.checked;
+        this.safeSetSetting(this.storageKeys.showOdyle, String(this.showOdyle));
+        this.updateOdyle();
       });
     }
     this.showTtkCheckbox = document.querySelector(".showTtkCheckbox");
@@ -3137,6 +3213,9 @@ class DpsApp {
     this.supportActionButtons?.forEach((button) => {
       button.addEventListener("click", () => this.handleSupportAction(button));
     });
+    this.supportQrImage?.addEventListener("click", () => {
+      if (this.supportQrUrl) window.javaBridge?.openBrowser?.(this.supportQrUrl);
+    });
 
     this.kofiButton?.addEventListener("click", () => {
       window.javaBridge?.openBrowser?.("https://ko-fi.com/W7W51T1YW9");
@@ -3228,7 +3307,7 @@ class DpsApp {
     }
 
     if (url) {
-      const externalOnly = supportType === "paypal" || supportType === "afdian" || supportType === "kofi";
+      const externalOnly = supportType === "paypal" || supportType === "afdian" || supportType === "kofi" || supportType === "patreon";
       this.openExternalLink(url, { externalOnly });
     }
 
@@ -3286,6 +3365,13 @@ class DpsApp {
     const src = this.supportQrImages?.[type];
     if (!src) return;
     this.supportQrImage.src = src;
+    // Ko-fi's (or Afdian's) code opens its page when clicked; WeChat's has
+    // no page to open.
+    const url = this.supportPrimaryButton?.dataset.support === type ? this.supportPrimaryButton.dataset.url : "";
+    this.supportQrUrl = url || "";
+    this.supportQrImage.classList.toggle("isLink", !!url);
+    if (url) this.supportQrImage.title = url;
+    else this.supportQrImage.removeAttribute("title");
     this.updateSupportTitle(type);
     this.supportActionButtons?.forEach((button) => {
       const match = button.dataset.support === type || button.dataset.qr === type;
@@ -3457,6 +3543,7 @@ class DpsApp {
     const partyStatOptions = [
       { value: "combatPower", label: this.i18n?.t("settings.partyStat.options.combatPower", "Combat power") },
       { value: "gearScore", label: this.i18n?.t("settings.partyStat.options.gearScore", "Gear score") },
+      { value: "both", label: this.i18n?.t("settings.partyStat.options.both", "Both") },
       { value: "off", label: this.i18n?.t("settings.partyStat.options.off", "Off") },
     ];
 
@@ -4284,6 +4371,7 @@ class DpsApp {
     if (persist) {
       localStorage.setItem(this.storageKeys.userName, trimmed);
     }
+    this.updateOdyle();
     if (syncBackend) {
       window.javaBridge?.setCharacterName?.(trimmed, manual);
     }
@@ -4805,7 +4893,7 @@ class DpsApp {
       );
       this._lastTargetSelection = this.targetSelection;
     }
-    // Leaving Boss mode drops "Waiting for a boss" at once, rather than on
+    // Leaving Boss mode drops "No boss yet" at once, rather than on
     // the next update from the backend.
     if (this.targetSelection !== "bossTargets" && this._waitingForBoss) {
       this._waitingForBoss = false;
@@ -5065,7 +5153,10 @@ class DpsApp {
   // Settings' bar preview shows the same figure beside each name, or none.
   syncPreviewPartyStat() {
     for (const el of document.querySelectorAll(".barPreviewList .combatPower")) {
-      const text = this.partyStat === "gearScore" ? el.dataset.gearScore : el.dataset.combatPower;
+      const text =
+        this.partyStat === "gearScore" ? el.dataset.gearScore
+        : this.partyStat === "both" ? `${el.dataset.combatPower} · ${el.dataset.gearScore}`
+        : el.dataset.combatPower;
       el.textContent = this.partyStat === "off" ? "" : text || "";
       el.hidden = this.partyStat === "off";
     }
@@ -5090,6 +5181,7 @@ class DpsApp {
       if (this.characterNameInput && document.activeElement !== this.characterNameInput) {
         this.characterNameInput.value = name;
       }
+      this.updateOdyle();
       this.renderCurrentRows();
       return;
     }
@@ -5455,7 +5547,7 @@ class DpsApp {
     const port = hasPort
       ? String(info.port)
       : this.isDetectingPort
-        ? this.i18n?.t("connection.detecting", "Detecting AION2 connection...")
+        ? this.i18n?.t("connection.detecting", "Connecting...")
         : this.i18n?.t("connection.auto", "Auto");
     this.lockedIp.textContent = ip;
     this.lockedPort.textContent = port;
@@ -5599,6 +5691,53 @@ class DpsApp {
     }
   }
 
+  // Odyle energy: basic (+charged), as the game writes it. Without the
+  // game's maximum: it is 840 with a membership and 560 without, and the
+  // records read so far don't say which applies.
+  //
+  // The game sends it only at login, after a server transfer and when it
+  // changes, so a meter started mid-session would have nothing to show for a
+  // long while. Each value the backend names an owner for is kept by that
+  // character's name, and shown dimmed until the game sends one again.
+  updateOdyle(energy) {
+    if (energy && typeof energy === "object") {
+      this.odyleEnergy = energy;
+      this.rememberOdyle(energy);
+    }
+    const el = this.odyleEl;
+    if (!el) return;
+    const isEnergy = (e) => typeof e?.basic === "number" && typeof e?.charged === "number";
+    const live = isEnergy(this.odyleEnergy);
+    const shown = live ? this.odyleEnergy : this.rememberedOdyle()[this.USER_NAME];
+    if (!this.showOdyle || !isEnergy(shown)) {
+      el.classList.remove("isVisible");
+      return;
+    }
+    el.querySelector(".odyleBasic").textContent = String(shown.basic);
+    el.querySelector(".odyleCharged").textContent = shown.charged > 0 ? `(+${shown.charged})` : "";
+    el.classList.toggle("isRemembered", !live);
+    el.classList.add("isVisible");
+  }
+
+  rememberedOdyle() {
+    const saved = this.safeParseJSON(this.safeGetStorage(this.storageKeys.odyleLast) || "{}", {});
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  }
+
+  rememberOdyle({ basic, charged, name }) {
+    const owner = String(name ?? "").trim();
+    if (!owner || typeof basic !== "number" || typeof charged !== "number") return;
+    const saved = this.rememberedOdyle();
+    const was = saved[owner];
+    if (was?.basic === basic && was?.charged === charged) return;
+    delete saved[owner];
+    saved[owner] = { basic, charged };
+    // The most recent characters only.
+    const names = Object.keys(saved);
+    for (const old of names.slice(0, Math.max(0, names.length - 20))) delete saved[old];
+    this.safeSetStorage(this.storageKeys.odyleLast, JSON.stringify(saved));
+  }
+
   updatePing(pushedMs) {
     if (!this.pingEl) return;
     if (!this.showPing) {
@@ -5624,20 +5763,20 @@ class DpsApp {
     if (!this.battleTimeRoot || !this.analysisStatusEl) return;
     if (!this.aionRunning) {
       this.applyConnectionStatusOverride(
-        this.i18n?.t("battleTime.notRunning", "AION2 not running") ?? "AION2 not running"
+        this.i18n?.t("battleTime.notRunning", "AION2 closed") ?? "AION2 closed"
       );
       return;
     }
     if (this.isDetectingPort) {
       this.applyConnectionStatusOverride(
-        this.i18n?.t("connection.detecting", "Detecting AION2 connection...") ??
-          "Detecting AION2 connection..."
+        this.i18n?.t("connection.detecting", "Connecting...") ??
+          "Connecting..."
       );
       return;
     }
     if (this._waitingForBoss && this.targetSelection === "bossTargets" && !this._captureSuspended) {
       this.applyConnectionStatusOverride(
-        this.i18n?.t("battleTime.waitingBoss", "Waiting for a boss") ?? "Waiting for a boss"
+        this.i18n?.t("battleTime.waitingBoss", "No boss yet") ?? "No boss yet"
       );
       return;
     }
@@ -5667,11 +5806,11 @@ class DpsApp {
     }
     if (this._captureSuspended) {
       this.analysisStatusEl.textContent =
-        this.i18n?.t?.("battleTime.suspended", "App suspended") ?? "App suspended";
+        this.i18n?.t?.("battleTime.suspended", "Suspended") ?? "Suspended";
     } else {
       this.analysisStatusEl.textContent =
-        this.i18n?.t("battleTime.analysing", "Ready - monitoring combat...") ??
-        "Ready - monitoring combat...";
+        this.i18n?.t("battleTime.analysing", "Monitoring") ??
+        "Monitoring";
     }
     this.analysisStatusEl.style.removeProperty("display");
   }
@@ -6054,12 +6193,32 @@ class DpsApp {
         if (!isOverlay) return;
         this._applyLockBtnVisibility(show);
         window.addEventListener("resize", () => this._sendLockBtnRect());
+        this._watchOverlayCards();
         // Stay locked across restarts, as the player left it.
         if (show && this.safeGetSetting(this.storageKeys.overlayLocked) === "true") {
           requestAnimationFrame(() => this._setOverlayLocked(true));
         }
       })
       .catch(() => {});
+  }
+
+  // A card open in the page (a one-time popup at start, the update prompt,
+  // the support card) takes the mouse though the overlay is locked: locked
+  // from last time, nothing on it could be clicked, and it covers the lock
+  // button. The lock itself stays as it was.
+  _watchOverlayCards() {
+    const cards = [...document.querySelectorAll(".updateModal, .discordPromo, .supportModal")];
+    if (!cards.length || typeof MutationObserver !== "function") return;
+    let wasOpen = false;
+    const sync = () => {
+      const open = cards.some((card) => card.classList.contains("isOpen"));
+      if (open === wasOpen) return;
+      wasOpen = open;
+      window.javaBridge?.setOverlayCardOpen?.(open);
+    };
+    const observer = new MutationObserver(sync);
+    for (const card of cards) observer.observe(card, { attributes: true, attributeFilter: ["class"] });
+    sync();
   }
 
   _applyLockBtnVisibility(show) {
@@ -6301,6 +6460,49 @@ class DpsApp {
     this._streamOverlaySettings?.invalidate();
   }
 
+  // A one-time popup about showing A2Tools users in the party to each other,
+  // ticked: shown once to everyone, on a new install and after the update
+  // that brings it. Done keeps the tick's answer; ×, Escape or a click
+  // outside keep it on (it says so, and Settings changes it).
+  maybeShowPartyPromo() {
+    const promo = document.querySelector("#partyPromo");
+    if (!promo) return false;
+    if (this.safeGetSetting(this.storageKeys.partyPromoShown) === "true") return false;
+    const checkbox = promo.querySelector(".partyPromoCheckbox");
+    let answered = false;
+    const onKey = (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        answer(this.safeGetSetting(this.storageKeys.partyPresence) !== "false");
+      }
+    };
+    const answer = (enabled) => {
+      if (answered) return;
+      answered = true;
+      this.safeSetSetting(this.storageKeys.partyPresence, String(enabled));
+      this.safeSetSetting(this.storageKeys.partyPromoShown, "true");
+      const settingsCheckbox = document.querySelector(".partyPresenceCheckbox");
+      if (settingsCheckbox) settingsCheckbox.checked = enabled;
+      promo.classList.remove("isOpen");
+      promo.setAttribute("aria-hidden", "true");
+      document.removeEventListener("keydown", onKey, true);
+    };
+    const kept = () => this.safeGetSetting(this.storageKeys.partyPresence) !== "false";
+    promo.querySelector(".partyPromoDone")?.addEventListener("click", () => answer(!!checkbox?.checked));
+    promo.querySelector(".partyPromoClose")?.addEventListener("click", () => answer(kept()));
+    promo.addEventListener("click", (event) => {
+      if (event.target === promo) answer(kept());
+    });
+    setTimeout(() => {
+      if (answered) return;
+      if (checkbox) checkbox.checked = kept();
+      promo.classList.add("isOpen");
+      promo.setAttribute("aria-hidden", "false");
+      document.addEventListener("keydown", onKey, true);
+    }, 2500);
+    return true;
+  }
+
   maybeShowDiscordPromo() {
     const promo = document.querySelector("#discordPromo");
     if (!promo) return false;
@@ -6453,12 +6655,12 @@ class DpsApp {
     const el = this.analysisStatusEl || document.querySelector(".battleTime .analysisStatus");
     if (!el) return;
     if (this._captureSuspended) {
-      el.textContent = this.i18n?.t?.("battleTime.suspended", "App suspended") ?? "App suspended";
+      el.textContent = this.i18n?.t?.("battleTime.suspended", "Suspended") ?? "Suspended";
       el.style.display = "";
       // Ensure the battle time bar is visible so the message shows
       if (this.battleTimeRoot) this.battleTimeRoot.classList.add("isVisible");
     } else {
-      el.textContent = this.i18n?.t?.("battleTime.analysing", "Monitoring data...") ?? "Monitoring data...";
+      el.textContent = this.i18n?.t?.("battleTime.analysing", "Monitoring") ?? "Monitoring";
     }
   }
 

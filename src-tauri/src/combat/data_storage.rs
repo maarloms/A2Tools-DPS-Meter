@@ -32,6 +32,19 @@ const ZONE_RESET_DEBOUNCE_MS: i64 = 4_000;
 /// How long party members who have not fought stay on the meter after the
 /// last roster. See `DataStorage::party_placeholders_wanted`.
 const PARTY_PLACEHOLDER_MS: i64 = 10 * 60 * 1000;
+/// A "no longer in a party" record this soon after the party ended is about
+/// that same party. See `DataStorage::note_party_left`.
+const PARTY_LEFT_AFTER_END_MS: i64 = 10 * 1000;
+/// Whether a player other than you has damage on the meter (a summon counts
+/// as its owner). With no local player known, any player counts.
+fn others_on_meter(inner: &Inner) -> bool {
+    let me = inner.local_player_id.and_then(|id| i32::try_from(id).ok());
+    inner.target_combat.values().flat_map(|t| t.actors.keys()).any(|&actor| {
+        let owner = inner.summon_storage.get(&actor).copied().unwrap_or(actor);
+        Some(owner) != me && (inner.known_player_ids.contains(&owner) || inner.nickname_storage.contains_key(&owner))
+    })
+}
+
 /// "Has not happened" for the times below. Not 0: a replayed slice's clock
 /// starts before 0 (the lead-in runs at negative offsets from the pull), so
 /// a 0 there read as "a moment ago" and suppressed every zone reset in the
@@ -403,6 +416,56 @@ impl TargetCombatData {
 
 // ───── Main storage ─────
 
+/// A field boss kill or HP milestone in the open world, for
+/// `boss_report.rs` to share.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BossEvent {
+    /// The boss's NPC code (`capture::field_bosses`).
+    pub npc: i32,
+    pub kind: BossEventKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BossEventKind {
+    /// Killed at this moment (unix ms).
+    Killed { at_ms: i64 },
+}
+
+/// Unsent boss events kept at most (the sender drains them every second).
+#[cfg(feature = "online")]
+const MAX_BOSS_EVENTS: usize = 64;
+
+/// A field boss counts as being fought while its HP changed, or it took
+/// damage, this recently.
+const IN_COMBAT_MS: i64 = 10_000;
+/// While it is fought and its HP holds, the same HP goes again this often:
+/// the site takes a repeat as "still being fought" once a minute and ignores
+/// the rest. A change goes on the next pass (every 3 s), as always.
+const BOSS_HP_KEEP_ALIVE_MS: i64 = 60_000;
+/// A field boss's HP back up by this many points or more has reset (kited
+/// out of range, or left alone until it recovered).
+const RESET_RISE: u8 = 5;
+
+/// A field boss's HP for the sender (`take_boss_hp`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BossHp {
+    /// The boss's NPC code.
+    pub npc: i32,
+    /// Whole percent left.
+    pub percent: u8,
+    /// Back up from what was last sent: it reset.
+    pub reset: bool,
+}
+
+
+#[cfg(feature = "online")]
+fn push_boss_event(inner: &mut Inner, event: BossEvent) {
+    inner.boss_events.push_back(event);
+    while inner.boss_events.len() > MAX_BOSS_EVENTS {
+        inner.boss_events.pop_front();
+    }
+}
+
 pub struct DataStorage {
     inner: RwLock<Inner>,
     damage_generation: AtomicI64,
@@ -439,6 +502,12 @@ struct Inner {
     /// Bumped whenever `nickname_storage` changes, so the meter redraws a
     /// name that arrives after the last hit (see `names_generation`).
     names_generation: u64,
+    /// Changes when the party's members change, or it ends (see
+    /// `party_generation`).
+    party_generation: u64,
+    /// When the party last ended (`end_party`), clock ms; `NEVER_MS` if it
+    /// has not.
+    party_ended_at_ms: i64,
     pending_nicknames: HashMap<i32, String>,
     /// fork: when a name for each id last came in, so a zone change keeps the
     /// names that arrived with it (see `forget_entities`).
@@ -511,6 +580,23 @@ struct Inner {
     /// (`42 36` flag 3) and party members' (`note_hp`). Details marks the
     /// players' on its DPS chart. The last `MAX_DEATHS` only.
     death_log: VecDeque<(i32, i64, Option<i64>)>,
+    /// The maps the player last opened, one per map (`capture::boss_map`),
+    /// and a count that moves with each, for `boss_maps_since`.
+    boss_maps: Vec<crate::capture::boss_map::BossMap>,
+    boss_map_seq: u64,
+    /// Entities whose max HP came from their spawn record, so a percentage of
+    /// it can be trusted (a peak seen later may be below the real max).
+    spawn_hp_ids: HashSet<i32>,
+    /// A field boss's HP now (NPC code, whole percent, when it last changed),
+    /// per entity, and the percent last handed to the sender (`take_boss_hp`).
+    boss_hp_now: HashMap<i32, (i32, u8, i64)>,
+    /// Each fought boss's HP as last sent, and when (`take_boss_hp`).
+    boss_hp_sent: HashMap<i32, (u8, i64)>,
+    /// Field boss kills and HP milestones in the open world, not yet sent
+    /// (`boss_report.rs`).
+    boss_events: VecDeque<BossEvent>,
+    /// Party members who also run A2Tools, by name (`party_presence.rs`).
+    a2tools_users: HashSet<String>,
     /// Each party member's last HP (`1b 92`): falling to 0 from above is a
     /// death. The game sends no `42 36` death for a player (Ultimate Berk,
     /// 2026-10-11: 184 monster deaths, not one of the four that died).
@@ -545,6 +631,23 @@ struct Inner {
     /// Whether the current combat segment has any boss damage
     has_boss_in_segment: bool,
     current_target: i32,
+
+    /// The address of the game server the locked connection reads from.
+    /// Korea and Taiwan share their server ids (10xx/20xx), so field boss
+    /// reports from them carry it for a2tools.app to tell the two apart
+    /// (`boss_report::with_host`).
+    game_host: Option<std::net::Ipv4Addr>,
+
+    /// Odyle energy, (basic, charged), as the game last sent it. See
+    /// `StreamProcessor::parse_odyle_energy_packet`.
+    odyle_energy: Option<(u32, u32)>,
+    /// The character that energy is, for the window to remember it by
+    /// across a meter restart. A login's list comes some seconds before the
+    /// self record naming who logged in, so until that record it has no
+    /// owner (`odyle_awaits_self_record`): the name still known then can be
+    /// the character before a switch.
+    odyle_owner: Option<String>,
+    odyle_awaits_self_record: bool,
 
     // Local player
     local_player_id: Option<i64>,
@@ -615,6 +718,8 @@ impl DataStorage {
                 actor_jobs: HashMap::new(),
                 nickname_storage: HashMap::new(),
                 names_generation: 0,
+                party_generation: 0,
+                party_ended_at_ms: NEVER_MS,
                 pending_nicknames: HashMap::new(),
             name_seen_ms: HashMap::new(),
             last_self_id: None,
@@ -641,6 +746,13 @@ impl DataStorage {
                 hostile_target_ids: HashSet::new(),
                 dead_entity_ids: HashSet::new(),
                 death_log: VecDeque::new(),
+                boss_maps: Vec::new(),
+                boss_map_seq: 0,
+                spawn_hp_ids: HashSet::new(),
+                boss_hp_now: HashMap::new(),
+                boss_hp_sent: HashMap::new(),
+                boss_events: VecDeque::new(),
+                a2tools_users: HashSet::new(),
                 last_hp: HashMap::new(),
                 despawned_summon_ids: HashSet::new(),
                 boss_entity_ids: HashSet::new(),
@@ -650,6 +762,10 @@ impl DataStorage {
                 held_dot_ticks: HashMap::new(),
                 has_boss_in_segment: false,
                 current_target: 0,
+                game_host: None,
+                odyle_energy: None,
+                odyle_owner: None,
+                odyle_awaits_self_record: false,
                 local_player_id: None,
                 supporters: std::sync::Arc::new(crate::supporters::Roster::default()),
                 local_character_name: None,
@@ -826,6 +942,10 @@ impl DataStorage {
             || inner.local_character_name != name
             || inner.loot_identity.applied;
         inner.loot_identity.applied = false;
+        if inner.odyle_energy.is_some() && (inner.odyle_awaits_self_record || inner.odyle_owner.is_none()) {
+            inner.odyle_owner = name.clone();
+            inner.odyle_awaits_self_record = false;
+        }
         set_game_identity(&mut inner, id, name);
         changed
     }
@@ -1190,6 +1310,42 @@ impl DataStorage {
         self.inner.read().local_player_id
     }
 
+    /// The Odyle energy the game sent: basic (spent first, recharged every
+    /// cycle) and charged (from items). `whole_list`: the list sent at login
+    /// and after a server transfer, whose owner the next self record names.
+    pub fn set_odyle_energy(&self, basic: u32, charged: u32, whole_list: bool) {
+        let mut inner = self.inner.write();
+        if whole_list {
+            inner.odyle_owner = None;
+            inner.odyle_awaits_self_record = true;
+        } else if inner.odyle_owner.is_none() && !inner.odyle_awaits_self_record && inner.local_identity_from_game {
+            // A meter started mid-session: the game named you already.
+            inner.odyle_owner = inner.local_character_name.clone();
+        }
+        if inner.odyle_energy != Some((basic, charged)) {
+            tracing::info!("Odyle energy: {basic} basic, {charged} charged");
+            inner.odyle_energy = Some((basic, charged));
+        }
+    }
+
+    pub fn odyle_energy(&self) -> Option<(u32, u32)> {
+        self.inner.read().odyle_energy
+    }
+
+    /// The game server the locked connection reads from (see `game_host`).
+    pub fn set_game_host(&self, host: Option<std::net::Ipv4Addr>) {
+        self.inner.write().game_host = host;
+    }
+
+    pub fn game_host(&self) -> Option<std::net::Ipv4Addr> {
+        self.inner.read().game_host
+    }
+
+    /// Whose the Odyle energy is, once the game has said (see `odyle_owner`).
+    pub fn odyle_owner(&self) -> Option<String> {
+        self.inner.read().odyle_owner.clone()
+    }
+
     pub fn append_damage(&self, pdp: ParsedDamagePacket) {
         let mut inner = self.inner.write();
         let skill_code = pdp.skill_code();
@@ -1362,15 +1518,77 @@ impl DataStorage {
         }
     }
 
+    /// The max HP an entity's spawn record gave, if one came.
+    pub fn spawn_max_hp(&self, id: i32) -> Option<i32> {
+        let inner = self.inner.read();
+        inner.spawn_hp_ids.contains(&id).then(|| inner.mob_hp_data.get(&id).copied()).flatten()
+    }
+
     pub fn append_mob_hp(&self, mid: i32, hp: i32) {
         if hp > 0 {
-            self.inner.write().mob_hp_data.insert(mid, hp);
+            let mut inner = self.inner.write();
+            inner.mob_hp_data.insert(mid, hp);
+            inner.spawn_hp_ids.insert(mid);
+            inner.boss_hp_now.remove(&mid);
+            inner.boss_hp_sent.remove(&mid);
         }
+    }
+
+    /// The party members who also run A2Tools (`party_presence.rs`).
+    pub fn set_a2tools_users(&self, names: HashSet<String>) {
+        self.inner.write().a2tools_users = names;
+    }
+
+    pub fn a2tools_users(&self) -> HashSet<String> {
+        self.inner.read().a2tools_users.clone()
+    }
+
+    /// The field bosses to report now (`boss_report.rs`, every 3 seconds):
+    /// each whose HP changed since the last call, and each still being
+    /// fought (its HP moving or it taking damage in the last IN_COMBAT_MS),
+    /// changed or not. One whose HP came back up RESET_RISE points or more
+    /// is marked as reset. A boss out of range sends nothing (no HP, no
+    /// damage); back in range after resetting, its first reading is the jump.
+    pub fn take_boss_hp(&self, now_ms: i64) -> Vec<BossHp> {
+        let mut inner = self.inner.write();
+        let bosses: Vec<(i32, i32, u8, i64)> =
+            inner.boss_hp_now.iter().map(|(&id, &(npc, pct, changed))| (id, npc, pct, changed)).collect();
+        let mut out = Vec::new();
+        for (id, npc, pct, changed) in bosses {
+            let hit = inner.target_combat.get(&id).map_or(0, |t| t.last_damage_time);
+            let fought = now_ms - changed.max(hit) < IN_COMBAT_MS;
+            let sent = inner.boss_hp_sent.get(&id).copied();
+            let keep_alive_due = sent.is_some_and(|(_, at)| now_ms - at >= BOSS_HP_KEEP_ALIVE_MS);
+            if sent.map(|(p, _)| p) == Some(pct) && !(fought && keep_alive_due) {
+                continue;
+            }
+            let reset = sent.is_some_and(|(s, _)| pct >= s.saturating_add(RESET_RISE));
+            inner.boss_hp_sent.insert(id, (pct, now_ms));
+            out.push(BossHp { npc, percent: pct, reset });
+        }
+        out
+    }
+
+    /// The field boss kills seen since the last call.
+    pub fn take_boss_events(&self) -> Vec<BossEvent> {
+        self.inner.write().boss_events.drain(..).collect()
     }
 
     pub fn mark_entity_dead(&self, entity_id: i32) {
         let code = {
             let mut inner = self.inner.write();
+            // A field boss killed in the open world: its exact time, to share
+            // (online builds only: boss_report.rs sends it).
+            #[cfg(feature = "online")]
+            if inner.current_dungeon_id <= 0 && !inner.dead_entity_ids.contains(&entity_id) {
+                if let Some(&code) = inner.mob_storage.get(&entity_id) {
+                    if crate::capture::field_bosses::is_field_boss(code) {
+                        push_boss_event(&mut inner, BossEvent { npc: code, kind: BossEventKind::Killed { at_ms: now_ms() } });
+                    }
+                }
+            }
+            inner.boss_hp_now.remove(&entity_id);
+            inner.boss_hp_sent.remove(&entity_id);
             inner.hp_floored_ids.remove(&entity_id);
             inner.death_log.push_back((entity_id, now_ms(), None));
             while inner.death_log.len() > MAX_DEATHS {
@@ -1416,6 +1634,22 @@ impl DataStorage {
 
     /// The deaths from `from` to `to` (ms), oldest first: (entity, time, the
     /// revive's time if they are back up).
+    /// A map the player opened, with its field bosses: kept until the same
+    /// map is opened again.
+    pub fn note_boss_map(&self, map: crate::capture::boss_map::BossMap) {
+        let mut inner = self.inner.write();
+        inner.boss_maps.retain(|m| m.map_id != map.map_id);
+        inner.boss_maps.push(map);
+        inner.boss_map_seq += 1;
+    }
+
+    /// The maps opened since `seq` was read (all of them, newest last), and
+    /// the count to ask with next time; None when nothing is new.
+    pub fn boss_maps_since(&self, seq: u64) -> Option<(u64, Vec<crate::capture::boss_map::BossMap>)> {
+        let inner = self.inner.read();
+        (inner.boss_map_seq != seq).then(|| (inner.boss_map_seq, inner.boss_maps.clone()))
+    }
+
     pub fn deaths_between(&self, from: i64, to: i64) -> Vec<(i32, i64, Option<i64>)> {
         self.inner.read().death_log.iter().filter(|d| d.1 >= from && d.1 <= to).copied().collect()
     }
@@ -1529,6 +1763,9 @@ impl DataStorage {
         let mut inner = self.inner.write();
         inner.party_roster_at_ms = now_ms();
         inner.party_placeholders_hidden = false;
+        // The meter's rows name the party: someone joining between fights
+        // must show without waiting for a hit (see `names_generation`).
+        inner.names_generation += 1;
 
         // Leaving, being kicked, or the party disbanding all show up the same way:
         // the next complete roster has you on your own. Going from a real party
@@ -1549,20 +1786,16 @@ impl DataStorage {
                 inner.party_members.len(),
                 members.len()
             );
-            // Save the party's fights while the roster and instance still say
-            // whose they are; the hook reads this storage, so no lock is held.
             drop(inner);
-            self.run_before_reset();
-            let mut inner = self.inner.write();
-            inner.party_members.clear();
-            inner.roster_dungeon_id = 0;
-            inner.current_dungeon_id = dungeon_of_map(0, inner.current_map_id);
-            drop(inner);
-            self.flush_combat_only();
-            self.combat_reset_requested.store(true, Ordering::Relaxed);
+            self.end_party();
             return;
         }
 
+        let joined = members.iter().any(|(name, _)| !inner.party_members.contains_key(name));
+        let left = complete && inner.party_members.keys().any(|name| !members.iter().any(|(n, _)| n == name));
+        if joined || left {
+            inner.party_generation += 1;
+        }
         if complete {
             inner.party_members.clear();
         }
@@ -1576,6 +1809,51 @@ impl DataStorage {
             inner.party_members.insert(name, member);
         }
         bind_roster_names_by_class(&mut inner);
+    }
+
+    /// You are no longer in a party: drop the roster rows and ask for a
+    /// combat reset, so the meter stops showing teammates who are no longer
+    /// with you. The fights so far are saved first.
+    fn end_party(&self) {
+        // Save the party's fights while the roster and instance still say
+        // whose they are; the hook reads this storage, so no lock is held.
+        self.run_before_reset();
+        let mut inner = self.inner.write();
+        inner.party_members.clear();
+        inner.party_generation += 1;
+        inner.party_ended_at_ms = now_ms();
+        inner.roster_dungeon_id = 0;
+        inner.current_dungeon_id = dungeon_of_map(0, inner.current_map_id);
+        drop(inner);
+        self.flush_combat_only();
+        self.combat_reset_requested.store(true, Ordering::Relaxed);
+    }
+
+    /// The game said you are no longer in a party: `13 92` for an open-world
+    /// party, `1d 97` for a dungeon or raid party (the finder's, whose roster
+    /// is `02 97`). You left, were kicked, or it disbanded. An open-world
+    /// party sends no roster at all, and leaving a raid others are still in
+    /// sends none that has you on your own, so this is the only sign. When
+    /// the roster has just ended the party (`1d 97` came 3 s after it at
+    /// 00:58 on 2026-10-14), it is not ended again.
+    ///
+    /// Nor is anything cleared when there is no party to clear: no roster and
+    /// nobody but you on the meter. Should the game ever send one of these in
+    /// another case (an invite declined or failed, a login, a zone change
+    /// while solo), a fight of your own is not wiped.
+    pub fn note_party_left(&self) {
+        {
+            let inner = self.inner.read();
+            if now_ms().saturating_sub(inner.party_ended_at_ms) < PARTY_LEFT_AFTER_END_MS {
+                return;
+            }
+            if inner.party_members.is_empty() && !others_on_meter(&inner) {
+                tracing::info!("Party left, but no party and nobody else on the meter: nothing to clear");
+                return;
+            }
+        }
+        tracing::info!("Party left — clearing party rows");
+        self.end_party();
     }
 
     /// A zone load named the map it loads (`21 36`). The map, once known, is
@@ -1629,7 +1907,9 @@ impl DataStorage {
     /// The player reset the meter: stop showing party members who have not
     /// fought, until the game sends the next roster.
     pub fn hide_party_placeholders(&self) {
-        self.inner.write().party_placeholders_hidden = true;
+        let mut inner = self.inner.write();
+        inner.party_placeholders_hidden = true;
+        inner.names_generation += 1;
     }
 
     /// Record a power-scalar reading for an actor. See `Inner::actor_power_scalars`.
@@ -1840,6 +2120,25 @@ impl DataStorage {
         if hp > *max {
             *max = hp;
         }
+        // A field boss in the open world whose max HP is known from its spawn:
+        // its HP now, for the sender's next pass (online builds only, as kills).
+        #[cfg(feature = "online")]
+        if let Some(max) = inner.mob_hp_data.get(&id).copied()
+            && inner.current_dungeon_id <= 0
+            && max > 0
+            && inner.spawn_hp_ids.contains(&id)
+        {
+            if let Some(&code) = inner.mob_storage.get(&id) {
+                if crate::capture::field_bosses::is_field_boss(code) {
+                    let pct = ((hp as i64 * 100) / max as i64).clamp(0, 100) as u8;
+                    let changed = match inner.boss_hp_now.get(&id) {
+                        Some(&(_, before, at)) if before == pct => at,
+                        _ => now_ms(),
+                    };
+                    inner.boss_hp_now.insert(id, (code, pct, changed));
+                }
+            }
+        }
     }
 
     /// Whether `id` behaved as a training dummy does: its HP stopped at 1 and
@@ -2011,7 +2310,15 @@ impl DataStorage {
         inner.names_generation += 1;
     }
 
-    /// Changes whenever a name is bound, replaced or dropped.
+    /// Changes when someone joins or leaves the party, or it ends: the meter
+    /// then drops the rows it kept from the last fight, which name the old
+    /// party. Not with every roster; the game resends it on each map load.
+    pub fn party_generation(&self) -> u64 {
+        self.inner.read().party_generation
+    }
+
+    /// Changes whenever a name is bound, replaced or dropped, and with each
+    /// party roster (the meter's rows for members who haven't fought).
     pub fn names_generation(&self) -> u64 {
         self.inner.read().names_generation
     }
@@ -3041,6 +3348,55 @@ mod tests {
         s.get_combat_snapshot().get(&target).and_then(|t| t.actors.get(&actor)).map_or(0, |a| a.total_damage)
     }
 
+    /// Bodyguard Teegant (NPC 2100079), a Verteron field boss.
+    #[cfg(feature = "online")]
+    #[test]
+    fn a_field_boss_kill_in_the_open_world_is_queued_with_its_time() {
+        let s = DataStorage::new();
+        s.append_mob(500, 2100079);
+        s.mark_entity_dead(500);
+        s.mark_entity_dead(500); // the same death again: once
+        let events = s.take_boss_events();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], BossEvent { npc: 2100079, kind: BossEventKind::Killed { .. } }));
+        // Not a field boss, or inside a dungeon: nothing.
+        s.append_mob(501, 2100080);
+        s.mark_entity_dead(501);
+        s.set_current_dungeon(600012);
+        s.append_mob(502, 2100079);
+        s.mark_entity_dead(502);
+        assert!(s.take_boss_events().is_empty());
+    }
+
+    #[cfg(feature = "online")]
+    #[test]
+    fn a_fought_boss_goes_every_pass_and_a_reset_is_marked() {
+        let s = DataStorage::new();
+        s.append_mob(500, 2100079);
+        s.append_mob_hp(500, 1000);
+        s.set_mob_current_hp(500, 950);
+        let t = now_ms();
+        let pct = |v: Vec<BossHp>| v.into_iter().map(|h| (h.percent, h.reset)).collect::<Vec<_>>();
+        assert_eq!(pct(s.take_boss_hp(t)), vec![(95, false)]);
+        // Still being fought but unchanged: not again until a minute has
+        // passed since it went (the site uses a repeat once a minute).
+        assert!(s.take_boss_hp(t + 3_000).is_empty());
+        // Left alone: nothing once the fight has gone quiet.
+        assert!(s.take_boss_hp(t + 60_000).is_empty());
+        s.set_mob_current_hp(500, 400);
+        assert_eq!(pct(s.take_boss_hp(now_ms())), vec![(40, false)]);
+        // Kited away and reset: back at full, marked.
+        s.set_mob_current_hp(500, 1000);
+        assert_eq!(pct(s.take_boss_hp(now_ms())), vec![(100, true)]);
+        // Dead: no more HP for it.
+        s.mark_entity_dead(500);
+        assert!(s.take_boss_hp(now_ms()).is_empty());
+        // Its spawn unseen: its max is a guess, so no percentages.
+        s.append_mob(501, 2100079);
+        s.set_mob_current_hp(501, 800);
+        assert!(s.take_boss_hp(now_ms()).is_empty());
+    }
+
     #[test]
     fn damage_taken_and_party_heal_land_on_the_fight_they_belong_to() {
         let s = DataStorage::new();
@@ -3439,6 +3795,30 @@ mod tests {
         assert_eq!(s.current_dungeon_id(), 610073);
         s.note_map_load(610073);
         assert_eq!(s.current_dungeon_id(), 610073, "a teleport inside keeps it");
+    }
+
+    /// A "no longer in a party" record with no party to clear (no roster,
+    /// nobody but you on the meter) leaves your fight alone; with another
+    /// player on the meter (an open-world party has no roster), it clears.
+    #[test]
+    fn leaving_a_party_clears_only_when_there_was_one() {
+        let s = DataStorage::new();
+        s.note_party_left();
+        assert!(!s.take_combat_reset_requested(), "an empty meter");
+
+        s.set_local_player_id(Some(101));
+        s.append_nickname_authoritative(101, "Nullception");
+        s.append_damage(hit(101, 900, 1_000, 500, false));
+        s.register_confirmed_summon_by_id(5_000, 101);
+        s.append_damage(hit(5_000, 900, 1_500, 200, false));
+        s.note_party_left();
+        assert!(!s.take_combat_reset_requested(), "only you, and your summon");
+        assert!(s.get_combat_snapshot()[&900].total_damage > 0, "your fight is kept");
+
+        s.append_nickname_authoritative(202, "JinSoul");
+        s.append_damage(hit(202, 900, 2_000, 300, false));
+        s.note_party_left();
+        assert!(s.take_combat_reset_requested(), "an open-world party: someone else on the meter");
     }
 }
 

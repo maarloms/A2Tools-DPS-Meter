@@ -288,10 +288,16 @@ impl StreamProcessor {
             || self.parsing_nickname(packet);
         let parsed_hp = self.parse_hp_mp_update_packet(packet);
         self.parse_party_scope_packet(packet);
+        self.parse_party_left_packet(packet);
+        self.parse_odyle_energy_packet(packet);
         self.parse_self_stats_packet(packet);
         self.parse_death_packet(packet);
         self.parse_zone_change_packet(packet);
         self.parse_map_load_packet(packet);
+        // The field bosses on a map the player opened (boss timers).
+        if let Some(map) = crate::capture::boss_map::parse(packet, crate::clock::now_ms()) {
+            self.data_storage.note_boss_map(map);
+        }
 
         if !parsed_damage && !parsed_name && !parsed_summon && !parsed_ownership && !parsed_hp {
             self.parse_dot_packet(packet);
@@ -317,6 +323,57 @@ impl StreamProcessor {
         let id = read_varint(packet, offset + 2);
         if id.length > 0 {
             self.data_storage.note_party_scope(id.value);
+        }
+    }
+
+    // ===== PARTY LEFT (13 92, 1D 97) =====
+
+    /// `<len> 13 92 00 00` (an open-world party) or `<len> 1D 97 00 00` (a
+    /// dungeon or raid party): you are no longer in a party.
+    ///
+    /// `13 92` was on leaving an open-world party at 23:39:12 and 23:43:42 on
+    /// 2026-10-13 (the second after `1f 92 03`, the last member having gone
+    /// at 23:43:12). `1d 97` was on leaving a dungeon party at 00:34:56 and
+    /// 00:58:58 and a raid at 03:18:39 on 2026-10-14 (followed by `1b 97` and
+    /// the party's key). Neither was in any other capture.
+    fn parse_party_left_packet(&self, packet: &[u8]) {
+        let length_info = read_varint(packet, 0);
+        if length_info.length <= 0 {
+            return;
+        }
+        let offset = length_info.length as usize;
+        let record = packet.get(offset..);
+        if record == Some(&[0x13, 0x92, 0x00, 0x00][..]) || record == Some(&[0x1D, 0x97, 0x00, 0x00][..]) {
+            self.data_storage.note_party_left();
+        }
+    }
+
+    // ===== ODYLE ENERGY (0B 61, 0C 61) =====
+
+    /// Odyle energy, the first entry of the game's list of entry counts. An
+    /// entry is `<kind> <slot> <key varint> <value varint>...`: kind `04` has
+    /// one value (a dungeon's entries left), `0c` two; Odyle energy is
+    /// `0c 01 <key> <basic> <charged>`. `0b 61` holds the whole list, at
+    /// login and after a server transfer, among other things before it;
+    /// `0c 61 <count> <entries>` the entries that changed.
+    ///
+    /// Seen on 2026-10-14: the list at 03:18:42 (15 basic, 605 charged, after
+    /// a raid) and at 21:16:50 (30, 840, at login; the game's tooltip said
+    /// 30/840 and 840/2000); a recharge item at 21:24:45 sent
+    /// `0c 61 01 0c 01 87 93 03 1e f0 06 01 28 00 00 00` (charged 880).
+    fn parse_odyle_energy_packet(&self, packet: &[u8]) {
+        let length_info = read_varint(packet, 0);
+        if length_info.length <= 0 {
+            return;
+        }
+        let offset = length_info.length as usize;
+        let (energy, whole_list) = match packet.get(offset..offset + 2) {
+            Some([0x0B, 0x61]) => (odyle_energy_in_list(&packet[offset + 2..]), true),
+            Some([0x0C, 0x61]) => (odyle_energy_in_update(&packet[offset + 2..]), false),
+            _ => return,
+        };
+        if let Some((basic, charged)) = energy {
+            self.data_storage.set_odyle_energy(basic, charged, whole_list);
         }
     }
 
@@ -649,8 +706,12 @@ impl StreamProcessor {
             {
                 let h = disc + 3;
                 let cur = u32::from_le_bytes([data[h], data[h + 1], data[h + 2], data[h + 3]]);
-                // Sanity bound: real HP is well under this; rejects misparses.
-                if cur <= 100_000_000 {
+                // Sanity bound against misparses: 100 million, or the max HP
+                // the spawn gave, whichever is higher. World bosses have more
+                // (Watcher Kaira and Argo 810 million) and sent no live HP
+                // until under 100 million, about 12% left (#70).
+                let bound = self.data_storage.spawn_max_hp(id_info.value).unwrap_or(0).max(100_000_000);
+                if cur <= bound as u32 {
                     self.data_storage.set_mob_current_hp(id_info.value, cur as i32);
                     // The same record carries players' HP, your own included
                     // (`1b 92` has only the party's): their deaths and revives.
@@ -1443,8 +1504,14 @@ impl StreamProcessor {
                 break;
             }
 
-            // Skip 7-digit NPC skills
-            if (1_000_000..=9_999_999).contains(&exact_skill_code) {
+            // A 7-digit skill is an NPC's: a monster hitting a player. Its
+            // damage is what the player took (DataStorage::append_damage); it
+            // used to be dropped here, so Damage Taken stayed 0 (Gatekeeper
+            // Pinopi, 2026-10-15).
+            let npc_skill = (1_000_000..=9_999_999).contains(&exact_skill_code);
+            // Only a known monster's hit on a known player; any other NPC
+            // skill is still dropped, as it always was.
+            if npc_skill && !(self.data_storage.is_mob(actor_value) && self.data_storage.is_known_player(target_value)) {
                 break;
             }
 
@@ -1462,7 +1529,7 @@ impl StreamProcessor {
             // Hit type 1 (Miss) and 6 (Resist) carry no damage: count them on
             // the skill and stop here, as the parser always did on these.
             if no_value {
-                if !require_trusted && actor_value != target_value {
+                if !require_trusted && actor_value != target_value && !npc_skill {
                     if let Some(kind) = NoDamageHit::from_hit_type(dummy_type) {
                         let skill = self.normalize_skill_id(exact_skill_code as i32);
                         self.data_storage.append_no_damage_hit(target_value, actor_value, skill, kind);
@@ -1517,7 +1584,6 @@ impl StreamProcessor {
                 Some(v) => v,
                 None => break,
             };
-            let mut after_first_offset = offset;
             let mut second_value = match try_read_varint(packet, &mut offset) {
                 Some(v) => v,
                 None => break,
@@ -1538,29 +1604,26 @@ impl StreamProcessor {
             // `note_power_scalar` records it for; see
             // `DpsCalculator::infer_summon_owners`.
             if first_value == 0 {
-                let after_second_offset = offset;
                 if let Some(third) = try_read_varint(packet, &mut offset) {
                     first_value = second_value;
-                    after_first_offset = after_second_offset;
                     second_value = third;
                 }
             }
 
-            let first_is_damage = should_treat_first_value_as_damage(first_value, second_value, and_result, damage_type as i32);
-
-            // When the damage is in `second_value`, `first_value` is the actor's
-            // power scalar (see above). Recorded per actor so a summon whose spawn
-            // packet never arrived can still be tied to its owner.
-            if !first_is_damage && (1_000..=200_000).contains(&first_value) {
+            // The damage is always the second value, crits included: the first
+            // is the actor's power scalar (see above). A crit was once read
+            // value-first when the first number looked like damage and the
+            // second was small, but that was the scalar every time a small hit
+            // (a DoT tick) crit: 2,182 of 2,206 such reads across 20 captures
+            // were the attacker's own scalar (issue #58).
+            //
+            // Recorded per actor so a summon whose spawn packet never arrived
+            // can still be tied to its owner.
+            if (1_000..=200_000).contains(&first_value) && !npc_skill {
                 self.data_storage.note_power_scalar(actor_value, first_value);
             }
 
-            let mut final_damage = if first_is_damage {
-                offset = after_first_offset;
-                first_value
-            } else {
-                second_value
-            };
+            let mut final_damage = second_value;
 
             // The tail after the value, checked against the game's own Damage
             // Analyzer record of the same fight (2026-10-04): layout 4 carries
@@ -1951,6 +2014,80 @@ pub fn read_varint(bytes: &[u8], offset: usize) -> VarIntResult {
     }
 }
 
+/// One entry of the game's entry counts (see
+/// `StreamProcessor::parse_odyle_energy_packet`) at `at`: its kind, slot, key
+/// and values, and where the next begins.
+fn entry_count_at(body: &[u8], at: usize) -> Option<(u8, u8, i32, [i32; 2], usize)> {
+    let kind = *body.get(at)?;
+    // The kind says which values follow: 04 the first, 08 the second, 0c
+    // both (a zero is left out).
+    let values = match kind {
+        0x04 | 0x08 => 1,
+        0x0C => 2,
+        _ => return None,
+    };
+    let slot = *body.get(at + 1)?;
+    let mut o = at + 2;
+    let key = try_read_varint(body, &mut o)?;
+    let mut v = [0; 2];
+    for value in v.iter_mut().take(values) {
+        *value = try_read_varint(body, &mut o)?;
+    }
+    Some((kind, slot, key, v, o))
+}
+
+/// Odyle energy as `(basic, charged)` from an entry, when it is that entry.
+///
+/// The kind is which of basic and charged are sent, a zero being left out:
+/// `0c` both, `04` basic only (`04 01 87 93 03 c8 06`, 840 and 0, at a login
+/// on 2026-10-16), `08` charged only (`08 01 87 93 03 ab 0e`, 0 and 1835, in
+/// a player's log of 2026-10-15). The meter read only `0c`, so it missed the
+/// energy of anyone with either at 0.
+fn odyle_energy_of(kind: u8, slot: u8, v: [i32; 2]) -> Option<(u32, u32)> {
+    // Generous bounds (the game's are 840, or 560 without a membership, and 2000): only to turn away bytes
+    // that merely look like the entry.
+    let ok = |n: i32| (0..=100_000).contains(&n);
+    match kind {
+        0x0C if slot == 1 && ok(v[0]) && ok(v[1]) => Some((v[0] as u32, v[1] as u32)),
+        0x04 if slot == 1 && ok(v[0]) => Some((v[0] as u32, 0)),
+        0x08 if slot == 1 && ok(v[0]) => Some((0, v[0] as u32)),
+        _ => None,
+    }
+}
+
+/// Odyle energy in a `0b 61` list: the `0c 01` entry that the list's second
+/// entry follows with the same key.
+fn odyle_energy_in_list(body: &[u8]) -> Option<(u32, u32)> {
+    (0..body.len().saturating_sub(1))
+        .filter(|&i| matches!(body[i], 0x0C | 0x04 | 0x08) && body[i + 1] == 0x01)
+        .find_map(|i| {
+            let (kind, slot, key, v, next) = entry_count_at(body, i)?;
+            let (_, next_slot, next_key, _, _) = entry_count_at(body, next)?;
+            if next_slot != 2 || next_key != key {
+                return None;
+            }
+            odyle_energy_of(kind, slot, v)
+        })
+}
+
+/// Odyle energy in a `0c 61` update, if among the entries that changed.
+///
+/// The first byte is not a count: updates with `00` there carry an entry too
+/// (`0c 61 00 08 01 87 93 03 ab 0e 03`, 2026-10-15), and the meter skipped
+/// them. The entries are read from after it, at least one.
+fn odyle_energy_in_update(body: &[u8]) -> Option<(u32, u32)> {
+    let count = (*body.first()?).max(1);
+    let mut at = 1;
+    for _ in 0..count {
+        let (kind, slot, _, v, next) = entry_count_at(body, at)?;
+        if let Some(energy) = odyle_energy_of(kind, slot, v) {
+            return Some(energy);
+        }
+        at = next;
+    }
+    None
+}
+
 fn try_read_varint(bytes: &[u8], offset: &mut usize) -> Option<i32> {
     let result = read_varint(bytes, *offset);
     if result.length <= 0 {
@@ -2005,13 +2142,6 @@ fn decode_spec_flags(raw: i32) -> [bool; 5] {
         suffix /= 10;
     }
     result
-}
-
-fn should_treat_first_value_as_damage(first_value: i32, second_value: i32, and_result: i32, damage_type: i32) -> bool {
-    if !(1_000..=99_999_999).contains(&first_value) { return false; }
-    if !(0..=25).contains(&second_value) { return false; }
-    if first_value > 5_000_000 { return false; }
-    and_result == 6 && damage_type == 3
 }
 
 /// The tail of a damage record after its value, when it has the shape the
@@ -3456,6 +3586,30 @@ mod tests {
         p.parsing_damage(&packet, false, false)
     }
 
+    /// Gatekeeper Pinopi (2026-10-15, entity 47573) hitting a player (9681)
+    /// for 1,258 with a 7-digit NPC skill (1607550). The parser used to drop
+    /// every NPC skill, so Damage Taken stayed 0; the hit now counts, on the
+    /// fight with the monster that dealt it.
+    #[test]
+    fn a_monsters_hit_on_a_player_counts_as_damage_taken() {
+        let (storage, mut p) = processor();
+        storage.append_mob(47573, 2_980_040);
+        // The player hits it first (a player skill), so 9681 is known to be one.
+        let mut first = crate::entity::damage_packet::ParsedDamagePacket::new();
+        first.set_timestamp(500);
+        first.set_actor_id(9681);
+        first.set_target_id(47573);
+        first.set_skill_code(16_190_020);
+        first.set_damage(100);
+        storage.append_damage(first);
+
+        assert!(feed(&mut p, "D14B0600D5F3027E871800020202000243ED940901000000904EEA090100"));
+        let taken = storage.get_combat_snapshot_light()[&47573].actors[&9681].damage_received;
+        assert_eq!(taken, 1_258);
+        // Nothing of it is taken for the monster's own damage.
+        assert!(!storage.get_combat_snapshot_light()[&47573].actors.contains_key(&47573));
+    }
+
     /// A Training Scarecrow's live HP (2026-10-07, entity 25839, whose spawn
     /// came before the meter started): hit down to 1, it stops there and
     /// comes back to full. That is how the meter knows it is a dummy without
@@ -3475,6 +3629,28 @@ mod tests {
         assert!(!storage.is_hp_reset_dummy(25839), "at the floor: a mob about to die looks the same");
         hp(&mut p, "8F380100");
         assert!(storage.is_hp_reset_dummy(25839), "back up from 1 without dying");
+    }
+
+    /// A world boss has more HP than the 100 million bound against misparses
+    /// (Watcher Kaira and Argo: 810 million). Its live HP is read up to the
+    /// max HP its spawn gave; without a spawn, the bound stays (#70).
+    #[test]
+    fn a_world_bosss_hp_over_100_million_is_read_up_to_its_spawn_max() {
+        let (storage, mut p) = processor();
+        let hp = |p: &mut StreamProcessor, hp: &str| {
+            p.consume_stream(&hex(&format!("1400 8DEFC901 020100 {hp} 00000000").replace(' ', "")))
+        };
+        // 800,000,000 with no spawn known: refused.
+        hp(&mut p, "0008AF2F");
+        assert_eq!(storage.get_mob_current_hp(25839), None);
+        storage.append_mob_hp(25839, 810_000_000);
+        hp(&mut p, "0008AF2F");
+        assert_eq!(storage.get_mob_current_hp(25839), Some(800_000_000));
+        hp(&mut p, "00E1F505"); // 100,000,000
+        // Over the spawn's max: a misread, refused.
+        assert_eq!(storage.get_mob_current_hp(25839), Some(100_000_000));
+        hp(&mut p, "00E9A435"); // 900,000,000, over the spawn's 810 million
+        assert_eq!(storage.get_mob_current_hp(25839), Some(100_000_000));
     }
 
     /// A Wind Spirit's Malicious Whirlwind ticks on after the spirit is
@@ -3522,6 +3698,153 @@ mod tests {
         p.consume_stream(&scope);
         assert_eq!(storage.local_player_id(), Some(2737));
         assert!(storage.local_id_from_scope());
+    }
+
+    /// Odyle energy (2026-10-14): the login list at 21:16:50 (30 basic, 840
+    /// charged, as the game's tooltip said), then a recharge item's update at
+    /// 21:24:45 (charged 880). A `0c 61` without the energy entry changes
+    /// nothing.
+    #[test]
+    fn odyle_energy_from_the_login_list_and_its_updates() {
+        let (storage, mut p) = processor();
+        assert_eq!(storage.odyle_energy(), None);
+        let list = [
+            "f1030b61490c010000000a010103000000a0c01b01000000000004000000000600000004070000002004080000000501",
+            "090000008085800100000000040a0000000e040b00000002040c0000000e010d0000008085800100000000040e000000",
+            "0e040f0000000e04650000000e04660000000704670000000701c9000000808580010000000001ca0000008085800100",
+            "00000001cb000000808580010000000001cc000000808580010000000001cd000000808580010000000001ce00000080",
+            "858001000000000081969800008296980000839698000084969800008596980000869698000087969800008896980000",
+            "89969800008a969800008b969800008c9698000c018793031ec80604028793030e04038793030e04048793030e040587",
+            "93030e04068793031504078793032304088793031c040987930309040a8793030704658793030e04c987930307044d8b",
+            "93030704b18b93030e04358f93030704998f93030e041d9393030704819393030e04059793030704699793030704b59b",
+            "930304049d9f93030404bda29303070421a393030e048daa93030704f1aa93030e0445b693030704a9b6930307042dba",
+            "9303070415be93030704fdc193030704811d2c04030401b4c4040304814a5d050404824a5d050104834a5d050404844a",
+            "5d050204854a5d050404864a5d0502",
+        ]
+        .concat();
+        p.parse_perfect_packet(&hex(&list));
+        assert_eq!(storage.odyle_energy(), Some((30, 840)));
+
+        p.parse_perfect_packet(&hex("140c61010c018793031ef0060128000000"));
+        assert_eq!(storage.odyle_energy(), Some((30, 880)));
+
+        // The `0c 61` that followed the list at 03:18:42.
+        p.parse_perfect_packet(&hex("0d0c6100000987930303"));
+        assert_eq!(storage.odyle_energy(), Some((30, 880)));
+    }
+
+    /// With no charged energy the entry has one value (`04`, the zero
+    /// dropped): the list at a login on 2026-10-16 (its energy entry and the
+    /// one after it, as the game sent them) is 840 basic, 0 charged. The
+    /// meter only read the two-value form and showed nothing.
+    /// A player's log (2026-10-15): basic energy 0, so the login list and
+    /// the updates carry charged energy alone (`08`), and many updates start
+    /// `00`. The meter read none of them and only refreshed when a two-value
+    /// entry came.
+    #[test]
+    fn odyle_energy_with_charged_energy_only_and_its_updates() {
+        let (storage, mut p) = processor();
+        let mut list = hex("0b61490801879303ab0e04028793030e04038793030e");
+        list.insert(0, (list.len() + 1) as u8);
+        p.parse_perfect_packet(&list);
+        assert_eq!(storage.odyle_energy(), Some((0, 1835)));
+        p.parse_perfect_packet(&hex("0f0c61000801879303db0d03"));
+        assert_eq!(storage.odyle_energy(), Some((0, 1755)));
+        p.parse_perfect_packet(&hex("130c61010801879303cb0f01f0000000"));
+        assert_eq!(storage.odyle_energy(), Some((0, 1995)));
+        // Updates without the energy change nothing.
+        p.parse_perfect_packet(&hex("0e0c6100040c0000000e02"));
+        p.parse_perfect_packet(&hex("0d0c6100000987930303"));
+        assert_eq!(storage.odyle_energy(), Some((0, 1995)));
+    }
+
+    #[test]
+    fn odyle_energy_without_charged_energy_is_read() {
+        let (storage, mut p) = processor();
+        let body = "0b61490401879303c80604028793030e04038793030e";
+        let mut list = hex(body);
+        list.insert(0, (list.len() + 1) as u8);
+        p.parse_perfect_packet(&list);
+        assert_eq!(storage.odyle_energy(), Some((840, 0)));
+    }
+
+    /// Whose the energy is, for the window to remember it by: a login's list
+    /// (21:16:50) came 7 s before the self record (21:16:57), so after a
+    /// character switch the name still known is the previous character's.
+    /// The list waits for the self record; an update in a session the game
+    /// has named takes that name.
+    #[test]
+    fn odyle_energy_belongs_to_the_character_the_next_self_record_names() {
+        let storage = DataStorage::new();
+        storage.set_local_identity_from_game(15997, Some("Nullception".into()));
+        storage.set_odyle_energy(30, 840, true);
+        assert_eq!(storage.odyle_owner(), None);
+        storage.set_odyle_energy(30, 880, false);
+        assert_eq!(storage.odyle_owner(), None, "still waiting for the self record");
+        storage.set_local_identity_from_game(4294, Some("Alt".into()));
+        assert_eq!(storage.odyle_owner().as_deref(), Some("Alt"));
+        storage.set_local_identity_from_game(15784, Some("Alt".into()));
+        storage.set_odyle_energy(20, 880, false);
+        assert_eq!(storage.odyle_owner().as_deref(), Some("Alt"));
+
+        // A meter started mid-session: named first, then an update.
+        let storage = DataStorage::new();
+        storage.set_local_identity_from_game(1030, Some("Nullception".into()));
+        storage.set_odyle_energy(25, 840, false);
+        assert_eq!(storage.odyle_owner().as_deref(), Some("Nullception"));
+
+        // An update before anyone is named has no owner yet; the next self
+        // record gives it one.
+        let storage = DataStorage::new();
+        storage.set_odyle_energy(25, 840, false);
+        assert_eq!(storage.odyle_owner(), None);
+        storage.set_local_identity_from_game(1030, Some("Nullception".into()));
+        assert_eq!(storage.odyle_owner().as_deref(), Some("Nullception"));
+    }
+
+    /// Leaving an open-world party (2026-10-13, 23:43:42): `1f 92 03`, then
+    /// `13 92 00 00`. The party's rows go and the meter is asked to reset;
+    /// a record that only starts the same is not taken for it.
+    #[test]
+    fn leaving_a_party_clears_it() {
+        use crate::combat::data_storage::PartyMember;
+        let (storage, mut p) = processor();
+        let member = |slot| PartyMember { slot, ..Default::default() };
+        storage.set_party_roster(vec![("Nullception".into(), member(1)), ("JinSoul".into(), member(2))], true);
+        let generation = storage.party_generation();
+        p.parse_perfect_packet(&[0x08, 0x13, 0x92, 0x00, 0x00, 0x01]);
+        assert_eq!(storage.get_party_members().len(), 2);
+        assert!(!storage.take_combat_reset_requested());
+
+        p.parse_perfect_packet(&[0x07, 0x1f, 0x92, 0x03]);
+        p.parse_perfect_packet(&[0x08, 0x13, 0x92, 0x00, 0x00]);
+        assert!(storage.get_party_members().is_empty());
+        assert!(storage.party_generation() > generation);
+        assert!(storage.take_combat_reset_requested());
+
+        // The same party's `1d 97` a moment later doesn't end it again.
+        let generation = storage.party_generation();
+        p.set_override_timestamp(Some(4_000));
+        p.parse_perfect_packet(&[0x08, 0x1d, 0x97, 0x00, 0x00]);
+        assert_eq!(storage.party_generation(), generation);
+        assert!(!storage.take_combat_reset_requested());
+    }
+
+    /// Leaving a raid others are still in (2026-10-14, 03:18:39): the roster
+    /// went from four to three, then `1d 97 00 00` and `1b 97` with the
+    /// party's key, and no roster with you on your own.
+    #[test]
+    fn leaving_a_raid_clears_it() {
+        use crate::combat::data_storage::PartyMember;
+        let (storage, mut p) = processor();
+        let member = |slot| PartyMember { slot, ..Default::default() };
+        let names = ["Casamonstros", "Flechitas", "Nullception"];
+        storage.set_party_roster(names.iter().zip(1..).map(|(n, s)| (n.to_string(), member(s))).collect(), true);
+        let generation = storage.party_generation();
+        p.parse_perfect_packet(&[0x08, 0x1d, 0x97, 0x00, 0x00]);
+        assert!(storage.get_party_members().is_empty());
+        assert!(storage.party_generation() > generation);
+        assert!(storage.take_combat_reset_requested());
     }
 
     fn processor() -> (Arc<DataStorage>, StreamProcessor) {
@@ -3730,34 +4053,64 @@ mod tests {
     fn a_sorcerers_ground_spell_is_linked_to_its_caster() {
         let storage = Arc::new(DataStorage::new());
         let mut p = StreamProcessor::new(storage.clone(), Arc::new(SkillLookup::new()), Arc::new(NpcLookup::new()));
-        let hex = |s: &str| (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect::<Vec<u8>>();
-        // Bittercold Wind entity 18249 from a party run (krao capture, 2026-10-05):
-        // kind 0x1F, buff block naming itself, caster 14143 after `07 02 06`.
-        let storm = |id_varint: &str, caster: &str| {
-            let mut b = hex("4136");
-            b.extend(hex(id_varint));
-            b.extend(hex("1F00004B8E2C004002000CF0C7CFA9D0C70090C04672498542642F01A925A9258E0800008E08000000000000000000000000000010E9010064000000F04902000100000000000000A08601000000000090D00300010101110181969800FFFFFFFFFFFFFFFF8075D52ABB030000"));
-            b.extend(hex(id_varint));
-            b.extend(hex("0102000CF0C7CFA9D0C70090C046070206"));
-            b.extend(hex(caster));
-            b.extend(hex("02CD002800"));
+        let varint = |mut v: u32| {
+            let mut out = Vec::new();
+            loop {
+                let byte = (v & 0x7F) as u8;
+                v >>= 7;
+                if v == 0 {
+                    out.push(byte);
+                    return out;
+                }
+                out.push(byte | 0x80);
+            }
+        };
+        // A Bittercold Wind spawn built from its fields: kind 0x1F, a buff
+        // block cast by the spell itself, and its caster after `07 02 06`.
+        let storm = |id: u32, caster: u32| {
+            let mut b = vec![0x41, 0x36];
+            b.extend(varint(id));
+            b.extend([0x1F, 0x00, 0x00]); // kind, no inline name
+            b.extend(&2_920_011u32.to_le_bytes()[..3]); // NPC code
+            b.extend([0x00, 0x40, 0x02]);
+            for v in [1500.0f32, -2500.0, 120.0] {
+                b.extend(v.to_le_bytes()); // position
+            }
+            b.push(0x01);
+            b.extend(varint(4777)); // HP
+            b.extend(varint(4777)); // max HP
+            b.extend([0u8; 40]);
+            b.extend([0x06, 0x01]); // one abnormal
+            b.push(0x11);
+            b.extend(varint(1));
+            b.extend(10_000_001u32.to_le_bytes());
+            b.extend((-1i64).to_le_bytes());
+            b.extend(4_102_412_400_000i64.to_le_bytes());
+            b.extend(varint(id)); // cast by the spell itself
+            b.extend([0x01, 0x02]);
+            for v in [100.0f32, 200.0, 300.0] {
+                b.extend(v.to_le_bytes());
+            }
+            b.extend([0x07, 0x02, 0x06]);
+            b.extend(caster.to_le_bytes());
+            b.extend([0x02, 0xCD, 0x00, 0x28, 0x00]);
             b
         };
-        assert!(p.parse_summon_spawn_at(&storm("C98E01", "3F370000"), 2));
-        assert_eq!(storage.get_summon_data().get(&18249), Some(&14143));
+        assert!(p.parse_summon_spawn_at(&storm(21_001, 2_600), 2));
+        assert_eq!(storage.get_summon_data().get(&21_001), Some(&2_600));
 
         // A marker naming the spell itself, or a mob, links nothing.
-        assert!(!p.parse_summon_spawn_at(&storm("CA8E01", "4A470000"), 2));
+        assert!(!p.parse_summon_spawn_at(&storm(21_002, 21_002), 2));
         storage.append_mob(30000, 1);
-        assert!(!p.parse_summon_spawn_at(&storm("CB8E01", "30750000"), 2));
-        assert!(!storage.is_summon(18250) && !storage.is_summon(18251));
+        assert!(!p.parse_summon_spawn_at(&storm(21_003, 30_000), 2));
+        assert!(!storage.is_summon(21_002) && !storage.is_summon(21_003));
 
         // Some spawns carry `07 02 01` instead of `07 02 06`.
-        let mut other = storm("CC8E01", "BF000000");
+        let mut other = storm(21_004, 191);
         let m = other.windows(3).position(|w| w == [0x07, 0x02, 0x06]).unwrap();
         other[m + 2] = 0x01;
         assert!(p.parse_summon_spawn_at(&other, 2));
-        assert_eq!(storage.get_summon_data().get(&18252), Some(&191));
+        assert_eq!(storage.get_summon_data().get(&21_004), Some(&191));
     }
 
     /// A party member whose spawn the meter missed is named by their pet's

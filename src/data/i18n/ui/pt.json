@@ -92,6 +92,13 @@
       "healPct": "C%",
       "healPctTooltip": "Cura %"
     },
+    "peak": {
+      "label": "Lista do grupo",
+      "show": "Mostrar o DPS máximo (melhores 5 s) ao lado da média"
+    },
+    "party": {
+      "activeDps": "DPS no tempo ativo: {dps} ({active} dos {total} da luta)"
+    },
     "stats": {
       "totalDamage": "Dano total",
       "contribution": "Contribuição",
@@ -107,7 +114,11 @@
       "multiHitDamage": "Dano de golpes múltiplos",
       "multiHitHits": "Golpes múltiplos",
       "maxHp": "HP máx.",
-      "deaths": "Mortes"
+      "damageReceived": "Dano recebido",
+      "deaths": "Mortes",
+      "avgDps": "DPS médio",
+      "peakDps": "DPS máximo",
+      "peakDpsTip": "O maior DPS em qualquer trecho de 5 segundos da luta"
     },
     "titleFor": "de",
     "titleVs": "contra",
@@ -241,6 +252,8 @@
       "dps": "DPS"
     },
     "showPing": "Mostrar ping",
+    "showOdyle": "Mostrar energia de Odyle",
+    "odyleEnergy": "Energia de Odyle",
     "showTtk": "Mostrar tempo estimado para matar",
     "showTotalDps": "Mostrar total do grupo",
     "roundDps": "Abreviar DPS em milhares (13k)",
@@ -251,6 +264,8 @@
     "playerLimit": {
       "label": "Máx. de jogadores exibidos"
     },
+    "partyPresence": "Mostrar usuários do A2Tools no meu grupo",
+    "shareBossTimers": "Compartilhar timers de chefes de campo",
     "debugLogging": "Registro de depuração",
     "quit": "Sair",
     "discord": {
@@ -374,6 +389,7 @@
       "options": {
         "combatPower": "Poder de combate",
         "gearScore": "Pontuação de equipamento",
+        "both": "Ambos",
         "off": "Desativado"
       }
     },
@@ -412,6 +428,7 @@
     },
     "debugLoggingLocked": "Ativo enquanto o registro de pacotes estiver ativo: os registros de pacotes precisam do registro de depuração.",
     "tips": {
+      "showOdyle": "Abaixo do medidor, sua energia de Odyle como o jogo mostra: básica (+carregada). Atualiza ao entrar, após uma troca de servidor e quando a energia muda. Até lá, por exemplo após reiniciar o medidor, o último valor visto aparece esmaecido.",
       "characterName": "Seu nome e ID no jogo, para o medidor saber qual linha é você. Normalmente é detectado sozinho.",
       "device": "A conexão de rede da qual o medidor lê o tráfego do jogo. A detecção automática a encontra; com VPN, escolha manualmente.",
       "lockedPort": "O adaptador e a porta em que o jogo foi encontrado.",
@@ -435,6 +452,8 @@
       "trainingMode": "No modo treino, quais bonecos a janela de detalhes mostra: todos juntos ou só o que você mais acerta.",
       "allTargetsWindow": "No modo Todos os alvos, o medidor soma cada alvo atingido dentro deste tempo antes do último golpe.",
       "updateRate": "Com que frequência os números do medidor atualizam. Mais rápido mostra os golpes antes, mas usa mais CPU.",
+      "partyPresence": "Membros do grupo que também usam o A2Tools veem uma pequena etiqueta A2 ao lado do seu nome, e você vê a deles. Qualquer pessoa do grupo usando o A2Tools pode vê-la e saberá que você usa um medidor de terceiros. Só são enviados hashes de nomes de personagem e servidores.",
+      "shareBossTimers": "Compartilha os timers de chefes de campo com outros jogadores pelo a2tools.app (e seu parceiro Aion 2 Timers): os chefes do seu mapa ao abri-lo e os chefes de campo que você vê morrer, e o PV deles enquanto você luta contra eles. Só o servidor, os chefes, os horários e o PV são enviados.",
       "debugLogging": "Grava um registro de diagnóstico que o desenvolvedor pode usar para encontrar problemas.",
       "saveRawPackets": "Grava o tráfego bruto do jogo para relatórios de erro. O registro de depuração liga junto.",
       "globalHotkeys": "As teclas abaixo funcionam em qualquer lugar, mesmo com o jogo em primeiro plano. Desligado, ficam livres para outros programas. No Linux, o ambiente de trabalho as registra e pode pedir que você as aprove.",
@@ -477,7 +496,7 @@
       "installing": "Instalando…",
       "installDone": "{name} {version} está instalado.",
       "updatesAvailable": "Atualizações disponíveis: {list}",
-      "unreviewed": "Não revisado",
+      "unreviewed": "Dev",
       "by": "por {author}",
       "consentTitle": "Instalar {name}?",
       "consentUpdateTitle": "Atualizar {name}?",
@@ -487,14 +506,19 @@
       "permStorage": "Salvar os próprios dados neste computador",
       "permNotify": "Mostrar mensagens curtas na sua janela",
       "permWindow": "Mostrar e ocultar a própria janela, sem tirar o foco do jogo",
+      "permBossTimers": "Ler os timers de chefes de campo que os jogadores compartilham pelo a2tools.app",
       "permCharacter": "Ver nome, servidor, classe e nível do seu personagem",
       "permDecoder": "Ler seus próprios dados do jogo: {name}",
-      "permNone": "Nada além de mostrar sua janela"
+      "permNone": "Nada além de mostrar sua janela",
+      "enabled": "Ativado",
+      "enabledTip": "Ligado: inicia com o medidor. Desligado: continua instalado, mas não é executado."
     }
   },
   "support": {
     "button": "Me apoie",
     "title": "Apoie o autor no Ko-fi",
+    "linksHint": "Ko-fi, Patreon, Afdian e PayPal abrem o site deles no seu navegador. Os botões de cripto copiam um endereço.",
+    "perks": "Cada US$ 5 dá 12 meses de benefícios de apoiador, até 2 anos por pagamento. Coloque o código da sua página de conta do A2 Tools na mensagem do Ko-fi, ou use o mesmo e-mail no Patreon.",
     "titleWechat": "Apoie o autor no WeChat",
     "label": {
       "wechat": "WeChat"
@@ -507,6 +531,7 @@
     "aria": {
       "afdian": "Abrir o Afdian",
       "kofi": "Abrir o Ko-fi",
+      "patreon": "Abrir o Patreon",
       "close": "Fechar a janela de apoio",
       "wechat": "Mostrar o QR code do WeChat",
       "paypal": "Abrir o PayPal",
@@ -516,15 +541,16 @@
     }
   },
   "battleTime": {
-    "analysing": "Monitorando dados...",
+    "analysing": "Monitorando",
     "ttkTooltip": "Duração estimada da luta inteira contra o chefe, pela vida restante e o dano do grupo",
     "idle": "Ocioso",
-    "notRunning": "AION2 não está em execução",
-    "suspended": "Aplicativo pausado",
-    "waitingBoss": "Aguardando um chefe"
+    "notRunning": "AION2 fechado",
+    "suspended": "Pausado",
+    "waitingBoss": "Sem chefe"
   },
   "meter": {
     "identifyingPlayer": "#{id}",
+    "a2toolsUser": "Usa o A2Tools",
     "dpsSuffix": "/s"
   },
   "skills": {
@@ -543,7 +569,7 @@
   },
   "connection": {
     "auto": "Auto",
-    "detecting": "Detectando a conexão do AION2...",
+    "detecting": "Conectando...",
     "loopback": "Loopback local"
   },
   "target": {
@@ -583,6 +609,11 @@
     "tierConquestNormal": "Conquista (normal)",
     "tierConquestHard": "Conquista (difícil)"
   },
+  "partyPromo": {
+    "title": "Novo: veja usuários do A2Tools no seu grupo",
+    "text": "Membros do grupo que também usam o A2Tools ganham uma pequena etiqueta A2 ao lado do nome, e você ganha uma ao lado do seu no medidor deles.",
+    "hint": "Qualquer pessoa do seu grupo que use o A2Tools poderá ver que você usa um medidor de terceiros. Só são enviados hashes de nomes de personagem e servidores. Você pode mudar isso a qualquer momento nas configurações."
+  },
   "discordPromo": {
     "title": "Novo: atividade no Discord",
     "text": "Mostre aos amigos no seu status do Discord seu personagem, classe, nível e servidor, e o chefe ou a masmorra em que você está.",
@@ -602,5 +633,13 @@
     "ask": "O A2Tools DPS Meter precisa do Npcap para ler o tráfego de rede do jogo, e o Npcap está ausente ou não funciona.\n\nInstalar agora? O medidor baixa o instalador do Npcap em npcap.com e o abre. Quando o Npcap estiver instalado, o medidor começa a capturar sozinho.\n\nEscolha Não para instalá-lo você mesmo em https://npcap.com/#download",
     "downloadFailed": "Não foi possível baixar o instalador do Npcap ({error}).\n\nInstale-o você mesmo em https://npcap.com/#download e abra o medidor de novo.",
     "stillMissing": "O Npcap ainda não funciona. Se o instalador foi fechado antes de terminar, instale o Npcap em https://npcap.com/#download e abra o medidor de novo."
+  },
+  "pluginUpdatePrompt": {
+    "title": "A2Tools - Atualização de plugin",
+    "one": "Há uma atualização de plugin disponível:",
+    "many": "Há atualizações de plugins disponíveis:",
+    "alsoAsks": "A nova versão também pede para:",
+    "updateNow": "Atualizar agora?",
+    "failed": "Não foi possível atualizar:"
   }
 }

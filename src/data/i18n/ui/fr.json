@@ -92,6 +92,13 @@
       "healPct": "S%",
       "healPctTooltip": "Soins %"
     },
+    "peak": {
+      "label": "Liste du groupe",
+      "show": "Afficher le DPS max (meilleures 5 s) à côté de la moyenne"
+    },
+    "party": {
+      "activeDps": "DPS en temps actif : {dps} ({active} sur les {total} du combat)"
+    },
     "stats": {
       "totalDamage": "Dégâts totaux",
       "contribution": "Contribution",
@@ -107,7 +114,11 @@
       "multiHitDamage": "Dégâts des coups multiples",
       "multiHitHits": "Coups multiples",
       "maxHp": "PV max.",
-      "deaths": "Morts"
+      "damageReceived": "Dégâts subis",
+      "deaths": "Morts",
+      "avgDps": "DPS moyen",
+      "peakDps": "DPS max",
+      "peakDpsTip": "Le DPS le plus élevé sur 5 secondes du combat"
     },
     "titleFor": "pour",
     "titleVs": "contre",
@@ -241,6 +252,8 @@
       "dps": "DPS"
     },
     "showPing": "Afficher le ping",
+    "showOdyle": "Afficher l'énergie d'Odyle",
+    "odyleEnergy": "Énergie d'Odyle",
     "showTtk": "Afficher le temps de kill estimé",
     "showTotalDps": "Afficher le total du groupe",
     "roundDps": "Abréger le DPS en milliers (13k)",
@@ -251,6 +264,8 @@
     "playerLimit": {
       "label": "Joueurs affichés max."
     },
+    "partyPresence": "Afficher les utilisateurs d'A2Tools de mon groupe",
+    "shareBossTimers": "Partager les minuteurs des boss de terrain",
     "debugLogging": "Journal de débogage",
     "quit": "Quitter",
     "discord": {
@@ -374,6 +389,7 @@
       "options": {
         "combatPower": "Puissance de combat",
         "gearScore": "Score d'équipement",
+        "both": "Les deux",
         "off": "Désactivé"
       }
     },
@@ -412,6 +428,7 @@
     },
     "debugLoggingLocked": "Activé tant que la journalisation des paquets l'est : les journaux de paquets ont besoin du journal de débogage.",
     "tips": {
+      "showOdyle": "Sous le compteur, votre énergie d'Odyle comme le jeu l'affiche : base (+chargée). Mise à jour à la connexion, après un changement de serveur et quand l'énergie change. D'ici là, par exemple après un redémarrage du compteur, la dernière valeur vue s'affiche en grisé.",
       "characterName": "Ton nom et ton ID en jeu, pour que le compteur sache quelle ligne est la tienne. Il est en général trouvé tout seul.",
       "device": "La connexion réseau dont le compteur lit le trafic du jeu. La détection automatique la trouve ; avec un VPN, choisis-la à la main.",
       "lockedPort": "La carte et le port sur lesquels le jeu a été trouvé.",
@@ -435,6 +452,8 @@
       "trainingMode": "En mode entraînement, quels mannequins la fenêtre Détails affiche : tous ensemble, ou seulement celui que tu frappes le plus.",
       "allTargetsWindow": "En mode Toutes les cibles, le compteur additionne chaque cible touchée dans ce délai avant le dernier coup.",
       "updateRate": "À quelle fréquence les chiffres du compteur se rafraîchissent. Plus rapide affiche les coups plus tôt mais utilise plus de CPU.",
+      "partyPresence": "Les membres du groupe qui utilisent aussi A2Tools voient une petite étiquette A2 à côté de votre nom, et vous voyez la leur. Tout membre du groupe utilisant A2Tools peut la voir et saura donc que vous utilisez un meter tiers. Seuls des hachages des noms de personnages et des serveurs sont envoyés.",
+      "shareBossTimers": "Partage les minuteurs des boss de terrain avec les autres joueurs via a2tools.app (et son partenaire Aion 2 Timers) : les boss de votre carte quand vous l'ouvrez, et les boss de terrain que vous voyez tués, et leurs PV pendant que vous les combattez. Seuls le serveur, les boss, leurs heures et PV sont envoyés.",
       "debugLogging": "Écrit un journal de diagnostic que le développeur peut utiliser pour trouver les problèmes.",
       "saveRawPackets": "Enregistre le trafic brut du jeu pour les rapports de bug. Le journal de débogage s'active avec.",
       "globalHotkeys": "Les touches ci-dessous fonctionnent partout, même quand le jeu est au premier plan. Désactivé, elles sont libérées pour d'autres programmes. Sous Linux, le bureau les enregistre et peut vous demander de les approuver.",
@@ -477,7 +496,7 @@
       "installing": "Installation…",
       "installDone": "{name} {version} est installé.",
       "updatesAvailable": "Mises à jour disponibles : {list}",
-      "unreviewed": "Non vérifié",
+      "unreviewed": "Dev",
       "by": "par {author}",
       "consentTitle": "Installer {name} ?",
       "consentUpdateTitle": "Mettre à jour {name} ?",
@@ -487,14 +506,19 @@
       "permStorage": "Enregistrer ses propres données sur cet ordinateur",
       "permNotify": "Afficher de courts messages dans sa fenêtre",
       "permWindow": "Afficher et masquer sa propre fenêtre, sans retirer le focus au jeu",
+      "permBossTimers": "Lire les minuteurs des boss de terrain partagés par les joueurs via a2tools.app",
       "permCharacter": "Voir le nom, le serveur, la classe et le niveau de votre personnage",
       "permDecoder": "Lire vos propres données de jeu : {name}",
-      "permNone": "Rien d'autre qu'afficher sa fenêtre"
+      "permNone": "Rien d'autre qu'afficher sa fenêtre",
+      "enabled": "Activé",
+      "enabledTip": "Activé : démarre avec le compteur. Désactivé : reste installé mais ne s'exécute pas."
     }
   },
   "support": {
     "button": "Me soutenir",
     "title": "Soutenir l'auteur sur Ko-fi",
+    "linksHint": "Ko-fi, Patreon, Afdian et PayPal ouvrent leur site dans votre navigateur. Les boutons crypto copient une adresse.",
+    "perks": "Chaque tranche de 5 $ donne 12 mois d'avantages de soutien, jusqu'à 2 ans par paiement. Indiquez le code de votre page de compte A2 Tools dans votre message Ko-fi, ou utilisez la même adresse e-mail sur Patreon.",
     "titleWechat": "Soutenir l'auteur sur WeChat",
     "label": {
       "wechat": "WeChat"
@@ -507,6 +531,7 @@
     "aria": {
       "afdian": "Ouvrir Afdian",
       "kofi": "Ouvrir Ko-fi",
+      "patreon": "Ouvrir Patreon",
       "close": "Fermer la fenêtre de soutien",
       "wechat": "Afficher le QR code WeChat",
       "paypal": "Ouvrir PayPal",
@@ -516,15 +541,16 @@
     }
   },
   "battleTime": {
-    "analysing": "Surveillance des données...",
+    "analysing": "Surveillance",
     "ttkTooltip": "Durée estimée de tout le combat de boss, d'après ses PV restants et les dégâts du groupe",
     "idle": "Inactif",
-    "notRunning": "AION2 n'est pas lancé",
-    "suspended": "Application en pause",
-    "waitingBoss": "En attente d'un boss"
+    "notRunning": "AION2 fermé",
+    "suspended": "En pause",
+    "waitingBoss": "Pas de boss"
   },
   "meter": {
     "identifyingPlayer": "#{id}",
+    "a2toolsUser": "Utilise A2Tools",
     "dpsSuffix": "/s"
   },
   "skills": {
@@ -543,7 +569,7 @@
   },
   "connection": {
     "auto": "Auto",
-    "detecting": "Détection de la connexion AION2...",
+    "detecting": "Connexion...",
     "loopback": "Boucle locale"
   },
   "target": {
@@ -583,6 +609,11 @@
     "tierConquestNormal": "Conquête (normal)",
     "tierConquestHard": "Conquête (difficile)"
   },
+  "partyPromo": {
+    "title": "Nouveau : voir les utilisateurs d'A2Tools de votre groupe",
+    "text": "Les membres du groupe qui utilisent aussi A2Tools ont une petite étiquette A2 à côté de leur nom, et vous en avez une à côté du vôtre sur leur meter.",
+    "hint": "Tout membre de votre groupe utilisant A2Tools pourra voir que vous utilisez un meter tiers. Seuls des hachages des noms de personnages et des serveurs sont envoyés. Vous pouvez changer cela à tout moment dans les réglages."
+  },
   "discordPromo": {
     "title": "Nouveau : activité Discord",
     "text": "Montrez à vos amis, dans votre statut Discord, votre personnage, votre classe, votre niveau et votre serveur, ainsi que le boss ou le donjon où vous êtes.",
@@ -602,5 +633,13 @@
     "ask": "A2Tools DPS Meter a besoin de Npcap pour lire le trafic réseau du jeu, et Npcap est absent ou ne fonctionne pas.\n\nL'installer maintenant ? Le meter télécharge l'installateur de Npcap depuis npcap.com et l'ouvre. Une fois Npcap installé, le meter commence la capture tout seul.\n\nChoisis Non pour l'installer toi-même depuis https://npcap.com/#download",
     "downloadFailed": "L'installateur de Npcap n'a pas pu être téléchargé ({error}).\n\nInstalle-le toi-même depuis https://npcap.com/#download, puis rouvre le meter.",
     "stillMissing": "Npcap ne fonctionne toujours pas. Si son installateur a été fermé avant la fin, installe Npcap depuis https://npcap.com/#download, puis rouvre le meter."
+  },
+  "pluginUpdatePrompt": {
+    "title": "A2Tools - Mise à jour de plugin",
+    "one": "Une mise à jour de plugin est disponible :",
+    "many": "Des mises à jour de plugins sont disponibles :",
+    "alsoAsks": "La nouvelle version demande aussi à :",
+    "updateNow": "Mettre à jour maintenant ?",
+    "failed": "Échec de la mise à jour :"
   }
 }

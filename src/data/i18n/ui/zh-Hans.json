@@ -92,6 +92,13 @@
       "healPct": "治疗%",
       "healPctTooltip": "治疗占比"
     },
+    "peak": {
+      "label": "队伍列表",
+      "show": "在平均值旁显示峰值 DPS（最佳 5 秒）"
+    },
+    "party": {
+      "activeDps": "有效时间 DPS：{dps}（战斗 {total} 中的 {active}）"
+    },
     "stats": {
       "totalDamage": "总伤害",
       "contribution": "贡献度",
@@ -107,7 +114,11 @@
       "maxHp": "最大HP",
       "hits": "命中次数",
       "selfHealing": "自我治疗",
-      "deaths": "死亡次数"
+      "damageReceived": "承受伤害",
+      "deaths": "死亡次数",
+      "avgDps": "平均 DPS",
+      "peakDps": "峰值 DPS",
+      "peakDpsTip": "战斗中任意 5 秒内的最高 DPS"
     },
     "titleFor": "针对",
     "titleVs": "vs",
@@ -246,6 +257,8 @@
       "dps": "DPS"
     },
     "showPing": "显示延迟",
+    "showOdyle": "显示奥德能量",
+    "odyleEnergy": "奥德能量",
     "showTtk": "显示预计击杀时间",
     "showTotalDps": "显示队伍总计",
     "roundDps": "DPS 以千为单位显示 (13k)",
@@ -256,6 +269,8 @@
     "playerLimit": {
       "label": "最大显示人数"
     },
+    "partyPresence": "显示队伍中的 A2Tools 用户",
+    "shareBossTimers": "分享野外首领计时",
     "debugLogging": "调试日志",
     "quit": "退出",
     "discord": {
@@ -379,6 +394,7 @@
       "options": {
         "combatPower": "战斗力",
         "gearScore": "装备分数",
+        "both": "两者",
         "off": "关闭"
       }
     },
@@ -419,6 +435,7 @@
     },
     "debugLoggingLocked": "开启数据包日志时保持开启：分析数据包日志需要调试日志。",
     "tips": {
+      "showOdyle": "在计量器下方以游戏中的格式显示奥德能量：基本（+充能）。登录、服务器转移及能量变化时更新。在此之前（例如重启计量器后），会以淡色显示上次看到的数值。",
       "characterName": "你的游戏角色名和 ID，让计量器知道哪一行是你。通常会自动识别。",
       "device": "计量器读取游戏流量的网络连接。自动检测会找到它；使用 VPN 时请手动选择。",
       "lockedPort": "发现游戏所用的适配器和端口。",
@@ -442,6 +459,8 @@
       "trainingMode": "训练模式下详情窗口显示哪些木桩：全部一起，或只显示你打得最多的那个。",
       "allTargetsWindow": "全部目标模式下，计量器汇总最后一次命中前这段时间内命中的所有目标。",
       "updateRate": "统计数字多久刷新一次。越快越早显示伤害，但占用更多 CPU。",
+      "partyPresence": "同样使用 A2Tools 的队友会在你的名字旁看到小小的 A2 标记，你也会看到他们的。队伍中任何使用 A2Tools 的人都看得到，因此会知道你使用第三方计量器。只会发送角色名称与服务器的哈希值。",
+      "shareBossTimers": "通过 a2tools.app（及合作伙伴 Aion 2 Timers）与其他玩家分享野外首领计时：打开地图时图上的首领，以及你看到被击杀的野外首领，以及战斗中首领的 HP。只会发送服务器、首领、时间与 HP。",
       "debugLogging": "写入开发者用于排查问题的诊断日志。",
       "saveRawPackets": "记录原始游戏流量以便提交错误报告。调试日志会随之开启。",
       "globalHotkeys": "下面的按键在游戏处于前台时也能使用。关闭后，这些按键会释放给其他程序。在 Linux 上由桌面注册这些按键，桌面可能会请你批准。",
@@ -484,7 +503,7 @@
       "installing": "正在安装…",
       "installDone": "{name} {version} 已安装。",
       "updatesAvailable": "有可用更新：{list}",
-      "unreviewed": "未审核",
+      "unreviewed": "开发",
       "by": "作者：{author}",
       "consentTitle": "安装 {name}？",
       "consentUpdateTitle": "更新 {name}？",
@@ -494,14 +513,19 @@
       "permStorage": "在此电脑上保存自己的数据",
       "permNotify": "在自己的窗口中显示简短消息",
       "permWindow": "显示和隐藏自己的窗口，不会抢走游戏的焦点",
+      "permBossTimers": "读取玩家通过 a2tools.app 分享的野外首领计时",
       "permCharacter": "查看你角色的名称、服务器、职业和等级",
       "permDecoder": "读取你自己的游戏数据：{name}",
-      "permNone": "除显示窗口外不做其他事"
+      "permNone": "除显示窗口外不做其他事",
+      "enabled": "启用",
+      "enabledTip": "开启：随计量器启动。关闭：保持安装，但不运行。"
     }
   },
   "support": {
     "button": "支持我一下",
     "title": "在爱发电支持作者",
+    "linksHint": "Ko-fi、Patreon、爱发电和 PayPal 会在浏览器中打开其网站；加密货币按钮会复制地址。",
+    "perks": "每赞助 $5 可获得 12 个月的赞助者福利，单笔最多 2 年。请在 Ko-fi 留言中填入 A2 Tools 账号页面上的代码，或在 Patreon 使用相同的电子邮件。",
     "titleWechat": "在微信支持作者",
     "label": {
       "wechat": "微信"
@@ -514,6 +538,7 @@
     "aria": {
       "afdian": "打开爱发电",
       "kofi": "打开 Ko-fi",
+      "patreon": "打开 Patreon",
       "close": "关闭支持弹窗",
       "wechat": "显示微信二维码",
       "paypal": "打开 PayPal",
@@ -523,15 +548,16 @@
     }
   },
   "battleTime": {
-    "analysing": "正在监控数据...",
+    "analysing": "监控中",
     "ttkTooltip": "根据首领剩余生命值和队伍伤害估算的整场战斗时长",
     "idle": "空闲",
-    "notRunning": "AION2 not running",
-    "suspended": "应用已暂停",
+    "notRunning": "AION2 未运行",
+    "suspended": "已暂停",
     "waitingBoss": "等待首领"
   },
   "meter": {
     "identifyingPlayer": "#{id}",
+    "a2toolsUser": "使用 A2Tools",
     "dpsSuffix": "/秒"
   },
   "skills": {
@@ -550,7 +576,7 @@
   },
   "connection": {
     "auto": "自动",
-    "detecting": "Detecting AION2 connection...",
+    "detecting": "连接中...",
     "loopback": "本地回环"
   },
   "target": {
@@ -590,6 +616,11 @@
     "tierConquestNormal": "征服（普通）",
     "tierConquestHard": "征服（困难）"
   },
+  "partyPromo": {
+    "title": "新功能：看见队伍中的 A2Tools 用户",
+    "text": "同样使用 A2Tools 的队友名字旁会出现小小的 A2 标记，他们的计量器上你的名字旁也会有。",
+    "hint": "队伍中任何使用 A2Tools 的人都能看出你使用第三方计量器。只会发送角色名称与服务器的哈希值。可随时在设置中更改。"
+  },
   "discordPromo": {
     "title": "新功能：Discord 状态显示",
     "text": "在 Discord 状态中向好友显示你的角色、职业、等级、服务器，以及所在的首领战或副本。",
@@ -609,5 +640,13 @@
     "ask": "A2Tools DPS Meter 需要 Npcap 来读取游戏的网络流量，但 Npcap 未安装或无法使用。\n\n现在安装吗？本工具会从 npcap.com 下载 Npcap 安装程序并打开它。Npcap 安装完成后，本工具会自动开始捕获。\n\n选择“否”可自行从 https://npcap.com/#download 安装。",
     "downloadFailed": "无法下载 Npcap 安装程序（{error}）。\n\n请自行从 https://npcap.com/#download 安装，然后重新打开本工具。",
     "stillMissing": "Npcap 仍然无法使用。如果安装程序在完成前被关闭，请从 https://npcap.com/#download 安装 Npcap，然后重新打开本工具。"
+  },
+  "pluginUpdatePrompt": {
+    "title": "A2Tools - 插件更新",
+    "one": "有一个插件更新可用：",
+    "many": "有插件更新可用：",
+    "alsoAsks": "新版本还要求：",
+    "updateNow": "现在更新吗？",
+    "failed": "无法更新："
   }
 }

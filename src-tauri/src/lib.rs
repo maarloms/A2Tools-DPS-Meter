@@ -35,6 +35,10 @@ pub mod platform;
 #[cfg(feature = "desktop")]
 pub mod plugins;
 #[cfg(feature = "online")]
+mod boss_report;
+#[cfg(feature = "online")]
+mod party_presence;
+#[cfg(feature = "online")]
 mod presence;
 #[cfg(feature = "desktop")]
 pub mod share;

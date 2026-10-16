@@ -97,6 +97,13 @@
       "healPct": "H%",
       "healPctTooltip": "Healing %"
     },
+    "peak": {
+      "label": "Party list",
+      "show": "Show peak DPS (best 5 s) beside the average"
+    },
+    "party": {
+      "activeDps": "Active-time DPS: {dps} ({active} of the fight's {total})"
+    },
     "stats": {
       "totalDamage": "Total Damage",
       "contribution": "Contribution",
@@ -112,7 +119,11 @@
       "multiHitDamage": "Multi-Hit Damage",
       "multiHitHits": "Multi-Hits",
       "maxHp": "Max HP",
-      "deaths": "Deaths"
+      "damageReceived": "Damage Taken",
+      "deaths": "Deaths",
+      "avgDps": "Avg DPS",
+      "peakDps": "Peak DPS",
+      "peakDpsTip": "The highest DPS over any 5 seconds of the fight"
     },
     "titleFor": "for",
     "titleVs": "vs",
@@ -251,6 +262,8 @@
       "dps": "DPS"
     },
     "showPing": "Show ping",
+    "showOdyle": "Show Odyle energy",
+    "odyleEnergy": "Odyle Energy",
     "showTtk": "Show time to kill estimate",
     "showTotalDps": "Show party total",
     "roundDps": "Shorten DPS to thousands (13k)",
@@ -261,6 +274,8 @@
     "playerLimit": {
       "label": "Max players shown"
     },
+    "partyPresence": "Show A2Tools users in my party",
+    "shareBossTimers": "Share field boss timers",
     "debugLogging": "Debug logging",
     "quit": "Quit",
     "discord": {
@@ -384,6 +399,7 @@
       "options": {
         "combatPower": "Combat power",
         "gearScore": "Gear score",
+        "both": "Both",
         "off": "Off"
       }
     },
@@ -424,6 +440,7 @@
     },
     "debugLoggingLocked": "On while packet logging is on: packet logs need the debug log to be read.",
     "tips": {
+      "showOdyle": "Below the meter, your Odyle energy as the game shows it: basic (+charged). It updates at login, after a server transfer and when the energy changes. Until then, for example after restarting the meter, the last value seen shows dimmed.",
       "characterName": "Your in-game name and ID, so the meter knows which row is you. It is usually found on its own.",
       "device": "The network connection the meter reads game traffic from. Auto-detect finds it; pick one by hand if you use a VPN.",
       "lockedPort": "The adapter and port the game was found on.",
@@ -447,6 +464,8 @@
       "trainingMode": "In Train mode, which dummies the Details window shows: all of them together, or only the one you hit hardest.",
       "allTargetsWindow": "In All Targets mode, the meter adds up every target hit within this time of the latest hit.",
       "updateRate": "How often the meter's numbers refresh. Faster shows hits sooner but uses more CPU.",
+      "partyPresence": "Party members who also use A2Tools see a small A2 tag beside your name, and you see theirs. Anyone in your party using A2Tools can see it, so they'll know you use a third-party meter. Only hashes of character names and servers are sent.",
+      "shareBossTimers": "Shares field boss timers with other players through a2tools.app (and its partner Aion 2 Timers): the bosses on your map when you open it, and the field bosses you see killed, and their HP while you fight them. Only the server, the bosses, their times and HP are sent.",
       "debugLogging": "Writes a diagnostic log the developer can use to track down problems.",
       "saveRawPackets": "Records raw game traffic for bug reports. Debug logging turns on with it.",
       "globalHotkeys": "The keys below work anywhere, even while the game is in front. Off, they are released for other programs. On Linux your desktop registers them and may ask you to approve them.",
@@ -489,7 +508,7 @@
       "installing": "Installing…",
       "installDone": "{name} {version} is installed.",
       "updatesAvailable": "Updates available: {list}",
-      "unreviewed": "Unreviewed",
+      "unreviewed": "Dev",
       "by": "by {author}",
       "consentTitle": "Install {name}?",
       "consentUpdateTitle": "Update {name}?",
@@ -499,14 +518,19 @@
       "permStorage": "Save its own data on this computer",
       "permNotify": "Show short messages in its window",
       "permWindow": "Show and hide its own window, without taking focus from the game",
+      "permBossTimers": "Read the field boss timers players share through a2tools.app",
       "permCharacter": "See your character's name, server, class and level",
       "permDecoder": "Read your own game data: {name}",
-      "permNone": "Nothing beyond showing its window"
+      "permNone": "Nothing beyond showing its window",
+      "enabled": "Enabled",
+      "enabledTip": "On: starts with the meter. Off: stays installed but doesn't run."
     }
   },
   "support": {
     "button": "Support Me",
     "title": "Support the author on Ko-fi",
+    "linksHint": "Ko-fi, Patreon, Afdian and PayPal open their site in your browser. The crypto buttons copy an address.",
+    "perks": "Every $5 gives you 12 months of supporter perks, up to 2 years per payment. Use the code from your A2 Tools account page in your Ko-fi message, or the same email on Patreon.",
     "titleWechat": "Support the author on WeChat",
     "label": {
       "wechat": "WeChat"
@@ -519,6 +543,7 @@
     "aria": {
       "afdian": "Open Afdian",
       "kofi": "Open Ko-fi",
+      "patreon": "Open Patreon",
       "close": "Close support modal",
       "wechat": "Show WeChat QR code",
       "paypal": "Open PayPal",
@@ -528,15 +553,16 @@
     }
   },
   "battleTime": {
-    "analysing": "Monitoring data...",
+    "analysing": "Monitoring",
     "ttkTooltip": "Estimated length of the whole boss fight, from its remaining HP and the party's damage",
     "idle": "Idle",
-    "notRunning": "AION2 not running",
-    "suspended": "App suspended",
-    "waitingBoss": "Waiting for a boss"
+    "notRunning": "AION2 closed",
+    "suspended": "Suspended",
+    "waitingBoss": "No boss yet"
   },
   "meter": {
     "identifyingPlayer": "#{id}",
+    "a2toolsUser": "Uses A2Tools",
     "dpsSuffix": "/s"
   },
   "skills": {
@@ -555,7 +581,7 @@
   },
   "connection": {
     "auto": "Auto",
-    "detecting": "Detecting AION2 connection...",
+    "detecting": "Connecting...",
     "loopback": "Local Loopback"
   },
   "target": {
@@ -595,6 +621,11 @@
     "tierConquestNormal": "Conquest (Normal)",
     "tierConquestHard": "Conquest (Hard)"
   },
+  "partyPromo": {
+    "title": "New: see A2Tools users in your party",
+    "text": "Party members who also use A2Tools get a small A2 tag beside their name, and you get one beside yours on their meter.",
+    "hint": "Anyone in your party who uses A2Tools will be able to see that you use a third-party meter. Only hashes of character names and servers are sent. You can change this any time in Settings."
+  },
   "discordPromo": {
     "title": "New: Discord activity",
     "text": "Let friends see your character, class, level and server, and the boss or dungeon you're in, right in your Discord status.",
@@ -614,5 +645,13 @@
     "ask": "A2Tools DPS Meter needs Npcap to read the game's network traffic, and Npcap is missing or not working.\n\nInstall it now? The meter downloads Npcap's installer from npcap.com and opens it. Once Npcap is installed, the meter starts capturing by itself.\n\nChoose No to install it yourself from https://npcap.com/#download",
     "downloadFailed": "Npcap's installer could not be downloaded ({error}).\n\nInstall it yourself from https://npcap.com/#download, then open the meter again.",
     "stillMissing": "Npcap is still not working. If its installer was closed before it finished, install Npcap from https://npcap.com/#download, then open the meter again."
+  },
+  "pluginUpdatePrompt": {
+    "title": "A2Tools - Plugin Update",
+    "one": "A plugin update is available:",
+    "many": "Plugin updates are available:",
+    "alsoAsks": "The new version also asks to:",
+    "updateNow": "Update now?",
+    "failed": "Couldn't update:"
   }
 }

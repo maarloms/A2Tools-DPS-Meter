@@ -24,15 +24,6 @@ body {
   cursor: grab;
   user-select: none;
 }
-.pluginBadge {
-  flex: none;
-  white-space: nowrap;
-  padding: 1px 7px;
-  border: 1px solid #d9a13c;
-  border-radius: 3px;
-  color: #f0c46c;
-  font-size: 11px;
-}
 .pluginName {
   font-weight: 600;
   flex: 1 1 auto;
@@ -90,6 +81,15 @@ body {
 .pluginStage {
   flex: 1 1 auto;
   min-height: 0;
+}
+/* Fitted to an alert (a2.window.fit): the plugin's content alone. */
+body.pluginFitted .pluginBar {
+  display: none;
+}
+/* ...and no panel around it: only what the plugin draws shows. */
+body.pluginFitted {
+  background: transparent;
+  border-color: transparent;
 }
 .pluginStage iframe {
   display: block;

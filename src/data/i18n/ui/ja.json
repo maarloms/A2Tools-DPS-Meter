@@ -92,6 +92,13 @@
       "healPct": "回復%",
       "healPctTooltip": "回復量 %"
     },
+    "peak": {
+      "label": "パーティーリスト",
+      "show": "平均の横に最大DPS（最高の5秒）を表示"
+    },
+    "party": {
+      "activeDps": "攻撃時間DPS: {dps}（戦闘 {total} 中 {active}）"
+    },
     "stats": {
       "totalDamage": "総ダメージ",
       "contribution": "貢献度",
@@ -107,7 +114,11 @@
       "multiHitDamage": "多段ヒットのダメージ",
       "multiHitHits": "多段ヒット",
       "maxHp": "最大HP",
-      "deaths": "死亡回数"
+      "damageReceived": "被ダメージ",
+      "deaths": "死亡回数",
+      "avgDps": "平均DPS",
+      "peakDps": "最大DPS",
+      "peakDpsTip": "戦闘中の任意の5秒間で最も高いDPS"
     },
     "titleFor": "対象",
     "titleVs": "対",
@@ -241,6 +252,8 @@
       "dps": "DPS"
     },
     "showPing": "pingを表示",
+    "showOdyle": "オードエネルギーを表示",
+    "odyleEnergy": "オードエネルギー",
     "showTtk": "撃破時間の予測を表示",
     "showTotalDps": "パーティ合計を表示",
     "roundDps": "DPSを千単位で表示 (13k)",
@@ -251,6 +264,8 @@
     "playerLimit": {
       "label": "表示する最大プレイヤー数"
     },
+    "partyPresence": "パーティーのA2Tools利用者を表示",
+    "shareBossTimers": "フィールドボスのタイマーを共有",
     "debugLogging": "デバッグログ",
     "quit": "終了",
     "discord": {
@@ -374,6 +389,7 @@
       "options": {
         "combatPower": "戦闘力",
         "gearScore": "装備スコア",
+        "both": "両方",
         "off": "オフ"
       }
     },
@@ -412,6 +428,7 @@
     },
     "debugLoggingLocked": "パケットログがオンの間はオンのままです。パケットログの解析にはデバッグログが必要です。",
     "tips": {
+      "showOdyle": "メーターの下に、ゲームと同じ形式でオードエネルギーを表示します: 基本 (+チャージ)。ログイン時、サーバー移動後、エネルギーの変化時に更新されます。それまでは (メーターの再起動後など)、最後に確認した値が薄く表示されます。",
       "characterName": "どの行が自分かをメーターが判別するためのゲーム内の名前とIDです。通常は自動で見つかります。",
       "device": "メーターがゲームの通信を読み取るネットワーク接続です。自動検出で見つかります。VPN使用時は手動で選んでください。",
       "lockedPort": "ゲームが見つかったアダプターとポートです。",
@@ -435,6 +452,8 @@
       "trainingMode": "トレーニングモードで詳細ウィンドウに表示するかかしです：すべてまとめて、または一番多く攻撃した1体だけ。",
       "allTargetsWindow": "全ターゲットモードで、最後のヒットからこの時間内に攻撃したすべての対象を合計します。",
       "updateRate": "メーターの数値を更新する間隔です。速いほどダメージが早く表示されますが、CPU 使用量が増えます。",
+      "partyPresence": "A2Toolsを使うパーティーメンバーにはあなたの名前の横に小さなA2タグが見え、あなたにも相手のタグが見えます。A2Toolsを使うパーティーメンバーなら誰でも見えるため、外部メーターを使っていることが分かります。送るのはキャラクター名とサーバーのハッシュだけです。",
+      "shareBossTimers": "a2tools.app（と提携サイト Aion 2 Timers）を通じてフィールドボスのタイマーを他のプレイヤーと共有します：マップを開いたときのボスと、討伐を見たフィールドボスと、戦闘中のボスのHP。送信するのはサーバー、ボス、時刻、HPだけです。",
       "debugLogging": "開発者が問題を調べるための診断ログを書き出します。",
       "saveRawPackets": "バグ報告用にゲームの生の通信を記録します。デバッグログも一緒にオンになります。",
       "globalHotkeys": "下のキーはゲームが前面にあるときも使えます。オフにすると、ほかのプログラムがこれらのキーを使えます。Linux ではデスクトップがキーを登録し、承認を求めることがあります。",
@@ -477,7 +496,7 @@
       "installing": "インストール中…",
       "installDone": "{name} {version} をインストールしました。",
       "updatesAvailable": "アップデートがあります: {list}",
-      "unreviewed": "未審査",
+      "unreviewed": "開発",
       "by": "作成: {author}",
       "consentTitle": "{name} をインストールしますか？",
       "consentUpdateTitle": "{name} を更新しますか？",
@@ -487,14 +506,19 @@
       "permStorage": "このPCに自身のデータを保存する",
       "permNotify": "自身のウィンドウに短いメッセージを表示する",
       "permWindow": "ゲームのフォーカスを奪わずに、自身のウィンドウを表示・非表示にする",
+      "permBossTimers": "a2tools.app でプレイヤーが共有するフィールドボスのタイマーを読む",
       "permCharacter": "キャラクターの名前・サーバー・クラス・レベルを見る",
       "permDecoder": "自分のゲームデータを読む: {name}",
-      "permNone": "ウィンドウを表示する以外のことはしません"
+      "permNone": "ウィンドウを表示する以外のことはしません",
+      "enabled": "有効",
+      "enabledTip": "オン：メーターと一緒に起動します。オフ：インストールされたままですが、動作しません。"
     }
   },
   "support": {
     "button": "支援する",
     "title": "Ko-fiで作者を支援",
+    "linksHint": "Ko-fi・Patreon・爱发电・PayPal はブラウザでそのサイトを開きます。暗号資産のボタンはアドレスをコピーします。",
+    "perks": "5ドルごとにサポーター特典が12か月付与されます（1回の支払いにつき最大2年）。Ko-fiのメッセージにA2 Toolsアカウントページのコードを入れるか、Patreonでは同じメールアドレスを使ってください。",
     "titleWechat": "WeChatで作者を支援",
     "label": {
       "wechat": "WeChat"
@@ -507,6 +531,7 @@
     "aria": {
       "afdian": "Afdianを開く",
       "kofi": "Ko-fiを開く",
+      "patreon": "Patreonを開く",
       "close": "支援ウィンドウを閉じる",
       "wechat": "WeChatのQRコードを表示",
       "paypal": "PayPalを開く",
@@ -516,15 +541,16 @@
     }
   },
   "battleTime": {
-    "analysing": "データを監視中...",
+    "analysing": "監視中",
     "ttkTooltip": "ボスの残りHPとパーティの与ダメージから予測した戦闘全体の長さ",
     "idle": "待機中",
-    "notRunning": "AION2が起動していません",
-    "suspended": "アプリを一時停止中",
+    "notRunning": "AION2未起動",
+    "suspended": "一時停止中",
     "waitingBoss": "ボス待機中"
   },
   "meter": {
     "identifyingPlayer": "#{id}",
+    "a2toolsUser": "A2Toolsを使用中",
     "dpsSuffix": "/s"
   },
   "skills": {
@@ -543,7 +569,7 @@
   },
   "connection": {
     "auto": "自動",
-    "detecting": "AION2の接続を検出中...",
+    "detecting": "接続中...",
     "loopback": "ローカルループバック"
   },
   "target": {
@@ -583,6 +609,11 @@
     "tierConquestNormal": "征服（ノーマル）",
     "tierConquestHard": "征服（ハード）"
   },
+  "partyPromo": {
+    "title": "新機能：パーティーのA2Tools利用者を表示",
+    "text": "A2Toolsを使うパーティーメンバーの名前の横に小さなA2タグが付き、相手のメーターではあなたの名前の横にも付きます。",
+    "hint": "A2Toolsを使うパーティーメンバーには、あなたが外部メーターを使っていることが分かります。送るのはキャラクター名とサーバーのハッシュだけです。設定でいつでも変更できます。"
+  },
   "discordPromo": {
     "title": "新機能：Discord のステータス表示",
     "text": "キャラクター、クラス、レベル、サーバー、挑戦中のボスやダンジョンを Discord のステータスでフレンドに表示します。",
@@ -602,5 +633,13 @@
     "ask": "A2Tools DPS Meter がゲームの通信を読み取るには Npcap が必要ですが、Npcap が見つからないか動作していません。\n\n今すぐインストールしますか？メーターが npcap.com から Npcap のインストーラーをダウンロードして開きます。Npcap がインストールされると、メーターは自動でキャプチャを始めます。\n\n自分でインストールする場合は「いいえ」を選び、https://npcap.com/#download からインストールしてください。",
     "downloadFailed": "Npcap のインストーラーをダウンロードできませんでした（{error}）。\n\nhttps://npcap.com/#download から自分でインストールしてから、メーターを開き直してください。",
     "stillMissing": "Npcap がまだ動作していません。インストーラーを最後まで進めずに閉じた場合は、https://npcap.com/#download から Npcap をインストールしてから、メーターを開き直してください。"
+  },
+  "pluginUpdatePrompt": {
+    "title": "A2Tools - プラグインの更新",
+    "one": "プラグインの更新があります：",
+    "many": "プラグインの更新があります：",
+    "alsoAsks": "新しいバージョンでは、さらに次のことを求めます：",
+    "updateNow": "今すぐ更新しますか？",
+    "failed": "更新できませんでした："
   }
 }

@@ -15,7 +15,7 @@
 pub mod catalog;
 pub mod decoder;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
@@ -33,6 +33,8 @@ use decoder::{Decoder, DecoderSpec};
 pub const DEV_MODE_KEY: &str = "dpsMeter.pluginDevMode";
 /// The folders loaded in developer mode, a JSON array of paths.
 pub const DEV_FOLDERS_KEY: &str = "dpsMeter.devPlugins";
+/// How often plugins' "game" event (is AION2 open) is looked at.
+const GAME_CHECK: Duration = Duration::from_secs(5);
 /// The scheme plugin files are served from (`http://a2plugin.localhost/` on
 /// Windows, `a2plugin://localhost/` elsewhere).
 pub const SCHEME: &str = "a2plugin";
@@ -46,6 +48,9 @@ const MIN_PANEL_HEIGHT: f64 = 60.0;
 /// ran: a JSON object of id → "shown" | "hidden". They open again at start, so
 /// a plugin that watches in the background (hidden) keeps doing so.
 pub const WINDOWS_KEY: &str = "dpsMeter.pluginWindows";
+/// Plugins turned off in Settings, a JSON array of ids: they stay installed
+/// but don't run. Every other plugin starts with the meter.
+pub const DISABLED_KEY: &str = "dpsMeter.pluginsDisabled";
 /// Largest value one storage key may hold.
 const MAX_STORED: usize = 1024 * 1024;
 /// How long a decoded event waits before it is stamped with the character and
@@ -109,13 +114,54 @@ pub struct PluginsView {
     /// Whether this build can reach the catalog (not the offline build).
     pub online: bool,
     pub plugins: Vec<PluginInfo>,
+    /// Ids of the plugins turned off.
+    pub disabled: Vec<String>,
 }
 
 fn view(app: &tauri::AppHandle, host: &PluginHost) -> PluginsView {
     let dev_mode = app
         .try_state::<AppState>()
         .is_some_and(|s| s.settings.get(DEV_MODE_KEY).as_deref() == Some("true"));
-    PluginsView { dev_mode, online: cfg!(feature = "online"), plugins: host.list() }
+    PluginsView { dev_mode, online: cfg!(feature = "online"), plugins: host.list(), disabled: disabled(app) }
+}
+
+/// The plugins turned off.
+fn disabled(app: &tauri::AppHandle) -> Vec<String> {
+    app.try_state::<AppState>()
+        .and_then(|s| s.settings.get(DISABLED_KEY))
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn set_disabled(app: &tauri::AppHandle, id: &str, off: bool) {
+    let Some(state) = app.try_state::<AppState>() else { return };
+    let mut ids = disabled(app);
+    ids.retain(|x| x != id);
+    if off {
+        ids.push(id.to_string());
+    }
+    state.settings.set(DISABLED_KEY, &serde_json::to_string(&ids).unwrap_or_default());
+}
+
+/// Turn a plugin on (it starts now and with every start of the meter) or off
+/// (its window closes; it stays installed, with its data).
+/// Async: on Windows, building a window from a synchronous command deadlocks.
+#[tauri::command]
+pub async fn plugin_set_enabled(app: tauri::AppHandle, id: String, enabled: bool) -> Result<PluginsView, String> {
+    if !valid_id(&id) {
+        return Err("not a plugin id".into());
+    }
+    set_disabled(&app, &id, !enabled);
+    reopened(&app, &id);
+    if enabled {
+        open_window(&app, &id, true)?;
+        remember_window(&app, &id, Some("shown"));
+    } else if let Some(window) = app.get_webview_window(&format!("plugin-{id}")) {
+        let _ = window.close();
+    }
+    tracing::info!("Plugins: {id} {}", if enabled { "enabled" } else { "disabled" });
+    let host = host(&app)?;
+    Ok(view(&app, &host))
 }
 
 /// Where reviewed plugins are installed.
@@ -152,6 +198,9 @@ pub struct PluginHost {
     seq: Mutex<u64>,
     run: String,
     flusher: AtomicBool,
+    /// Plugins closed with their window's ×, this run: a reload (an install,
+    /// Check for updates, a folder added) does not start them again.
+    closed: Mutex<HashSet<String>>,
 }
 
 impl Default for PluginHost {
@@ -169,8 +218,30 @@ impl Default for PluginHost {
             seq: Mutex::new(0),
             run,
             flusher: AtomicBool::new(false),
+            closed: Mutex::default(),
         }
     }
+}
+
+/// A map the player opened, as a2.on("bossMap") hands it on: the feed's
+/// shape (times in unix seconds), each boss stamped with when it was read.
+fn boss_map_event(map: &crate::capture::boss_map::BossMap) -> Value {
+    let secs = |ms: i64| (ms > 0).then_some(ms / 1000);
+    let bosses: serde_json::Map<String, Value> = map
+        .bosses
+        .iter()
+        .map(|b| {
+            let entry = serde_json::json!({
+                "state": if b.up { "up" } else { "dead" },
+                "upSince": if b.up { secs(b.time_ms) } else { None },
+                "nextSpawn": if b.up { None } else { secs(b.time_ms) },
+                "reportedAt": map.seen_ms / 1000,
+                "confirmed": true,
+            });
+            (b.id.to_string(), entry)
+        })
+        .collect();
+    serde_json::json!({ "map": map.map_id, "bosses": bosses })
 }
 
 /// Who is playing, as plugins with `events:character` see it.
@@ -294,7 +365,12 @@ impl PluginHost {
             let app = app.clone();
             std::thread::Builder::new()
                 .name("plugin-events".into())
-                .spawn(move || loop {
+                .spawn(move || {
+                let mut told = character(&app);
+                let mut game = crate::platform::window_detector::find_aion2_window();
+                let mut game_checked = Instant::now();
+                let mut map_seq = 0u64;
+                loop {
                     // Woken by each queued event; the timeout lets settling
                     // events go once their wait is over.
                     let ready = {
@@ -308,6 +384,34 @@ impl PluginHost {
                         ready
                     };
                     host.flush(&app, ready);
+                    // The character as the meter learns it (a login, a switch,
+                    // or the meter starting mid-game): open plugins hear it then,
+                    // not only when their window opens.
+                    let now = character(&app);
+                    if now != told {
+                        host.tell_character(&app, now.clone());
+                        told = now;
+                    }
+                    // A map the player opened: its field bosses, to plugins
+                    // with feed:boss-timers at once (the shared feed lags).
+                    if let Some(state) = app.try_state::<AppState>() {
+                        if let Some((next, maps)) = state.data_storage.boss_maps_since(map_seq) {
+                            map_seq = next;
+                            if let Some(map) = maps.iter().filter(|m| m.header == 0).max_by_key(|m| m.seen_ms) {
+                                host.tell_permitted(&app, "feed:boss-timers", "bossMap", boss_map_event(map));
+                            }
+                        }
+                    }
+                    // Whether AION2 is open, looked at every few seconds.
+                    if game_checked.elapsed() >= GAME_CHECK {
+                        game_checked = Instant::now();
+                        let running = crate::platform::window_detector::find_aion2_window();
+                        if running != game {
+                            game = running;
+                            host.tell_all(&app, "game", serde_json::json!({ "running": running }));
+                        }
+                    }
+                }
                 })
                 .ok();
         }
@@ -398,6 +502,51 @@ impl PluginHost {
         }
     }
 
+    /// An unnumbered event to every loaded plugin (pluginHost.js hands it
+    /// straight on).
+    fn tell_all(&self, app: &tauri::AppHandle, event: &str, data: Value) {
+        let ids: Vec<String> =
+            self.loaded.read().unwrap_or_else(|p| p.into_inner()).iter().map(|l| l.manifest.id.clone()).collect();
+        for id in ids {
+            let msg = serde_json::json!({ "plugin": id, "event": event, "data": data });
+            let _ = app.emit_to(format!("plugin-{id}"), "plugin-event", msg);
+        }
+    }
+
+    /// An unnumbered event to the plugins with a permission.
+    fn tell_permitted(&self, app: &tauri::AppHandle, permission: &str, event: &str, data: Value) {
+        let ids: Vec<String> = self
+            .loaded
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .filter(|l| l.manifest.permissions.iter().any(|p| p == permission))
+            .map(|l| l.manifest.id.clone())
+            .collect();
+        for id in ids {
+            let msg = serde_json::json!({ "plugin": id, "event": event, "data": data });
+            let _ = app.emit_to(format!("plugin-{id}"), "plugin-event", msg);
+        }
+    }
+
+    /// The character, to every plugin allowed to know it (pluginHost.js hands
+    /// an unnumbered event straight on).
+    fn tell_character(&self, app: &tauri::AppHandle, who: Option<Value>) {
+        let Some(who) = who else { return };
+        let ids: Vec<String> = self
+            .loaded
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .filter(|l| l.manifest.permissions.iter().any(|p| p == "events:character"))
+            .map(|l| l.manifest.id.clone())
+            .collect();
+        for id in ids {
+            let event = serde_json::json!({ "plugin": id, "event": "character", "data": who });
+            let _ = app.emit_to(format!("plugin-{id}"), "plugin-event", event);
+        }
+    }
+
     fn list(&self) -> Vec<PluginInfo> {
         let mut out: Vec<PluginInfo> = self.loaded.read().unwrap_or_else(|p| p.into_inner()).iter().map(info).collect();
         out.extend(self.errors.read().unwrap_or_else(|p| p.into_inner()).iter().cloned());
@@ -452,12 +601,15 @@ pub fn plugin_list(app: tauri::AppHandle) -> Result<PluginsView, String> {
 }
 
 /// Turn developer mode on or off, and load or unload its plugins.
+/// Async: it may start plugins, and building a window from a synchronous
+/// command deadlocks on Windows.
 #[tauri::command]
-pub fn plugin_set_dev_mode(app: tauri::AppHandle, enabled: bool) -> Result<PluginsView, String> {
+pub async fn plugin_set_dev_mode(app: tauri::AppHandle, enabled: bool) -> Result<PluginsView, String> {
     let state = app.try_state::<AppState>().ok_or("no app state")?;
     state.settings.set(DEV_MODE_KEY, if enabled { "true" } else { "false" });
     let host = host(&app)?;
     host.reload(&app);
+    restore_windows(&app);
     Ok(view(&app, &host))
 }
 
@@ -478,6 +630,7 @@ pub async fn plugin_add_folder(app: tauri::AppHandle, window: tauri::WebviewWind
     state.settings.set(DEV_FOLDERS_KEY, &serde_json::to_string(&folders).unwrap_or_default());
     let host = host(&app)?;
     host.reload(&app);
+    restore_windows(&app);
     Ok(view(&app, &host))
 }
 
@@ -528,25 +681,35 @@ fn refresh_windows(app: &tauri::AppHandle, host: &PluginHost) {
     }
 }
 
+/// The catalog's newer versions of installed plugins, each with the entry
+/// to install.
+#[cfg(feature = "online")]
+fn newer_entries(catalog: catalog::Catalog, host: &PluginHost) -> Vec<(PluginAvailable, catalog::Entry)> {
+    let installed: Vec<PluginInfo> = host.list().into_iter().filter(|p| p.reviewed && p.error.is_none()).collect();
+    installed
+        .into_iter()
+        .filter_map(|p| {
+            let entry = catalog.plugins.iter().find(|e| e.id == p.id)?;
+            catalog::newer(&entry.version, &p.version).then(|| {
+                let available = PluginAvailable {
+                    id: p.id.clone(),
+                    name: entry.name.clone(),
+                    from: p.version.clone(),
+                    to: entry.version.clone(),
+                    new_permissions: entry.permissions.iter().filter(|x| !p.permissions.contains(x)).cloned().collect(),
+                };
+                (available, entry.clone())
+            })
+        })
+        .collect()
+}
+
 /// The catalog's newer versions of installed plugins.
 #[cfg(feature = "online")]
 async fn available_updates(app: &tauri::AppHandle, host: &PluginHost) -> Result<Vec<PluginAvailable>, String> {
     let http = app.try_state::<AppState>().ok_or("no app state")?.http.clone();
     let catalog = catalog::fetch(&http).await?;
-    let installed: Vec<PluginInfo> = host.list().into_iter().filter(|p| p.reviewed && p.error.is_none()).collect();
-    Ok(installed
-        .into_iter()
-        .filter_map(|p| {
-            let entry = catalog.plugins.iter().find(|e| e.id == p.id)?;
-            catalog::newer(&entry.version, &p.version).then(|| PluginAvailable {
-                id: p.id.clone(),
-                name: entry.name.clone(),
-                from: p.version.clone(),
-                to: entry.version.clone(),
-                new_permissions: entry.permissions.iter().filter(|x| !p.permissions.contains(x)).cloned().collect(),
-            })
-        })
-        .collect())
+    Ok(newer_entries(catalog, host).into_iter().map(|(a, _)| a).collect())
 }
 
 /// Check for plugin updates: read every plugin folder again (a developer
@@ -566,6 +729,7 @@ pub async fn plugin_check_updates(app: tauri::AppHandle) -> Result<UpdateCheck, 
         .map(|p| PluginUpdate { id: p.id.clone(), name: p.name.clone(), from: before.get(&p.id).cloned(), to: p.version.clone() })
         .collect();
     refresh_windows(&app, &host);
+    restore_windows(&app);
     #[cfg(feature = "online")]
     let (available, catalog_error) = match available_updates(&app, &host).await {
         Ok(available) => (available, None),
@@ -574,6 +738,162 @@ pub async fn plugin_check_updates(app: tauri::AppHandle) -> Result<UpdateCheck, 
     #[cfg(not(feature = "online"))]
     let (available, catalog_error) = (Vec::new(), None);
     Ok(UpdateCheck { view, updated, available, catalog_error })
+}
+
+/// Plugin updates the person said No to at start, a JSON object of id →
+/// version: that version is not offered again (a newer one is).
+pub const DECLINED_UPDATES_KEY: &str = "dpsMeter.pluginUpdatesDeclined";
+/// How long after start the catalog is asked, so the check stays out of the
+/// way of startup.
+#[cfg(feature = "online")]
+const UPDATE_ALERT_DELAY: Duration = Duration::from_secs(20);
+
+/// The languages the meter's pages come in.
+#[cfg_attr(not(feature = "online"), allow(dead_code))]
+const LANGUAGES: [&str; 10] = ["de", "en", "es", "fr", "ja", "ko", "pt", "ru", "zh-Hans", "zh-Hant"];
+
+/// The update prompt's words, in the meter's language
+/// (`pluginUpdatePrompt` in the UI translations; the permissions as Settings
+/// words them, `settings.plugins.perm*`).
+#[cfg_attr(not(feature = "online"), allow(dead_code))]
+struct PromptTexts {
+    title: String,
+    one: String,
+    many: String,
+    also_asks: String,
+    update_now: String,
+    failed: String,
+    perm_storage: String,
+    perm_notify: String,
+    perm_window: String,
+    perm_character: String,
+    perm_decoder: String,
+}
+
+#[cfg_attr(not(feature = "online"), allow(dead_code))]
+fn prompt_texts(data_dir: Option<&Path>, lang: &str) -> PromptTexts {
+    let load = |lang: &str| -> Option<Value> {
+        let path = data_dir?.join("i18n").join("ui").join(format!("{lang}.json"));
+        serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+    };
+    let lang = LANGUAGES.iter().find(|known| known.eq_ignore_ascii_case(lang)).copied().unwrap_or("en");
+    let (ui, en) = (load(lang), load("en"));
+    let text = |section: &[&str], key: &str, fallback: &str| -> String {
+        [ui.as_ref(), en.as_ref()]
+            .into_iter()
+            .flatten()
+            .find_map(|v| section.iter().fold(v, |v, s| &v[s])[key].as_str().map(str::to_string))
+            .unwrap_or_else(|| fallback.to_string())
+    };
+    let prompt = |key: &str, fallback: &str| text(&["pluginUpdatePrompt"], key, fallback);
+    let perm = |key: &str, fallback: &str| text(&["settings", "plugins"], key, fallback);
+    PromptTexts {
+        title: prompt("title", "A2Tools - Plugin Update"),
+        one: prompt("one", "A plugin update is available:"),
+        many: prompt("many", "Plugin updates are available:"),
+        also_asks: prompt("alsoAsks", "The new version also asks to:"),
+        update_now: prompt("updateNow", "Update now?"),
+        failed: prompt("failed", "Couldn't update:"),
+        perm_storage: perm("permStorage", "Save its own data on this computer"),
+        perm_notify: perm("permNotify", "Show short messages in its window"),
+        perm_window: perm("permWindow", "Show and hide its own window, without taking focus from the game"),
+        perm_character: perm("permCharacter", "See your character's name, server, class and level"),
+        perm_decoder: perm("permDecoder", "Read your own game data: {name}"),
+    }
+}
+
+/// A permission, in plain words, as Settings words it.
+#[cfg_attr(not(feature = "online"), allow(dead_code))]
+fn describe_permission(t: &PromptTexts, permission: &str) -> String {
+    match permission {
+        "storage" => t.perm_storage.clone(),
+        "notify" => t.perm_notify.clone(),
+        "window" => t.perm_window.clone(),
+        "events:character" => t.perm_character.clone(),
+        p => match p.strip_prefix("decoder:") {
+            Some(name) => t.perm_decoder.replace("{name}", name),
+            None => p.to_string(),
+        },
+    }
+}
+
+/// The updates to offer at start: those not already declined at that version.
+#[cfg_attr(not(feature = "online"), allow(dead_code))]
+fn updates_to_offer<T>(available: Vec<(PluginAvailable, T)>, declined: &HashMap<String, String>) -> Vec<(PluginAvailable, T)> {
+    available.into_iter().filter(|(a, _)| declined.get(&a.id) != Some(&a.to)).collect()
+}
+
+/// The question asked at start: each update, with what it newly asks to do,
+/// since Yes installs it.
+#[cfg_attr(not(feature = "online"), allow(dead_code))]
+fn update_prompt(t: &PromptTexts, updates: &[&PluginAvailable]) -> String {
+    let mut text = format!("{}\n", if updates.len() == 1 { &t.one } else { &t.many });
+    for u in updates {
+        text.push_str(&format!("\n{} {} → {}", u.name, u.from, u.to));
+        if !u.new_permissions.is_empty() {
+            text.push_str(&format!("\n    {}", t.also_asks));
+            for p in &u.new_permissions {
+                text.push_str(&format!("\n    • {}", describe_permission(t, p)));
+            }
+        }
+    }
+    text.push_str(&format!("\n\n{}", t.update_now));
+    text
+}
+
+/// At start, ask the signed catalog for newer reviewed versions of the
+/// installed plugins and, if there are any not declined before, offer to
+/// install them: no need to open Settings and press Check for updates. Yes
+/// installs the very entries shown, not whatever the catalog says by then.
+#[cfg(feature = "online")]
+pub fn alert_updates_at_start(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(UPDATE_ALERT_DELAY).await;
+        let Ok(host) = host(&app) else { return };
+        let Some(state) = app.try_state::<AppState>() else { return };
+        let catalog = match catalog::fetch(&state.http).await {
+            Ok(catalog) => catalog,
+            Err(e) => {
+                tracing::info!("Plugins: update check at start failed: {e}");
+                return;
+            }
+        };
+        let mut declined: HashMap<String, String> =
+            state.settings.get(DECLINED_UPDATES_KEY).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        let updates = updates_to_offer(newer_entries(catalog, &host), &declined);
+        if updates.is_empty() {
+            return;
+        }
+        let names = updates.iter().map(|(u, _)| format!("{} {} → {}", u.id, u.from, u.to)).collect::<Vec<_>>().join(", ");
+        tracing::info!("Plugins: updates available: {names}");
+        let lang = state.settings.get("dpsMeter.language").unwrap_or_else(|| "en".into());
+        let t = prompt_texts(state.i18n_data_dir.as_deref(), &lang);
+        let prompt = update_prompt(&t, &updates.iter().map(|(u, _)| u).collect::<Vec<_>>());
+        let title = t.title.clone();
+        let accepted = tokio::task::spawn_blocking(move || crate::platform::dialog::ask_yes_no(&title, &prompt))
+            .await
+            .unwrap_or(false);
+        if !accepted {
+            for (u, _) in &updates {
+                declined.insert(u.id.clone(), u.to.clone());
+            }
+            state.settings.set(DECLINED_UPDATES_KEY, &serde_json::to_string(&declined).unwrap_or_default());
+            return;
+        }
+        let mut failed = Vec::new();
+        for (u, entry) in &updates {
+            if let Err(e) = install_entry(&app, &host, entry).await {
+                failed.push(format!("{}: {e}", u.name));
+            }
+        }
+        // Settings, if open, shows the new versions.
+        let _ = app.emit_to("settings", "plugins-changed", ());
+        if !failed.is_empty() {
+            let message = format!("{}\n\n{}", t.failed, failed.join("\n"));
+            let _ = tokio::task::spawn_blocking(move || crate::platform::dialog::show_error(&t.title, &message)).await;
+        }
+    });
 }
 
 /// A catalog entry as Settings lists it.
@@ -623,6 +943,21 @@ pub async fn plugin_catalog(app: tauri::AppHandle) -> Result<Vec<CatalogItem>, S
     }
 }
 
+/// Install one catalog entry (its files checked against the signed
+/// catalog's hashes) and run it.
+#[cfg(feature = "online")]
+async fn install_entry(app: &tauri::AppHandle, host: &Arc<PluginHost>, entry: &catalog::Entry) -> Result<(), String> {
+    let http = app.try_state::<AppState>().ok_or("no app state")?.http.clone();
+    let dir = plugins_dir(app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    catalog::install(&http, entry, &dir).await?;
+    tracing::info!("Plugins: installed {} {}", entry.id, entry.version);
+    host.reload(app);
+    refresh_windows(app, host);
+    restore_windows(app);
+    Ok(())
+}
+
 /// Install a reviewed plugin from the catalog, or update it to the catalog's
 /// version. Its saved data is kept.
 #[tauri::command]
@@ -633,12 +968,7 @@ pub async fn plugin_install(app: tauri::AppHandle, id: String) -> Result<Plugins
         let http = app.try_state::<AppState>().ok_or("no app state")?.http.clone();
         let catalog = catalog::fetch(&http).await?;
         let entry = catalog.plugins.iter().find(|e| e.id == id).ok_or("that plugin is not in the catalog")?;
-        let dir = plugins_dir(&app)?;
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        catalog::install(&http, entry, &dir).await?;
-        tracing::info!("Plugins: installed {} {}", entry.id, entry.version);
-        host.reload(&app);
-        refresh_windows(&app, &host);
+        install_entry(&app, &host, entry).await?;
         Ok(view(&app, &host))
     }
     #[cfg(not(feature = "online"))]
@@ -658,6 +988,7 @@ pub fn plugin_uninstall(app: tauri::AppHandle, id: String) -> Result<PluginsView
         let _ = window.close();
     }
     remember_window(&app, &id, None);
+    set_disabled(&app, &id, false);
     let dir = plugins_dir(&app)?.join(&id);
     if dir.is_dir() {
         std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -806,7 +1137,9 @@ fn open_window(app: &tauri::AppHandle, id: &str, visible: bool) -> Result<(), St
     let label = format!("plugin-{id}");
     if let Some(window) = app.get_webview_window(&label) {
         if visible {
-            show_in_place(app, &window, id, || crate::platform::window::show_on_top_without_focus(&window));
+            if !crate::platform::window::reveal_in_place(&window) {
+                show_in_place(app, &window, id, || crate::platform::window::show_on_top_without_focus(&window));
+            }
             let _ = window.set_focus();
         }
         return Ok(());
@@ -842,21 +1175,46 @@ fn open_window(app: &tauri::AppHandle, id: &str, visible: bool) -> Result<(), St
 /// Async: on Windows, building a window from a synchronous command deadlocks.
 #[tauri::command]
 pub async fn plugin_open(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    if disabled(&app).contains(&id) {
+        return Err("that plugin is turned off".into());
+    }
+    reopened(&app, &id);
     open_window(&app, &id, true)?;
     remember_window(&app, &id, Some("shown"));
     Ok(())
 }
 
-/// Open again the plugin windows that were open when the meter last closed.
+/// A plugin opened by hand (Open, or turned on) starts again after reloads.
+fn reopened(app: &tauri::AppHandle, id: &str) {
+    if let Ok(host) = host(app) {
+        host.closed.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    }
+}
+
+/// Whether a plugin should be started now: loaded, turned on, not closed with
+/// × this run, and not already running.
+fn should_start(p: &PluginInfo, off: &[String], closed: &HashSet<String>, running: bool) -> bool {
+    p.error.is_none() && !off.contains(&p.id) && !closed.contains(&p.id) && !running
+}
+
+/// Start every plugin that is turned on and not running, its window shown or
+/// hidden as it was last left (shown the first time): at start, and when a
+/// plugin is installed or its folder loaded. One closed with × this run stays
+/// closed.
 pub fn restore_windows(app: &tauri::AppHandle) {
     let Some(state) = app.try_state::<AppState>() else { return };
+    let Ok(host) = host(app) else { return };
     let windows: serde_json::Map<String, Value> =
         state.settings.get(WINDOWS_KEY).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-    for (id, how) in windows {
-        let visible = how.as_str() != Some("hidden");
-        if let Err(e) = open_window(app, &id, visible) {
-            tracing::info!("Plugins: not reopening {id}: {e}");
-            remember_window(app, &id, None);
+    let off = disabled(app);
+    let closed = host.closed.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    for p in host.list() {
+        if !should_start(&p, &off, &closed, app.get_webview_window(&format!("plugin-{}", p.id)).is_some()) {
+            continue;
+        }
+        let visible = windows.get(&p.id).and_then(Value::as_str) != Some("hidden");
+        if let Err(e) = open_window(app, &p.id, visible) {
+            tracing::info!("Plugins: not starting {}: {e}", p.id);
         }
     }
 }
@@ -868,20 +1226,55 @@ pub fn restore_windows(app: &tauri::AppHandle) {
 pub fn plugin_window(app: tauri::AppHandle, window: tauri::WebviewWindow, visible: bool) -> Result<(), String> {
     let id = window_plugin(&window)?;
     require(&app, &id, "window")?;
+    // Hidden in place where the window manager would place it anew on
+    // showing (Linux), so it comes back where it was left.
     if visible {
-        show_in_place(&app, &window, &id, || crate::platform::window::show_on_top_without_focus(&window));
+        if !crate::platform::window::reveal_in_place(&window) {
+            show_in_place(&app, &window, &id, || crate::platform::window::show_on_top_without_focus(&window));
+        }
     } else {
-        crate::platform::window::hide_without_focus(&window);
+        crate::platform::window::hide_in_place(&window);
     }
     remember_window(&app, &id, Some(if visible { "shown" } else { "hidden" }));
     Ok(())
 }
 
-/// The window's close button: close it, and don't reopen it at the next start.
+/// The window fitted to `height` of content (CSS px), for something brief
+/// like an alert, or back to the size it had (`None`). The host page hides
+/// its title bar meanwhile (pluginHost.js), so the window is the content
+/// alone. The size before the first fit is kept until the restore.
+#[tauri::command]
+pub fn plugin_window_fit(app: tauri::AppHandle, window: tauri::WebviewWindow, height: Option<f64>) -> Result<(), String> {
+    static BEFORE: std::sync::OnceLock<Mutex<HashMap<String, tauri::PhysicalSize<u32>>>> = std::sync::OnceLock::new();
+    let id = window_plugin(&window)?;
+    require(&app, &id, "window")?;
+    let before = BEFORE.get_or_init(Mutex::default);
+    match height {
+        Some(h) => {
+            let h = h.clamp(40.0, 1200.0);
+            let scale = window.scale_factor().map_err(|e| e.to_string())?;
+            let now = window.inner_size().map_err(|e| e.to_string())?;
+            before.lock().unwrap_or_else(|p| p.into_inner()).entry(id).or_insert(now);
+            let width = now.to_logical::<f64>(scale).width;
+            let _ = window.set_min_size(Some(tauri::LogicalSize::new(240.0, h.min(230.0))));
+            window.set_size(tauri::LogicalSize::new(width, h)).map_err(|e| e.to_string())?;
+        }
+        None => {
+            if let Some(size) = before.lock().unwrap_or_else(|p| p.into_inner()).remove(&id) {
+                window.set_size(size).map_err(|e| e.to_string())?;
+                let _ = window.set_min_size(Some(tauri::LogicalSize::new(240.0, 230.0_f64.min(size.height as f64))));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The window's close button: close it until the next start (turning the
+/// plugin off in Settings keeps it closed).
 #[tauri::command]
 pub fn plugin_close(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
     let id = window_plugin(&window)?;
-    remember_window(&app, &id, None);
+    host(&app)?.closed.lock().unwrap_or_else(|e| e.into_inner()).insert(id);
     let _ = window.close();
     Ok(())
 }
@@ -909,6 +1302,7 @@ pub fn plugin_hello(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Resu
         "character": character,
         "language": language,
         "reviewed": reviewed,
+        "game": crate::platform::window_detector::find_aion2_window(),
     }))
 }
 
@@ -941,6 +1335,46 @@ pub fn broadcast(app: &tauri::AppHandle, event: &str, data: Value) {
 fn require(app: &tauri::AppHandle, id: &str, permission: &str) -> Result<(), String> {
     let has = host(app)?.with(id, |l| l.manifest.permissions.iter().any(|p| p == permission)).unwrap_or(false);
     if has { Ok(()) } else { Err(format!("the plugin lacks the {permission:?} permission")) }
+}
+
+/// A server's field boss timers, as players' meters reported them
+/// (a2tools.app's feed, `boss_report.rs`), for plugins with
+/// `feed:boss-timers`: the published file as it is, or None when the server
+/// has none yet. Kept a minute, so plugins asking often fetch it once.
+#[tauri::command]
+pub async fn plugin_boss_timers(app: tauri::AppHandle, window: tauri::WebviewWindow, server: u32) -> Result<Option<Value>, String> {
+    let id = window_plugin(&window)?;
+    require(&app, &id, "feed:boss-timers")?;
+    if !(1000..10000).contains(&server) {
+        return Err("not a server id".into());
+    }
+    boss_timers(&app, server).await
+}
+
+#[cfg(feature = "online")]
+async fn boss_timers(app: &tauri::AppHandle, server: u32) -> Result<Option<Value>, String> {
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<u32, (Instant, Option<Value>)>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Mutex::default);
+    if let Some((at, value)) = cache.lock().unwrap_or_else(|p| p.into_inner()).get(&server) {
+        if at.elapsed() < Duration::from_secs(60) {
+            return Ok(value.clone());
+        }
+    }
+    let state = app.try_state::<AppState>().ok_or("no app state")?;
+    let url = format!("https://cdn.a2tools.app/feeds/boss-timers/{server}.json");
+    let res = state.http.get(&url).timeout(Duration::from_secs(15)).send().await.map_err(|e| e.to_string())?;
+    let value = match res.status() {
+        s if s == reqwest::StatusCode::NOT_FOUND => None,
+        s if s.is_success() => Some(serde_json::from_str(&res.text().await.map_err(|e| e.to_string())?).map_err(|e| e.to_string())?),
+        s => return Err(format!("the feed answered {s}")),
+    };
+    cache.lock().unwrap_or_else(|p| p.into_inner()).insert(server, (Instant::now(), value.clone()));
+    Ok(value)
+}
+
+#[cfg(not(feature = "online"))]
+async fn boss_timers(_app: &tauri::AppHandle, _server: u32) -> Result<Option<Value>, String> {
+    Err("this meter is built without network features".into())
 }
 
 #[tauri::command]
@@ -1197,8 +1631,82 @@ fn percent_decode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{base64, content_policy, inline_page, inlined_policy, take_ready, within_reach, Pending, SETTLE};
+    use super::{base64, content_policy, inline_page, inlined_policy, prompt_texts, should_start, take_ready};
+    use super::{update_prompt, updates_to_offer, within_reach, Pending, PluginAvailable, PluginInfo, LANGUAGES, SETTLE};
+    use std::collections::{HashMap, HashSet};
     use std::time::{Duration, Instant};
+
+    fn available(id: &str, from: &str, to: &str, new_permissions: &[&str]) -> PluginAvailable {
+        PluginAvailable {
+            id: id.into(),
+            name: format!("Plugin {id}"),
+            from: from.into(),
+            to: to.into(),
+            new_permissions: new_permissions.iter().map(|p| p.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn an_update_said_no_to_is_not_offered_again_but_a_newer_one_is() {
+        let declined = HashMap::from([("a".to_string(), "1.1.0".to_string()), ("b".to_string(), "2.0.0".to_string())]);
+        let offered = updates_to_offer(
+            vec![(available("a", "1.0.0", "1.1.0", &[]), ()), (available("b", "2.0.0", "2.1.0", &[]), ()), (available("c", "0.1", "0.2", &[]), ())],
+            &declined,
+        );
+        let ids: Vec<_> = offered.iter().map(|(a, _)| a.id.as_str()).collect();
+        assert_eq!(ids, ["b", "c"]);
+    }
+
+    #[test]
+    fn the_start_prompt_lists_each_update_and_what_it_newly_asks_for() {
+        let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/data");
+        let en = prompt_texts(Some(&data), "en");
+        let one = update_prompt(&en, &[&available("a", "1.0.0", "1.1.0", &[])]);
+        assert_eq!(one, "A plugin update is available:\n\nPlugin a 1.0.0 → 1.1.0\n\nUpdate now?");
+        let (a, b) = (available("a", "1.0.0", "1.1.0", &[]), available("b", "2.0", "2.1", &["storage", "decoder:pets"]));
+        let two = update_prompt(&en, &[&a, &b]);
+        assert!(two.starts_with("Plugin updates are available:"));
+        assert!(two.contains("Plugin b 2.0 → 2.1\n    The new version also asks to:\n    • Save its own data on this computer\n    • Read your own game data: pets"));
+        let de = update_prompt(&prompt_texts(Some(&data), "de"), &[&b]);
+        assert!(de.contains("Jetzt aktualisieren?") && de.contains("Deine eigenen Spieldaten lesen: pets"), "{de}");
+    }
+
+    #[test]
+    fn the_update_prompt_has_words_in_every_language() {
+        let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/data");
+        let en = prompt_texts(Some(&data), "en");
+        for lang in LANGUAGES {
+            let t = prompt_texts(Some(&data), lang);
+            assert!(t.perm_decoder.contains("{name}"), "{lang}");
+            if lang != "en" {
+                for (word, english) in [(&t.title, &en.title), (&t.many, &en.many), (&t.update_now, &en.update_now), (&t.failed, &en.failed), (&t.perm_storage, &en.perm_storage)] {
+                    assert_ne!(word, english, "{lang} is translated");
+                }
+            }
+        }
+        assert_eq!(prompt_texts(None, "ko").update_now, en.update_now, "no data: the built-in English");
+    }
+
+    #[test]
+    fn a_reload_starts_enabled_plugins_but_not_one_closed_with_x_or_turned_off() {
+        let plugin = |id: &str, error: Option<&str>| PluginInfo {
+            id: id.into(),
+            name: id.into(),
+            version: "1.0.0".into(),
+            description: String::new(),
+            path: String::new(),
+            permissions: Vec::new(),
+            reviewed: true,
+            error: error.map(str::to_string),
+        };
+        let off = vec!["off".to_string()];
+        let closed = HashSet::from(["closed".to_string()]);
+        assert!(should_start(&plugin("a", None), &off, &closed, false));
+        assert!(!should_start(&plugin("a", None), &off, &closed, true), "already running");
+        assert!(!should_start(&plugin("off", None), &off, &closed, false), "turned off");
+        assert!(!should_start(&plugin("closed", None), &off, &closed, false), "closed with × this run");
+        assert!(!should_start(&plugin("a", Some("bad manifest")), &off, &closed, false), "failed to load");
+    }
 
     #[test]
     fn a_window_left_on_a_screen_goes_back_there_and_one_off_every_screen_does_not() {
