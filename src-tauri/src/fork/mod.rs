@@ -3,6 +3,7 @@ pub mod gear;
 pub mod cloud;
 pub mod diagnostics;
 pub mod npcap;
+pub mod privacy;
 pub mod update;
 
 use crate::app::AppState;

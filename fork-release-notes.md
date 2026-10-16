@@ -5,7 +5,7 @@
 - Neben Spielernamen kann jetzt „Beides“ stehen: Kampfkraft und Ausrüstungswert zusammen (mit dünnem dunklem Rand, besser lesbar).
 - Kampfverlauf: Albtraum-Stufe wird benannt, dazu die Stufe jedes Bosses.
 - Balken-Texturen jetzt auch auf der Boss-HP-Leiste und in der Details-Gruppenliste.
-- Neue A2Tools-Funktionen unter Einstellungen → Erweitert: „Feldboss-Timer teilen“ (über a2tools.app) und „A2Tools-Nutzer in meiner Gruppe zeigen“ (kleines A2 neben dem Namen). Beide sind von Haus aus an und lassen sich dort abschalten.
+- Neue A2Tools-Funktionen unter Einstellungen → Erweitert: „Feldboss-Timer teilen“ (über a2tools.app) und „A2Tools-Nutzer in meiner Gruppe zeigen“ (kleines A2 neben dem Namen). Beide sind im Fork standardmäßig aus und lassen sich dort einschalten. Der Event-Timer braucht sie nicht, er hat seine eigenen Feldboss-Timer. Achtung beim A2-Tag: Gruppenmitglieder mit A2Tools sehen daran, dass du ein Meter nutzt.
 - Plugins: Schalter „Aktiviert“ je Plugin, Update-Hinweis beim Start in deiner Sprache; ein mit × geschlossenes Plugin bleibt bis zum nächsten Start zu.
 
 **Behoben**

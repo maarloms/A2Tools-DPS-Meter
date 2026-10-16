@@ -2747,7 +2747,7 @@ class DpsApp {
     // A2Tools users in the party see each other (party_presence.rs): on
     // unless turned off.
     if (this.partyPresenceCheckbox) {
-      this.partyPresenceCheckbox.checked = this.safeGetSetting(this.storageKeys.partyPresence) !== "false";
+      this.partyPresenceCheckbox.checked = this.safeGetSetting(this.storageKeys.partyPresence) === "true"; // fork: off unless turned on (fork/privacy.rs)
       this.partyPresenceCheckbox.addEventListener("change", (event) => {
         this.safeSetSetting(this.storageKeys.partyPresence, event.target?.checked ? "true" : "false");
       });
@@ -2755,7 +2755,7 @@ class DpsApp {
     // Field boss timers from the player's map, shared through a2tools.app
     // (boss_report.rs): on unless turned off.
     if (this.shareBossTimersCheckbox) {
-      this.shareBossTimersCheckbox.checked = this.safeGetSetting(this.storageKeys.shareBossTimers) !== "false";
+      this.shareBossTimersCheckbox.checked = this.safeGetSetting(this.storageKeys.shareBossTimers) === "true"; // fork: off unless turned on (fork/privacy.rs)
       this.shareBossTimersCheckbox.addEventListener("change", (event) => {
         this.safeSetSetting(this.storageKeys.shareBossTimers, event.target?.checked ? "true" : "false");
       });
