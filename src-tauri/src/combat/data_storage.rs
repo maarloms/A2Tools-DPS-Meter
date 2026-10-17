@@ -16,6 +16,10 @@ use crate::entity::summon_resolver;
 /// stays free of Tauri.
 pub static MOB_LIFE_HOOK: std::sync::OnceLock<fn(i32, bool)> = std::sync::OnceLock::new();
 
+/// Fork: every hit that reaches the fight data, with its dealer after summon
+/// resolution and the local player id (training-dummy test, fork/dummy.rs).
+pub static DAMAGE_HOOK: std::sync::OnceLock<fn(&ParsedDamagePacket, i32, Option<i64>)> = std::sync::OnceLock::new();
+
 /// Maximum idle gap before a fight is considered ended and a new one begins.
 const IDLE_RESET_MS: i64 = 30_000;
 
@@ -2538,6 +2542,7 @@ fn apply_damage(inner: &mut Inner, pdp: &ParsedDamagePacket) {
     for (i, &flag) in pdp.spec_flags().iter().enumerate() {
         if flag { skill_data.spec_flags[i] = true; }
     }
+    if let Some(hook) = DAMAGE_HOOK.get() { hook(pdp, summon_resolver::resolve(actor_id, &inner.summon_storage), inner.local_player_id); } // fork
 }
 
 /// fork: everything keyed by entity id that only holds within one zone.

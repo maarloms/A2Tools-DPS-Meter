@@ -2,6 +2,7 @@ pub mod bosses;
 pub mod gear;
 pub mod cloud;
 pub mod diagnostics;
+pub mod dummy;
 pub mod npcap;
 pub mod privacy;
 pub mod update;
@@ -205,6 +206,7 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .on_event(|app, event| {
             if matches!(event, tauri::RunEvent::Ready) {
                 bosses::start(app);
+                dummy::start_hook();
                 let _ = APP.set(app.clone());
                 let _ = crate::capture::stream_processor::FORK_PACKET_HOOK.set(on_packet);
                 let manager = HotkeyManager::new();

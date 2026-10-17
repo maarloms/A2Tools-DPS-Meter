@@ -3458,6 +3458,9 @@ pub fn run() {
             crate::fork::diagnostics::fork_send_diagnostics,
             crate::fork::update::fork_update_can_install, // fork: patch-notes popup
             crate::fork::update::fork_install_update,
+            crate::fork::dummy::fork_dummy_start, // fork: training-dummy test
+            crate::fork::dummy::fork_dummy_cancel,
+            crate::fork::dummy::fork_dummy_status,
             get_app_version,
             get_hotkey_status,
             crate::plugins::plugin_list,

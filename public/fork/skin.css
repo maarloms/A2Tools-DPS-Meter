@@ -938,3 +938,142 @@
 :root.forkSkin .forkPatchnotesBody h3 { color: var(--fork-accent); }
 :root.forkSkin .forkPatchnotesBar span,
 :root.forkSkin .forkPatchnotesButton.isPrimary { background: var(--fork-accent); border-color: var(--fork-accent); }
+/* ---------------- training-dummy test (fork/dummy.js) ----------------
+   Uses the patch-notes frame above; these are its own parts. */
+.forkDummyBtn { position: relative; }
+.forkDummyBtnTime {
+  position: absolute;
+  right: -4px;
+  bottom: -5px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: #ffc446;
+  color: #1a1408;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 12px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.forkDummyBtnTime[hidden] { display: none; }
+.forkDummyBtn.isArmed .forkDummyBtnTime { animation: forkDummyPulse 1.2s ease-in-out infinite; }
+.forkDummyBtn.isRunning { color: #ffc446; }
+@keyframes forkDummyPulse { 50% { opacity: 0.45; } }
+.forkDummyBody { padding-top: 8px; }
+.forkDummyLabel {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+.forkDummyLabel:first-child { margin-top: 2px; }
+.forkDummyHint { margin: 6px 0; opacity: 0.75; font-size: 12px; }
+.forkDummyWarn { margin: 6px 0; color: #ffb36b; font-size: 12px; }
+.forkDummyDurations { display: flex; gap: 6px; }
+.forkDummyDuration,
+.forkDummySelect {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.forkDummySelect { width: 100%; margin-top: 8px; font-weight: 400; }
+.forkDummySelect option { background: rgb(16, 20, 32); }
+.forkDummyDuration:hover { background: rgba(255, 255, 255, 0.12); }
+.forkDummyDuration.isActive { border-color: #ffc446; color: #ffc446; background: rgba(255, 196, 70, 0.12); }
+.forkDummyLive { padding: 10px 0 4px; text-align: center; }
+.forkDummyState { font-size: 15px; font-weight: 700; color: #ffc446; }
+.forkDummyClock { font-size: 38px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.forkDummyBar { margin: 8px 0 6px; }
+.forkDummyBar span { transition: width 0.2s linear; }
+.forkDummyLiveDmg { font-variant-numeric: tabular-nums; opacity: 0.85; }
+.forkDummyHero { text-align: center; padding: 4px 0 2px; }
+.forkDummyDps { font-size: 32px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; color: #ffc446; }
+.forkDummyDpsLabel { font-size: 11px; opacity: 0.65; letter-spacing: 0.1em; }
+.forkDummyCompare { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 10px; margin-top: 4px; font-size: 12px; }
+.forkDummyDelta { opacity: 0.85; }
+.forkDummyDelta.isUp { color: #7ee08a; opacity: 1; }
+.forkDummyDelta.isDown { color: #ff8f99; opacity: 1; }
+.forkDummyStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+.forkDummyStat {
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+}
+.forkDummyStat b { display: block; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.forkDummyStat small { font-size: 11px; opacity: 0.65; }
+.forkDummySkills { display: flex; flex-direction: column; gap: 2px; }
+.forkDummySkill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+.forkDummySkill.isOther { opacity: 0.7; font-style: italic; }
+.forkDummySkillBar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(255, 196, 70, 0.16);
+  pointer-events: none;
+}
+.forkDummySkillName { position: relative; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.forkDummySkillPct,
+.forkDummySkillHits { position: relative; flex: none; text-align: right; }
+.forkDummySkillPct { width: 52px; }
+.forkDummySkillHits { width: 40px; opacity: 0.7; }
+.forkDummySpark { display: block; width: 100%; height: 40px; margin: 2px 0 4px; }
+.forkDummySpark polyline { fill: none; stroke: #ffc446; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.forkDummyHistory { display: flex; flex-direction: column; gap: 2px; }
+.forkDummyRun {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.forkDummyRun:hover,
+.forkDummyRun:focus-visible { background: rgba(255, 255, 255, 0.07); outline: none; }
+.forkDummyRun.isCurrent { background: rgba(255, 196, 70, 0.12); }
+.forkDummyRunWhen { opacity: 0.7; width: 92px; flex: none; }
+.forkDummyRunDps { flex: 1; }
+.forkDummyRunMeta { opacity: 0.65; font-size: 11.5px; }
+.forkDummyRunDel {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.45;
+}
+.forkDummyRunDel:hover { opacity: 1; background: rgba(224, 97, 107, 0.3); }
+:root.forkSkin .forkDummyBtnTime { background: var(--fork-accent); }
+:root.forkSkin .forkDummyBtn.isRunning,
+:root.forkSkin .forkDummyState,
+:root.forkSkin .forkDummyDps,
+:root.forkSkin .forkDummyDuration.isActive { color: var(--fork-accent); }
+:root.forkSkin .forkDummyDuration.isActive { border-color: var(--fork-accent); background: color-mix(in srgb, var(--fork-accent) 14%, transparent); }
+:root.forkSkin .forkDummySkillBar,
+:root.forkSkin .forkDummyRun.isCurrent { background: color-mix(in srgb, var(--fork-accent) 18%, transparent); }
+:root.forkSkin .forkDummySpark polyline { stroke: var(--fork-accent); }
+:root.forkSkin .forkDummySelect option { background: rgb(var(--hud-bg)); }

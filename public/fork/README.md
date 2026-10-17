@@ -78,3 +78,20 @@ Diagrammabschnitte lassen sich mit Enter und Leertaste öffnen und schließen.
 Geprüft in einer getrennten Browser-Vorschau mit Beispieldaten bei 420, 640,
 850 und 1280 px; Sortierung, Spaltenauswahl und die vier Fork-Themes geprüft.
 Die Vorschau enthält keine echten Kampfdaten.
+
+## Puppen-Test
+
+Zielscheiben-Knopf im Meter-Kopf (neben dem Uhr-Button): Dauer 60 s, 3 min
+oder 5 min, „Starten“. Der Test wartet auf deinen ersten Treffer und endet
+nach der Dauer von selbst (Abbrechen jederzeit).
+
+- Rust `src-tauri/src/fork/dummy.rs`: zeichnet nur bei aktivem Test auf
+  (Hook `DAMAGE_HOOK` am Ende von `data_storage::apply_damage`). Nur der
+  eigene Spieler (Summons über den Besitzer), Fenster in Paketzeit
+  [erster Treffer, +Dauer), 1,5 s Nachlauf für verspätete Pakete.
+  Befehle `fork_dummy_start/cancel/status`.
+- JS `dummy-logic.js` (Ziel = meister Schaden, Raten, Vergleich, Verlauf),
+  `dummy.js` (Knopf, Popup im Rahmen der Patchnotes, damit das Fenster
+  wächst). Verlauf in localStorage `fork.dummy.v1`, 50 Läufe je Charakter,
+  Server und Dauer. Nichts geht ins Netz.
+- Tests: `tests/dummy-logic.test.mjs`, `cargo test fork::dummy`.
