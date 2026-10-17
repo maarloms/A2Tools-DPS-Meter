@@ -81,13 +81,18 @@ async function findEncounter(db: D1Database, room: string, uploadId: string, d: 
   if (prev) return prev.encounter_id;
 
   const w = LIMITS.sameTargetWindowMs;
+  // Zwei Teile statt OR, damit jeder seinen Index nutzt (enc_room_mob_start, enc_room_mob_target):
+  // mit OR las SQLite alle Kämpfe des Raums.
   const rows = (
     await db
       .prepare(
-        `SELECT id, start_ms, target_id, dungeon_id FROM encounters
-         WHERE room = ?1 AND mob_code = ?2 AND (?2 != 0 OR boss = ?4)
-           AND (start_ms BETWEEN ?5 AND ?6
-             OR (?8 != 0 AND target_id = ?8 AND start_ms <= ?9 AND start_ms + duration_ms >= ?7))
+        `SELECT id, start_ms, target_id, dungeon_id FROM (
+           SELECT id, start_ms, target_id, dungeon_id FROM encounters
+            WHERE room = ?1 AND mob_code = ?2 AND (?2 != 0 OR boss = ?4) AND start_ms BETWEEN ?5 AND ?6
+           UNION
+           SELECT id, start_ms, target_id, dungeon_id FROM encounters
+            WHERE room = ?1 AND mob_code = ?2 AND target_id = ?8 AND ?8 != 0 AND (?2 != 0 OR boss = ?4)
+              AND start_ms <= ?9 AND start_ms + duration_ms >= ?7)
          ORDER BY (dungeon_id = ?3) DESC, ABS(start_ms - ?7) LIMIT 5`,
       )
       .bind(room, d.mobCode, d.dungeonId, d.boss, d.startMs - w, d.startMs + w, d.startMs, d.targetId, d.startMs + d.durationMs)

@@ -6,7 +6,7 @@
 import { Env } from "./auth";
 import { activeMembers, fixedMembers, listMembers, setHidden } from "./members";
 import { backfillStats, mergeDuplicates, remergeStale } from "./store";
-import { isField, listBosses, listed, relevant, setBossMode } from "./bosses";
+import { NOT_RELEVANT_B, isField, listBosses, listed, relevant, setBossMode } from "./bosses";
 import { listChecklist, patchChecklist } from "./checklist";
 
 const DAY = 86_400_000;
@@ -37,7 +37,6 @@ const BOSS = "(?7 IS NULL OR (ps.mob_code = ?7 AND ps.dungeon_id = ?8))";
 
 /** Nur Bosse, die zählen (siehe bosses.ts) */
 const REL_PS = relevant("ps");
-const REL_E = relevant("e");
 const REL_BARE = relevant("player_stats");
 /** Kampflisten: auch Feldbosse (gekennzeichnet), die nicht in der Statistik zählen */
 const LIST_E = listed("e");
@@ -180,62 +179,8 @@ export async function handleStats(
     }
 
     // ---------- Übersicht ----------
-    case "/stats/overview": {
-      const now = Date.now();
-      const w1 = now - 7 * DAY;
-      const w2 = now - 14 * DAY;
-      const cards = (
-        await db
-          .prepare(
-            `SELECT ps.player_lc AS lc,
-               AVG(CASE WHEN ps.start_ms >= ?1 THEN ps.dps END) AS avg7,
-               AVG(CASE WHEN ps.start_ms >= ?2 AND ps.start_ms < ?1 THEN ps.dps END) AS prev7,
-               AVG(ps.dps) AS avgAll, MAX(ps.dps) AS best, COUNT(*) AS fights,
-               SUM(CASE WHEN ps.start_ms >= ?1 THEN 1 ELSE 0 END) AS fights7,
-               MAX(ps.start_ms) AS lastMs, SUM(ps.dmg) AS totalDmg, AVG(ps.share) AS avgShare
-             FROM player_stats ps WHERE ps.room = ?3 AND ps.is_train = 0 AND ${REL_PS} AND ${IS_MEMBER}
-             GROUP BY ps.player_lc`,
-          )
-          .bind(w1, w2, room, null, null, null, null, null, ml)
-          .all<Record<string, any>>()
-      ).results;
-      const jobs = await latestJobs(db, room, ml);
-      const group = await db
-        .prepare(
-          `WITH em AS (SELECT ps.encounter_id, COUNT(*) AS n, SUM(ps.dmg) AS d, MAX(ps.start_ms) AS t
-                       FROM player_stats ps WHERE ps.room = ?1 AND ps.is_train = 0 AND ${REL_PS} AND ${IS_MEMBER} GROUP BY ps.encounter_id)
-           SELECT COUNT(*) AS fights, COALESCE(SUM(n >= 2), 0) AS together, COALESCE(SUM(d), 0) AS dmg,
-             COALESCE(SUM(t >= ?2), 0) AS fights7 FROM em`,
-        )
-        .bind(room, w1, null, null, null, null, null, null, ml)
-        .first<Record<string, number>>();
-      const matrix = await bossMatrix(db, room, ml, 0, null);
-      const recentRows = (
-        await db
-          .prepare(
-            `SELECT e.id, e.boss, e.dungeon_id AS dungeonId, e.start_ms AS startMs, e.duration_ms AS durationMs,
-               e.total_damage AS totalDamage, ${FIELD_E} AS field
-             FROM encounters e WHERE e.room = ?1 AND e.is_train = 0 AND ${LIST_E}
-               AND EXISTS (SELECT 1 FROM player_stats ps WHERE ps.encounter_id = e.id AND ${IS_MEMBER})
-             ORDER BY e.start_ms DESC LIMIT 6`,
-          )
-          .bind(room, null, null, null, null, null, null, null, ml)
-          .all<Record<string, any>>()
-      ).results;
-      const tops = await membersOf(db, recentRows.map((r) => r.id), ml);
-      return {
-        members: members.map((name) => {
-          const lc = name.toLowerCase();
-          const c = cards.find((x) => x.lc === lc);
-          return { name, job: jobs.get(lc)?.job ?? "", jobId: jobs.get(lc)?.jobId ?? 0, fights: 0, ...(c ?? {}) };
-        }),
-        group: { ...group, bosses: matrix.length },
-        matrix,
-        recent: recentRows.map((r) => ({ ...r, members: tops.get(r.id) ?? [] })),
-        week: await weekRecap(db, room, ml),
-        records: await recentRecords(db, room, ml, now - 14 * DAY),
-      };
-    }
+    case "/stats/overview":
+      return overview(db, room, members, ml);
 
     // ---------- Mein Bereich ----------
     case "/stats/player": {
@@ -448,73 +393,191 @@ async function recentRecords(db: D1Database, room: string, ml: string, from: num
   ).results;
 }
 
-/** Zuletzt gespielte Klasse je Mitglied */
+/**
+ * Zuletzt gespielte Klasse je Mitglied. Je Mitglied nur der neueste Kampf über den Index
+ * ps_room_player (room, player_lc, start_ms) – ROW_NUMBER über den ganzen Verlauf las jede Zeile.
+ */
 async function latestJobs(db: D1Database, room: string, ml: string) {
   const rows = (
     await db
       .prepare(
-        `WITH r AS (SELECT ps.player_lc AS lc, ps.job, ps.job_id AS jobId,
-                      ROW_NUMBER() OVER (PARTITION BY ps.player_lc ORDER BY ps.start_ms DESC) AS rn
-                    FROM player_stats ps WHERE ps.room = ?1 AND ${IS_MEMBER})
-         SELECT lc, job, jobId FROM r WHERE rn = 1`,
+        `SELECT m.value AS lc,
+           (SELECT ps.job FROM player_stats ps WHERE ps.room = ?1 AND ps.player_lc = m.value ORDER BY ps.start_ms DESC LIMIT 1) AS job,
+           (SELECT ps.job_id FROM player_stats ps WHERE ps.room = ?1 AND ps.player_lc = m.value ORDER BY ps.start_ms DESC LIMIT 1) AS jobId
+         FROM json_each(?2) m`,
+      )
+      .bind(room, ml)
+      .all<{ lc: string; job: string | null; jobId: number | null }>()
+  ).results;
+  return new Map(rows.filter((r) => r.job !== null).map((r) => [r.lc, { lc: r.lc, job: r.job as string, jobId: r.jobId ?? 0 }]));
+}
+
+/** Eine Zeile aus player_stats für die Übersicht (nur Mitglieder, ohne Training) */
+interface OvRow {
+  e: string;
+  lc: string;
+  player: string;
+  mob: number;
+  dg: number;
+  boss: string;
+  dps: number;
+  dmg: number;
+  share: number;
+  t: number;
+  dur: number;
+  k: number;
+}
+
+const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+const maxStr = (a: string, b: string) => (b > a ? b : a);
+
+/**
+ * Übersicht mit EINEM Durchlauf über player_stats (statt acht Abfragen, die jede den ganzen
+ * Verlauf des Raums lasen); gerechnet wird in JS. Ergebnis wie die früheren SQL-Abfragen.
+ */
+async function overview(db: D1Database, room: string, members: string[], ml: string) {
+  const now = Date.now();
+  const w1 = now - 7 * DAY;
+  const w2 = now - 14 * DAY;
+  // Bosse, die nicht zählen (ausgeblendet, Feldboss) – wie relevant() in bosses.ts, nur einmal je Raum gelesen
+  const skip = new Set(
+    (await db.prepare(`SELECT b.mob_code AS mob FROM bosses b WHERE b.room = ?1 AND ${NOT_RELEVANT_B}`).bind(room).all<{ mob: number }>()).results.map((r) => r.mob),
+  );
+  const all = (
+    await db
+      .prepare(
+        `SELECT ps.encounter_id AS e, ps.player_lc AS lc, ps.player AS player, ps.mob_code AS mob, ps.dungeon_id AS dg, ps.boss AS boss,
+           ps.dps AS dps, ps.dmg AS dmg, ps.share AS share, ps.start_ms AS t, ps.duration_ms AS dur, ps.killed AS k
+         FROM player_stats ps WHERE ps.room = ?1 AND ps.player_lc IN (SELECT value FROM json_each(?2)) AND ps.is_train = 0`,
+      )
+      .bind(room, ml)
+      .all<OvRow>()
+  ).results;
+  const rows = all.filter((r) => !skip.has(r.mob));
+
+  // Karten je Mitglied
+  const byLc = new Map<string, OvRow[]>();
+  for (const r of rows) (byLc.get(r.lc) ?? byLc.set(r.lc, []).get(r.lc)!).push(r);
+  const cards = new Map<string, Record<string, unknown>>();
+  for (const [lc, rs] of byLc) {
+    const cur = rs.filter((r) => r.t >= w1);
+    cards.set(lc, {
+      lc,
+      avg7: avg(cur.map((r) => r.dps)),
+      prev7: avg(rs.filter((r) => r.t >= w2 && r.t < w1).map((r) => r.dps)),
+      avgAll: avg(rs.map((r) => r.dps)),
+      best: Math.max(...rs.map((r) => r.dps)),
+      fights: rs.length,
+      fights7: cur.length,
+      lastMs: Math.max(...rs.map((r) => r.t)),
+      totalDmg: rs.reduce((a, r) => a + r.dmg, 0),
+      avgShare: avg(rs.map((r) => r.share)),
+    });
+  }
+
+  // Kämpfe mit Mitgliedern
+  const byEnc = new Map<string, OvRow[]>();
+  for (const r of rows) (byEnc.get(r.e) ?? byEnc.set(r.e, []).get(r.e)!).push(r);
+  let together = 0;
+  let dmg = 0;
+  let fights7 = 0;
+  for (const rs of byEnc.values()) {
+    if (rs.length >= 2) together++;
+    dmg += rs.reduce((a, r) => a + r.dmg, 0);
+    if (Math.max(...rs.map((r) => r.t)) >= w1) fights7++;
+  }
+
+  // Bestwert je Boss und Mitglied (wie bossMatrix ohne Filter)
+  const cells = new Map<string, OvRow[]>();
+  for (const r of rows) {
+    const key = `${r.mob}|${r.dg}|${r.lc}`;
+    (cells.get(key) ?? cells.set(key, []).get(key)!).push(r);
+  }
+  const matrixRows = [...cells.values()]
+    .map((rs) => ({
+      mobCode: rs[0].mob,
+      dungeonId: rs[0].dg,
+      lc: rs[0].lc,
+      boss: rs.map((r) => r.boss).reduce(maxStr),
+      player: rs.map((r) => r.player).reduce(maxStr),
+      bestDps: Math.max(...rs.map((r) => r.dps)),
+      avgDps: avg(rs.map((r) => r.dps))!,
+      avgShare: avg(rs.map((r) => r.share))!,
+      fights: rs.length,
+      lastMs: Math.max(...rs.map((r) => r.t)),
+    }))
+    .sort((a, b) => a.mobCode - b.mobCode || a.dungeonId - b.dungeonId || (a.lc < b.lc ? -1 : a.lc > b.lc ? 1 : 0));
+  const matrix = matrixOf(matrixRows);
+
+  const recentRows = (
+    await db
+      .prepare(
+        `SELECT e.id, e.boss, e.dungeon_id AS dungeonId, e.start_ms AS startMs, e.duration_ms AS durationMs,
+           e.total_damage AS totalDamage, ${FIELD_E} AS field
+         FROM encounters e WHERE e.room = ?1 AND e.is_train = 0 AND ${LIST_E}
+           AND EXISTS (SELECT 1 FROM player_stats ps WHERE ps.encounter_id = e.id AND ${IS_MEMBER})
+         ORDER BY e.start_ms DESC LIMIT 6`,
       )
       .bind(room, null, null, null, null, null, null, null, ml)
-      .all<{ lc: string; job: string; jobId: number }>()
+      .all<Record<string, any>>()
   ).results;
-  return new Map(rows.map((r) => [r.lc, r]));
+  const tops = await membersOf(db, recentRows.map((r) => r.id), ml);
+  const jobs = await latestJobs(db, room, ml);
+  return {
+    members: members.map((name) => {
+      const lc = name.toLowerCase();
+      return { name, job: jobs.get(lc)?.job ?? "", jobId: jobs.get(lc)?.jobId ?? 0, fights: 0, ...(cards.get(lc) ?? {}) };
+    }),
+    group: { fights: byEnc.size, together, dmg, fights7, bosses: matrix.length },
+    matrix,
+    recent: recentRows.map((r) => ({ ...r, members: tops.get(r.id) ?? [] })),
+    week: weekRecap(rows, now),
+    records: await recentRecords(db, room, ml, now - 14 * DAY),
+  };
 }
 
 /**
  * Wochenrückblick: die letzten 7 Tage gegen die 7 davor. Verbesserung je Mitglied
  * nur über Bosse, die es in beiden Wochen gelegt hat (Ø DPS je Boss), damit ein
- * leichterer Boss nicht als Fortschritt zählt.
+ * leichterer Boss nicht als Fortschritt zählt. `rows` = zählende Kämpfe der Mitglieder.
  */
-async function weekRecap(db: D1Database, room: string, ml: string, now = Date.now()) {
-  const day = 86_400_000;
-  const w1 = now - 7 * day;
-  const w0 = now - 14 * day;
-  const rows = (
-    await db
-      .prepare(
-        `SELECT MAX(ps.player) AS player, ps.player_lc AS lc, ps.mob_code AS mob, ps.dungeon_id AS dungeon,
-           (ps.start_ms >= ?2) AS cur, COUNT(*) AS fights, SUM(ps.killed) AS kills, AVG(ps.dps) AS avgDps
-         FROM player_stats ps WHERE ps.room = ?1 AND ps.start_ms >= ?3 AND ps.is_train = 0 AND ${REL_PS} AND ${IS_MEMBER}
-         GROUP BY ps.player_lc, ps.mob_code, ps.dungeon_id, cur`,
-      )
-      .bind(room, w1, w0, null, null, null, null, null, ml)
-      .all<{ player: string; lc: string; mob: number; dungeon: number; cur: number; fights: number; kills: number; avgDps: number }>()
-  ).results;
-  const best = (
-    await db
-      .prepare(
-        `SELECT player, lc, dps, boss, fightId FROM (SELECT ps.player AS player, ps.player_lc AS lc, ps.dps AS dps, ps.boss AS boss,
-           ps.encounter_id AS fightId, ROW_NUMBER() OVER (PARTITION BY ps.player_lc ORDER BY ps.dps DESC) AS rn
-         FROM player_stats ps WHERE ps.room = ?1 AND ps.start_ms >= ?2 AND ps.is_train = 0 AND ${REL_PS} AND ${IS_MEMBER}) WHERE rn = 1`,
-      )
-      .bind(room, w1, null, null, null, null, null, null, ml)
-      .all<{ player: string; lc: string; dps: number; boss: string; fightId: string }>()
-  ).results;
-  const fastest = await db
-    .prepare(
-      `SELECT e.id AS fightId, e.boss, e.duration_ms AS durationMs FROM encounters e
-       WHERE e.room = ?1 AND e.start_ms >= ?2 AND e.is_train = 0 AND ${REL_E} AND e.killed = 1
-         AND EXISTS (SELECT 1 FROM player_stats ps WHERE ps.encounter_id = e.id AND ${IS_MEMBER})
-       ORDER BY e.duration_ms LIMIT 1`,
-    )
-    .bind(room, w1, null, null, null, null, null, null, ml)
-    .first<{ fightId: string; boss: string; durationMs: number }>();
-  const group = await db
-    .prepare(
-      `SELECT COUNT(*) AS fights, COALESCE(SUM(e.killed), 0) AS kills FROM encounters e
-       WHERE e.room = ?1 AND e.start_ms >= ?2 AND e.is_train = 0 AND ${REL_E}
-         AND EXISTS (SELECT 1 FROM player_stats ps WHERE ps.encounter_id = e.id AND ${IS_MEMBER})`,
-    )
-    .bind(room, w1, null, null, null, null, null, null, ml)
-    .first<{ fights: number; kills: number }>();
+function weekRecap(rows: OvRow[], now = Date.now()) {
+  const w1 = now - 7 * DAY;
+  const w0 = now - 14 * DAY;
+  const groups = new Map<string, OvRow[]>();
+  for (const r of rows) {
+    if (r.t < w0) continue;
+    const key = `${r.lc}|${r.mob}|${r.dg}|${r.t >= w1 ? 1 : 0}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(r);
+  }
+  const agg = [...groups.values()].map((rs) => ({
+    player: rs.map((r) => r.player).reduce(maxStr),
+    lc: rs[0].lc,
+    mob: rs[0].mob,
+    dungeon: rs[0].dg,
+    cur: rs[0].t >= w1,
+    fights: rs.length,
+    kills: rs.reduce((a, r) => a + (r.k ? 1 : 0), 0),
+    avgDps: avg(rs.map((r) => r.dps))!,
+  }));
+  const week = rows.filter((r) => r.t >= w1);
+  // Bester Kampf je Mitglied in dieser Woche
+  const best = new Map<string, OvRow>();
+  for (const r of week) if (!best.has(r.lc) || r.dps > best.get(r.lc)!.dps) best.set(r.lc, r);
+  // Kämpfe der Woche (mit mindestens einem Mitglied), schnellster Kill
+  const encs = new Map<string, OvRow>();
+  for (const r of week) if (!encs.has(r.e)) encs.set(r.e, r);
+  let kills = 0;
+  let fastest: OvRow | null = null;
+  for (const r of encs.values()) {
+    if (!r.k) continue;
+    kills++;
+    if (!fastest || r.dur < fastest.dur) fastest = r;
+  }
 
   const byMember = new Map<string, { name: string; fights: number; kills: number; changes: number[] }>();
-  const prev = new Map(rows.filter((r) => !r.cur).map((r) => [`${r.lc}|${r.mob}|${r.dungeon}`, r.avgDps]));
-  for (const r of rows.filter((x) => x.cur)) {
+  const prev = new Map(agg.filter((r) => !r.cur).map((r) => [`${r.lc}|${r.mob}|${r.dungeon}`, r.avgDps]));
+  for (const r of agg.filter((x) => x.cur)) {
     const m = byMember.get(r.lc) ?? { name: r.player, fights: 0, kills: 0, changes: [] };
     m.fights += r.fights;
     m.kills += r.kills ?? 0;
@@ -523,45 +586,44 @@ async function weekRecap(db: D1Database, room: string, ml: string, now = Date.no
     byMember.set(r.lc, m);
   }
   const members = [...byMember.entries()].map(([lc, m]) => {
-    const b = best.find((x) => x.lc === lc);
+    const b = best.get(lc);
     return {
       name: m.name,
       fights: m.fights,
       kills: m.kills,
       // Ø Veränderung des Ø DPS je Boss gegenüber der Vorwoche, in Prozent; null = kein Vergleich
       change: m.changes.length ? (m.changes.reduce((a, c) => a + c, 0) / m.changes.length) * 100 : null,
-      best: b ? { dps: b.dps, boss: b.boss, fightId: b.fightId } : null,
+      best: b ? { dps: b.dps, boss: b.boss, fightId: b.e } : null,
     };
   });
   const top = members.filter((m) => m.best).sort((a, b) => b.best!.dps - a.best!.dps)[0] ?? null;
   const riser = members.filter((m) => m.change !== null && m.change > 0).sort((a, b) => b.change! - a.change!)[0] ?? null;
   return {
     from: w1,
-    fights: group?.fights ?? 0,
-    kills: group?.kills ?? 0,
+    fights: encs.size,
+    kills,
     members,
     bestRun: top ? { name: top.name, ...top.best! } : null,
     riser: riser ? { name: riser.name, change: riser.change } : null,
-    fastestKill: fastest ?? null,
+    fastestKill: fastest ? { fightId: fastest.e, boss: fastest.boss, durationMs: fastest.dur } : null,
   };
 }
 
-/** Aktueller Gearscore und Combat Score je Mitglied (jeweils letzter Kampf mit Wert) */
+/** Aktueller Gearscore und Combat Score je Mitglied (jeweils letzter Kampf mit Wert, über den Index ps_room_player) */
 async function latestGear(db: D1Database, room: string, ml: string) {
-  const latest = async (col: "gear_score" | "cp") =>
-    (
-      await db
-        .prepare(
-          `SELECT lc, v FROM (SELECT ps.player_lc AS lc, ps.${col} AS v,
-               ROW_NUMBER() OVER (PARTITION BY ps.player_lc ORDER BY ps.start_ms DESC) AS rn
-             FROM player_stats ps WHERE ps.room = ?1 AND ps.${col} > 0 AND ${IS_MEMBER}) WHERE rn = 1`,
-        )
-        .bind(room, null, null, null, null, null, null, null, ml)
-        .all<{ lc: string; v: number }>()
-    ).results;
+  const rows = (
+    await db
+      .prepare(
+        `SELECT m.value AS lc,
+           (SELECT ps.gear_score FROM player_stats ps WHERE ps.room = ?1 AND ps.player_lc = m.value AND ps.gear_score > 0 ORDER BY ps.start_ms DESC LIMIT 1) AS gs,
+           (SELECT ps.cp FROM player_stats ps WHERE ps.room = ?1 AND ps.player_lc = m.value AND ps.cp > 0 ORDER BY ps.start_ms DESC LIMIT 1) AS cp
+         FROM json_each(?2) m`,
+      )
+      .bind(room, ml)
+      .all<{ lc: string; gs: number | null; cp: number | null }>()
+  ).results;
   const out = new Map<string, { gs: number | null; cp: number | null }>();
-  for (const r of await latest("gear_score")) out.set(r.lc, { gs: r.v, cp: null });
-  for (const r of await latest("cp")) out.set(r.lc, { gs: out.get(r.lc)?.gs ?? null, cp: r.v });
+  for (const r of rows) if (r.gs !== null || r.cp !== null) out.set(r.lc, { gs: r.gs, cp: r.cp });
   return out;
 }
 
@@ -596,8 +658,15 @@ async function bossMatrix(db: D1Database, room: string, ml: string, from: number
          GROUP BY ps.mob_code, ps.dungeon_id, ps.player_lc`,
       )
       .bind(room, from, null, null, null, null, boss?.mob ?? null, boss?.dungeon ?? null, ml)
-      .all<{ mobCode: number; dungeonId: number; boss: string; player: string; bestDps: number; avgDps: number; avgShare: number; fights: number; lastMs: number }>()
+      .all<MatrixRow>()
   ).results;
+  return matrixOf(rows);
+}
+
+type MatrixRow = { mobCode: number; dungeonId: number; boss: string; player: string; bestDps: number; avgDps: number; avgShare: number; fights: number; lastMs: number };
+
+/** Zeilen je Boss und Mitglied (sortiert nach Boss, Dungeon, Mitglied) → Matrix mit Bestwert und Führendem */
+function matrixOf(rows: MatrixRow[]) {
   const byBoss = new Map<string, any>();
   for (const r of rows) {
     const key = `${r.mobCode}:${r.dungeonId}`;

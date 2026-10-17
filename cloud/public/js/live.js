@@ -57,18 +57,30 @@ function rollingLines(e) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// ---------- Zusatzdaten (Bestwerte, letzte Kämpfe, Checkliste), höchstens jede Minute ----------
+// ---------- Zusatzdaten (Bestwerte, letzte Kämpfe, Checkliste) ----------
+// Sparsam laden (D1-Tageslimit): beim Öffnen, nach neuen Kämpfen höchstens alle 5 min und erst,
+// wenn die Uploads der Gruppe durch sind (30 s Ruhe), sonst alle 30 min.
 
-const side = { at: 0, loading: false, matrix: [], records: [], fights: [], checklist: null, jobs: new Map() };
+const SIDE_AFTER_FIGHT_MS = 5 * 60_000;
+const SIDE_SETTLE_MS = 30_000;
+const SIDE_MAX_AGE_MS = 30 * 60_000;
+const side = { at: 0, dirtyAt: 0, loading: false, matrix: [], records: [], fights: [], checklist: null, jobs: new Map() };
 
-/** Nach einem neuen Kampf-Upload beim nächsten Zeichnen neu laden */
+/** Neuer oder gelöschter Kampf: Zusatzdaten beim nächsten erlaubten Zeitpunkt neu laden (nicht sofort) */
 export function invalidateLiveSide() {
-  side.at = 0;
+  side.dirtyAt = Date.now();
+}
+
+function sideDue(now = Date.now()) {
+  if (!side.at) return true;
+  if (now - side.at >= SIDE_MAX_AGE_MS) return true;
+  return side.dirtyAt > side.at && now - side.at >= SIDE_AFTER_FIGHT_MS && now - side.dirtyAt >= SIDE_SETTLE_MS;
 }
 
 function ensureSide() {
-  if (side.loading || Date.now() - side.at < 60_000) return;
+  if (side.loading || !sideDue()) return;
   side.loading = true;
+  const started = Date.now(); // Kämpfe, die während des Ladens kommen, lösen danach erneut aus
   Promise.allSettled([apiJson("/stats/overview"), apiJson("/fights?limit=12"), apiJson("/checklist")])
     .then(([ov, fl, cl]) => {
       if (ov.status === "fulfilled") {
@@ -78,7 +90,7 @@ function ensureSide() {
       }
       if (fl.status === "fulfilled") side.fights = fl.value.fights || [];
       if (cl.status === "fulfilled") side.checklist = cl.value;
-      side.at = Date.now();
+      side.at = started;
     })
     .finally(() => {
       side.loading = false;

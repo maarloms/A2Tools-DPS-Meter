@@ -21,6 +21,8 @@ export type BossMode = "show" | "hide" | null;
 const HIDDEN = `(b.mode = 'hide' OR (b.mode IS NULL AND b.max_hp < ${MIN_HP}))`;
 /** SQL: Feldboss ohne Vorgabe (b = Zeile aus bosses) */
 const FIELD = `(b.mode IS NULL AND b.max_actors >= ${FIELD_ACTORS})`;
+/** SQL: Boss zählt nicht in der Statistik (b = Zeile aus bosses); Gegenstück zu relevant() */
+export const NOT_RELEVANT_B = `(${HIDDEN} OR ${FIELD})`;
 
 /**
  * SQL-Bedingung "Boss zählt" für eine Tabelle mit room und mob_code (player_stats, encounters, records).
