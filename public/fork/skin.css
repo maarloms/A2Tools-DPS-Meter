@@ -21,12 +21,18 @@
 /* ---------------- meter shell ---------------- */
 
 /* The opacity slider still works, but never drops the panel below a
-   readable floor: 40 % on the slider now reads as ~75 %. */
+   readable floor: 40 % on the slider now reads as ~75 %. The title bar
+   (height in --title-h) follows it until upstream's title opacity slider
+   sets --title-opacity; that one is taken as is, without the floor. */
 :root.forkSkin .meter {
   --fork-alpha: calc(0.6 + var(--window-opacity) * 0.4);
+  --fork-title-alpha: var(--title-opacity, var(--fork-alpha));
   background:
           linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 90px),
-          rgba(var(--hud-bg), var(--fork-alpha));
+          linear-gradient(rgba(var(--hud-bg), var(--fork-title-alpha)), rgba(var(--hud-bg), var(--fork-title-alpha)))
+            top / 100% var(--title-h, 31px) no-repeat,
+          linear-gradient(rgba(var(--hud-bg), var(--fork-alpha)), rgba(var(--hud-bg), var(--fork-alpha)))
+            bottom / 100% calc(100% - var(--title-h, 31px)) no-repeat;
   border: 1px solid var(--panel-border);
   border-radius: var(--rounded-lg);
   box-shadow: var(--fork-glow, 0 0 0 transparent);

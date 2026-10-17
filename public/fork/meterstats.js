@@ -1,5 +1,6 @@
 // Fork: stats strip (total DPS, damage, boss HP) under the meter header and the damage · DPS · share
-// readout on each row. Only active with a fork theme (html.forkSkin); the
+// readout on each row. In upstream's HPS/HEAL display modes the same slots
+// show healing · HPS · share of the healing instead. Only active with a fork theme (html.forkSkin); the
 // upstream look is left alone. Hooked from core.js / meter.js via
 // window.ForkMeter, so upstream files carry one-line "// fork" calls.
 (() => {
@@ -7,13 +8,21 @@
   let strip = null;
   let cells = null;
   let hp = { max: 0, pct: 0 };
+  let healTotal = 0;
 
   const active = () => document.documentElement.classList.contains("forkSkin");
   const german = () => String(window.i18n?.getLanguage?.() || document.documentElement.lang || "").startsWith("de");
   const labels = () =>
     german()
-      ? { dps: "DPS gesamt", dmg: "Schaden", hp: "Boss-HP", players: "Spieler" }
-      : { dps: "Total DPS", dmg: "Damage", hp: "Boss HP", players: "Players" };
+      ? { dps: "DPS gesamt", dmg: "Schaden", hps: "HPS gesamt", heal: "Heilung", hp: "Boss-HP", players: "Spieler" }
+      : { dps: "Total DPS", dmg: "Damage", hps: "Total HPS", heal: "Healing", hp: "Boss HP", players: "Players" };
+  // Upstream's DPS/DMG button cycles dps, totalDamage, both, hps, totalHeal.
+  const healing = (core) => core?.displayMode === "hps" || core?.displayMode === "totalHeal";
+  const suffix = (core) =>
+    typeof core?.meterDpsSuffix === "function"
+      ? core.meterDpsSuffix()
+      : window.i18n?.t?.("meter.dpsSuffix", "/s") ?? "/s";
+  const sum = (rows, key) => rows.reduce((total, r) => total + (Number(r?.[key]) || 0), 0);
 
 
   const ensureStrip = () => {
@@ -57,15 +66,20 @@
     // Every render of the row list.
     rows(core, rows) {
       app = core;
+      // Before the strip check: rowText's healing share needs it either way.
+      healTotal = Array.isArray(rows) ? sum(rows, "healAmount") : 0;
       if (!ensureStrip()) return;
       const show = active() && Array.isArray(rows) && rows.length > 0;
       if (strip.hidden === show) strip.hidden = !show;
       if (!show) return;
       const L = labels();
-      const totalDps = rows.reduce((sum, r) => sum + (Number(r?.dps) || 0), 0);
-      const totalDmg = rows.reduce((sum, r) => sum + (Number(r?.totalDamage) || 0), 0);
-      set(cells.dps, core.formatDpsThousands(totalDps), L.dps);
-      set(cells.dmg, core.formatAbbreviatedNumber(totalDmg), L.dmg);
+      if (healing(core)) {
+        set(cells.dps, core.formatDpsThousands(sum(rows, "hps")), L.hps);
+        set(cells.dmg, core.formatAbbreviatedNumber(healTotal), L.heal);
+      } else {
+        set(cells.dps, core.formatDpsThousands(sum(rows, "dps")), L.dps);
+        set(cells.dmg, core.formatAbbreviatedNumber(sum(rows, "totalDamage")), L.dmg);
+      }
       if (hp.max > 0) {
         set(cells.hp, `${Math.round(hp.pct)} %`, L.hp);
         cells.hp.el.classList.add("hasHp");
@@ -81,10 +95,18 @@
     // Per row: null outside the fork skin, so meter.js keeps upstream's text.
     rowText(row) {
       if (!app || !active()) return null;
+      if (healing(app)) {
+        const heal = Number(row?.healAmount) || 0;
+        return {
+          total: app.formatAbbreviatedNumber(heal),
+          dps: `${app.formatDpsThousands(Number(row?.hps) || 0)}${suffix(app)}`,
+          share: `${(healTotal > 0 ? (heal / healTotal) * 100 : 0).toFixed(1)}%`,
+        };
+      }
       const share = Number(row?.damageContribution);
       return {
         total: app.formatAbbreviatedNumber(Number(row?.totalDamage) || 0),
-        dps: `${app.formatDpsThousands(Number(row?.dps) || 0)}${window.i18n?.t?.("meter.dpsSuffix", "/s") ?? "/s"}`,
+        dps: `${app.formatDpsThousands(Number(row?.dps) || 0)}${suffix(app)}`,
         share: Number.isFinite(share) ? `${share.toFixed(1)}%` : undefined,
       };
     },

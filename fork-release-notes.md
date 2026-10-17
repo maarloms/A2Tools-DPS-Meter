@@ -1,6 +1,7 @@
 **Neu**
 - HPS (Heilung pro Sekunde) und Gesamtheilung: Der DPS/DMG-Knopf am Meter wechselt jetzt auch zu HPS und HEAL. Heiler bekommen dadurch eine eigene Zeile mit Klasse, auch wenn sie kaum Schaden machen. Abschaltbar unter Einstellungen → Meter → „Heilung im DPS/DMG-Knopf anzeigen“.
-- HPS-Anzeige in allen Themes, auch in den eigenen Fork-Themes.
+- HPS-Anzeige in allen Themes, auch in den eigenen Fork-Themes: Im HPS/HEAL-Modus zeigen die Zeilen dort Heilung, HPS und Anteil an der Heilung, die Leiste oben HPS gesamt und Heilung.
+- Titelleiste mit eigener Deckkraft: Einstellungen → Darstellung → „Deckkraft der Titelleiste“, wirkt auch in den eigenen Fork-Themes.
 - Discord-Aktivität: erreicht jetzt jeden laufenden Discord (auch Vesktop oder Canary daneben), und ein hängender Discord hält die anderen nicht mehr auf. Unter Einstellungen → A2 Tools-Konto → „Zahl in Discord“ wählst du, ob nach deiner Stufe Kampfkraft, Ausrüstungswert oder nichts steht.
 - Plugins: Plugins können kleine eigene Fenster (Widgets) öffnen, verschieben und fixieren. Neuer Schalter Einstellungen → Plugins → „DPS-Meter anzeigen“: aus, sieht man nur die Plugins, das Meter zeichnet im Hintergrund weiter auf.
 - Plugin-Fenster öffnen sich wieder dort, wo du sie gelassen hast, und jetzt auch in der Größe, die du ihnen gegeben hast.
