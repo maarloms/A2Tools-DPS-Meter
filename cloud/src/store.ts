@@ -72,7 +72,12 @@ interface EncRow {
  * Viertelstunden vor einem anderen, der erst nach der Pause dazukam.
  */
 async function findEncounter(db: D1Database, room: string, uploadId: string, d: UploadDetail): Promise<string | null> {
-  const prev = await db.prepare("SELECT encounter_id FROM uploads WHERE id = ?1").bind(uploadId).first<{ encounter_id: string }>();
+  // Schon einmal zugeordnet – aber nur, wenn es den Kampf auch gibt: brach ein frueherer Versuch
+  // nach dem Speichern des Uploads ab (D1-Ausfall), zeigt die Zeile auf einen nie angelegten Kampf.
+  const prev = await db
+    .prepare("SELECT u.encounter_id FROM uploads u JOIN encounters e ON e.id = u.encounter_id WHERE u.id = ?1")
+    .bind(uploadId)
+    .first<{ encounter_id: string }>();
   if (prev) return prev.encounter_id;
 
   const w = LIMITS.sameTargetWindowMs;
@@ -124,7 +129,15 @@ export interface RecordHit {
 /** Kürzere Kämpfe zählen nicht: ein paar Sekunden Burst ergäben sonst Fantasie-Schnitte. */
 export const RECORD_MIN_MS = 20_000;
 
-/** Speichert einen Upload, fuehrt den Kampf neu zusammen und aktualisiert player_stats. */
+/** Upload-ID: gleicher Raum + Uploader + FightRecord.id ⇒ derselbe Upload (idempotent) */
+export function uploadIdOf(room: string, uploader: string, recordId: string): Promise<string> {
+  return shortHash(`${room}|${uploader.toLowerCase()}|${recordId}`);
+}
+
+/**
+ * Speichert einen Upload, fuehrt den Kampf neu zusammen und aktualisiert player_stats.
+ * `retention`: so viele Kaempfe behalten (aeltere loeschen); null = diesmal nicht pruefen.
+ */
 export async function saveUpload(
   db: D1Database,
   room: string,
@@ -132,8 +145,9 @@ export async function saveUpload(
   rawBytes: number,
   known: string[],
   now = Date.now(),
+  retention: number | null = LIMITS.maxEncountersPerRoom,
 ): Promise<SaveResult> {
-  const uploadId = await shortHash(`${room}|${detail.uploader.toLowerCase()}|${detail.recordId}`);
+  const uploadId = await uploadIdOf(room, detail.uploader, detail.recordId);
   const existing = await db.prepare("SELECT 1 AS x FROM uploads WHERE id = ?1").bind(uploadId).first();
   const encounterId = (await findEncounter(db, room, uploadId, detail)) ?? (await shortHash(`${room}|enc|${uploadId}`));
 
@@ -149,7 +163,7 @@ export async function saveUpload(
 
   const merged = await remerge(db, room, encounterId, known, now);
   const records = await newRecords(db, room, encounterId, merged, known);
-  const removedUploads = await enforceRetention(db, room);
+  const removedUploads = retention === null ? [] : await enforceRetention(db, room, retention);
   return { uploadId, encounterId, replaced: !!existing, perspectives: merged.uploads.length, detail: merged, removedUploads, records };
 }
 
@@ -434,11 +448,11 @@ export async function removeMember(db: D1Database, room: string, name: string, k
 }
 
 /** Aelteste Kaempfe ueber dem Limit loeschen. Liefert geloeschte Upload-IDs (fuer Rohdaten im DO). */
-async function enforceRetention(db: D1Database, room: string): Promise<string[]> {
+async function enforceRetention(db: D1Database, room: string, keep: number): Promise<string[]> {
   const old = (
     await db
       .prepare("SELECT id FROM encounters WHERE room = ?1 ORDER BY start_ms DESC LIMIT 50 OFFSET ?2")
-      .bind(room, LIMITS.maxEncountersPerRoom)
+      .bind(room, keep)
       .all<{ id: string }>()
   ).results;
   const removed: string[] = [];

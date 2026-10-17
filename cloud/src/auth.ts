@@ -18,6 +18,8 @@ export interface Env {
   ADMIN_SECRET?: string;
   /** Nur für Tests: Discord-Host für Webhooks ersetzen (z. B. http://127.0.0.1:9999). In Produktion NICHT setzen. */
   DISCORD_API_BASE?: string;
+  /** Nur für Tests: "1" schaltet POST /api/rooms/:code/test/hooks frei (D1-Ausfall simulieren u. a.). In Produktion NICHT setzen. */
+  TEST_HOOKS?: string;
 }
 
 const MIN_SECRET_LEN = 16;

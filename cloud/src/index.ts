@@ -59,7 +59,10 @@ function routeOf(method: string, rest: string): "do" | "d1" | null {
   if (rest === "/webhook/test") return method === "POST" ? "d1" : null;
   if (rest === "/maintenance/backfill" || rest === "/maintenance/dedupe") return method === "POST" ? "d1" : null;
   if (rest === "/maintenance/rename" || rest === "/maintenance/remove") return method === "POST" ? "do" : null;
-  if (/^\/stats\/(overview|bosses|leaderboard|player|compare|trends)$/.test(rest)) return method === "GET" ? "d1" : null;
+  // Übersicht: im DO zwischengespeichert (Raum-Version), sonst die teuerste D1-Abfrage
+  if (rest === "/stats/overview") return method === "GET" ? "do" : null;
+  if (/^\/stats\/(bosses|leaderboard|player|compare|trends)$/.test(rest)) return method === "GET" ? "d1" : null;
+  if (rest === "/test/hooks") return method === "POST" ? "do" : null; // nur mit TEST_HOOKS=1 (prüft das DO)
   return null;
 }
 
@@ -190,9 +193,13 @@ export default {
       const data = rest.startsWith("/webhook")
         ? await handleWebhook(env.DB, env, code, rest, url, req)
         : await handleStats(env.DB, env, code, rest, url, req);
-      if (req.method === "PATCH" && rest === "/members" && data && typeof data === "object" && "ok" in data) {
-        // Live-Ansicht im DO über die geänderte Mitgliederliste informieren
+      const ok = !!data && typeof data === "object" && !("error" in data);
+      if (req.method === "PATCH" && rest === "/members" && ok && "ok" in data) {
+        // Live-Ansicht im DO über die geänderte Mitgliederliste informieren (leert auch den Übersichts-Cache)
         await stub.fetch(new Request(new URL(`/api/rooms/${code}/members-changed`, url.origin), { method: "POST" }));
+      } else if (ok && ((req.method === "PATCH" && rest === "/boss-settings") || (req.method === "POST" && rest.startsWith("/maintenance/")))) {
+        // Was die Übersicht zeigt, hat sich in D1 geändert → Cache im DO verwerfen
+        await stub.fetch(new Request(new URL(`/api/rooms/${code}/stats-changed`, url.origin), { method: "POST" }));
       }
       if (data === null) return json({ error: "not_found" }, 404, cors);
       if (typeof data === "object" && data && "error" in data) return json(data, 400, cors);

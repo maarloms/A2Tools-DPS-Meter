@@ -178,6 +178,11 @@ Antwort `201` (neu) / `200` (ersetzt):
   seine eigene Messung, sonst der höchste Schaden. `perspectives` = Anzahl Uploads in diesem Kampf.
 - Link fürs Dashboard: `<basis-url>` + `url`.
 - `records`: neue Bestwerte, die erst dieser Upload ergeben hat (Format wie bei der Nachricht **record**).
+- `202` (ausstehend): Die Datenbank ist gerade nicht erreichbar (Störung, Tageslimit). Das Original ist im Raum
+  gesichert und wird automatisch nachgetragen (Backoff, spätestens beim nächsten erfolgreichen Upload); der Kampf
+  erscheint dann in der Liste, `fight`-/`record`-Nachrichten kommen erst beim Nachtragen.
+  `{ "ok": true, "pending": true, "fightId": null, "uploadId": "…", "replaced": false, "perspectives": 0, "url": "/#/fights", "rawBytes": 1130, "records": [] }`.
+  Für die App ein Erfolg wie `201`; erneutes Hochladen ist unnötig, schadet aber nicht (idempotent).
 - Fehler: `400 bad_record` (Struktur), `400 bad_request` (uploader fehlt/leerer Body), `401`, `413 too_large`, `429 rate_limited`.
 
 Rust-Skizze (reqwest + flate2 sind schon Abhängigkeiten, `share::gzip` existiert):
@@ -209,7 +214,7 @@ Raum-Endpunkte unter `/api/rooms/<raum>`, alle mit Bearer **oder** Session-Cooki
 | `/uploads/<uploadId>/raw` | Original-FightRecord (die letzten 400 Uploads je Raum) |
 | `/members` | alle bekannten Namen: `{fixed, members:[{name, lastSeen, fights, active}]}` |
 | `PATCH /members` | `{"name","active":false}` blendet einen Namen aus (Testname/Tippfehler), `true` wieder ein. Bei `ROOM_MEMBERS` gesperrt |
-| `/stats/overview` | Übersicht: Karte je Mitglied (Ø-DPS 7 Tage + Vorwoche, Bestwert, Kämpfe, Klasse), Gruppenzahlen, Bestwert je Boss/Mitglied, letzte Kämpfe |
+| `/stats/overview` | Übersicht: Karte je Mitglied (Ø-DPS 7 Tage + Vorwoche, Bestwert, Kämpfe, Klasse), Gruppenzahlen, Bestwert je Boss/Mitglied, letzte Kämpfe. Im Raum zwischengespeichert bis zur nächsten Änderung (Upload, Löschen, Mitglieder, Bosse, Wartung), höchstens 30 min; Header `x-a2-cache: hit\|miss` |
 | `/stats/bosses` | Bosse mit Anzahl Kämpfe + Bestwert |
 | `/stats/leaderboard?boss=<mob>:<dungeon>&days=30` | Top-15-Leistungen der Mitglieder an einem Boss |
 | `/stats/player?name=<name>&days=30&boss=&bucket=&tz=` | Mein Bereich: KPIs (Ø/Best-DPS, Ø-Anteil, Kämpfe, Lieblingsboss, Vorperiode), Rekorde je Boss, letzte Kämpfe, Verlauf. Nur Mitglieder (sonst `not_member`) |

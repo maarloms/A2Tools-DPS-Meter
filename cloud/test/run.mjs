@@ -41,7 +41,7 @@ const vars = join(state, "test.vars");
 const discordPort = await freePort();
 writeFileSync(
   vars,
-  `ROOMS="${ROOM}:${SECRET}"\nSESSION_KEY="lokaler-session-schluessel-nur-fuer-tests-0123456789"\nADMIN_SECRET="admin-secret-nur-fuer-tests-123"\n` +
+  `ROOMS="${ROOM}:${SECRET}"\nSESSION_KEY="lokaler-session-schluessel-nur-fuer-tests-0123456789"\nADMIN_SECRET="admin-secret-nur-fuer-tests-123"\nTEST_HOOKS="1"\n` +
     `DISCORD_API_BASE="http://127.0.0.1:${discordPort}"\n`,
 );
 

@@ -236,6 +236,9 @@ async function main() {
       body: gz ? gzipSync(JSON.stringify(rec)) : JSON.stringify(rec),
     });
   const getj0 = (p) => fetch(`${BASE}/api/rooms/${ROOM}${p}`, { headers: auth }).then((r) => r.json());
+  // Nur mit TEST_HOOKS=1 (run.mjs): D1-Ausfall simulieren, Nachtragen auslösen, Aufbewahrung takten
+  const hooks = (b) =>
+    fetch(`${BASE}/api/rooms/${ROOM}/test/hooks`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(b) }).then((r) => r.json());
   const t0f = Date.now() - 120000;
   const recM = fakeRecord({ id: `auto_4242_${t0f}`, uploader: "Marlon", start: t0f });
   const up1 = await post("Marlon", recM);
@@ -455,6 +458,36 @@ async function main() {
   check("zurück auf Auto", !hasMini(await getj("/stats/bosses")) && (await getj("/stats/bosses")).bosses?.some((b) => b.mobCode === 4242));
   check("ungültiger Modus → 400", (await setMode(7777, "egal")).status === 400);
 
+  // ---------- Übersicht: Cache im Durable Object (Raum-Version) ----------
+  const ovGet = async () => {
+    const r = await fetch(`${BASE}/api/rooms/${ROOM}/stats/overview`, { headers: auth });
+    return { cache: r.headers.get("x-a2-cache"), j: await r.json() };
+  };
+  const c1 = await ovGet();
+  const c2 = await ovGet();
+  check("Übersicht-Cache: zweiter Abruf aus dem Cache, gleiches Ergebnis", c2.cache === "hit" && JSON.stringify(c1.j) === JSON.stringify(c2.j), `${c1.cache} → ${c2.cache}`);
+  await setMode(4242, "hide");
+  const c3 = await ovGet();
+  check("Übersicht-Cache: Boss-Einstellung verwirft ihn", c3.cache === "miss" && !c3.j.matrix?.some((b) => b.mobCode === 4242), c3.cache);
+  await setMode(4242, "auto");
+  check("Übersicht-Cache: Boss wieder da", (await ovGet()).j.matrix?.some((b) => b.mobCode === 4242));
+  const tC = t0f + 9_000_000; // neuester Kampf → steht in "letzte Kämpfe"
+  const upCj = await (await post("Marlon", fakeRecord({ id: `auto_4246_${tC}`, uploader: "Marlon", start: tC, targetId: 4246, mobCode: 4246, bossName: "Testboss Cache" }))).json();
+  const c4 = await ovGet();
+  check("Übersicht-Cache: Upload verwirft ihn, neuer Kampf sofort sichtbar", c4.cache === "miss" && c4.j.recent?.[0]?.id === upCj.fightId && c4.j.matrix?.some((b) => b.mobCode === 4246),
+    `${c4.cache} ${c4.j.recent?.[0]?.id} / ${upCj.fightId}`);
+  check("Übersicht-Cache: danach wieder Treffer", (await ovGet()).cache === "hit");
+  await fetch(`${BASE}/api/rooms/${ROOM}/fights/${upCj.fightId}`, { method: "DELETE", headers: admin });
+  const c5 = await ovGet();
+  check("Übersicht-Cache: Löschen verwirft ihn", c5.cache === "miss" && !c5.j.recent?.some((r) => r.id === upCj.fightId) && !c5.j.matrix?.some((b) => b.mobCode === 4246), c5.cache);
+  await patch(NEU, true);
+  const c6 = await ovGet();
+  check("Übersicht-Cache: Mitglied einblenden verwirft ihn", c6.cache === "miss" && c6.j.members?.some((m) => m.name === NEU), c6.cache);
+  await patch(NEU, false);
+  check("Übersicht-Cache: Mitglied ausblenden verwirft ihn", !(await ovGet()).j.members?.some((m) => m.name === NEU));
+  await fetch(`${BASE}/api/rooms/${ROOM}/maintenance/backfill`, { method: "POST", headers: admin });
+  check("Übersicht-Cache: Wartung verwirft ihn", (await ovGet()).cache === "miss");
+
   // ---------- Reset-Checkliste ----------
   const cl0 = await getj("/checklist");
   const clName = cl0.players?.[0]?.player;
@@ -549,6 +582,42 @@ async function main() {
   const huge = await fetch(`${BASE}/api/rooms/${ROOM}/fights?uploader=Marlon`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: "x".repeat(9 * 1024 * 1024) }).catch(() => ({ status: "abgebrochen" }));
   check("Upload > 8 MB abgelehnt (413)", huge.status === 413 || huge.status === 500 || huge.status === "abgebrochen", `${huge.status}`);
 
+  // ---------- D1-Ausfall: Uploads gehen nicht verloren (Rohdaten zuerst ins DO, D1 später nachtragen) ----------
+  const tP = t0f + 7_200_000;
+  const pRec = (uploader, off, mob = 4400) =>
+    fakeRecord({ id: `auto_${mob}_${tP + off}`, uploader, start: tP + off, targetId: mob, mobCode: mob, bossName: `Testboss Ausfall ${mob}` });
+  const fightsOf = async (mob) => ((await getj("/fights?limit=100&all=1")).fights ?? []).filter((f) => f.mobCode === mob);
+  await hooks({ failAfter: 0 });
+  const pa = await post("Marlon", pRec("Marlon", 0));
+  const paj = await pa.json();
+  check("D1 fällt aus → Upload trotzdem angenommen (202, ausstehend)", pa.status === 202 && paj.ok === true && paj.pending === true && /^[0-9a-f]{16}$/.test(paj.uploadId ?? ""),
+    `${pa.status} ${JSON.stringify(paj)}`);
+  check("… Rohdaten sind schon im DO", (await fetch(`${BASE}/api/rooms/${ROOM}/uploads/${paj.uploadId}/raw`, { headers: auth })).status === 200);
+  await hooks({ failAfter: 7 }); // Abbruch mitten in der Auswertung: uploads-Zeile steht schon in D1, der Kampf noch nicht
+  const pb = await post("Freund2", pRec("Freund2", 1500));
+  const hP = await hooks({ failAfter: null });
+  check("Ausfall mitten in der Auswertung → ebenfalls ausstehend", pb.status === 202 && hP.pending === 2, `${pb.status} pending=${hP.pending}`);
+  check("ausstehende Kämpfe noch nicht in der Liste", (await fightsOf(4400)).length === 0);
+  const hD = await hooks({ drain: true });
+  const f4400 = await fightsOf(4400);
+  check("nachgetragen: ein Kampf mit beiden Perspektiven, nichts doppelt", hD.pending === 0 && f4400.length === 1 && f4400[0].uploaders?.length === 2,
+    JSON.stringify([hD, f4400.map((f) => [f.id, f.uploaders])]));
+  const again = await post("Marlon", pRec("Marlon", 0));
+  const againj = await again.json();
+  check("App lädt denselben Kampf nochmal hoch → ersetzt, kein Duplikat", again.status === 200 && againj.replaced === true && againj.fightId === f4400[0]?.id &&
+    againj.perspectives === 2 && (await fightsOf(4400)).length === 1, JSON.stringify(againj));
+  await hooks({ failAfter: 0 });
+  const pc = await post("Marlon", pRec("Marlon", 600_000, 4401));
+  await hooks({ failAfter: null });
+  const pd = await post("Marlon", pRec("Marlon", 1_200_000, 4402));
+  let late = [];
+  for (let i = 0; i < 40 && !late.length; i++) {
+    await sleep(250);
+    late = await fightsOf(4401);
+  }
+  check("nächster erfolgreicher Upload holt Ausstehendes nach (Alarm)", pc.status === 202 && pd.status === 201 && late.length === 1 && (await hooks({})).pending === 0,
+    `${pc.status} ${pd.status} ${late.length}`);
+
   if (RECORD_PATH) {
     const buf = readFileSync(RECORD_PATH);
     const gz = gzipSync(buf);
@@ -604,6 +673,20 @@ async function main() {
   // ---------- Wochenrückblick (Discord-Webhook) ----------
   if (process.env.FAKE_DISCORD_PORT) await weeklyTests(t0f, NEU);
   else console.log("SKIP  Wochenrückblick (ohne FAKE_DISCORD_PORT, nur mit npm test)");
+
+  // ---------- Aufbewahrung: alte Kämpfe nur jeden n-ten Upload löschen ----------
+  const hR = await hooks({});
+  await hooks({ retentionEvery: 3, retentionMax: hR.encounters, retentionReset: true });
+  const counts = [];
+  for (let i = 0; i < 3; i++) {
+    const tR = t0f + 12_000_000 + i * 600_000;
+    await post("Marlon", fakeRecord({ id: `auto_4500_${tR}`, uploader: "Marlon", start: tR, targetId: 4500 + i, mobCode: 4500, bossName: "Testboss Aufbewahrung" }));
+    counts.push((await hooks({})).encounters);
+  }
+  const oldGone = (await fetch(`${BASE}/api/rooms/${ROOM}/fights/${up7j.fightId}`, { headers: auth })).status === 404;
+  check("Aufbewahrung: erst beim 3. Upload aufgeräumt, die ältesten zuerst", counts.join() === [hR.encounters + 1, hR.encounters + 2, hR.encounters].join() && oldGone,
+    `${hR.encounters} → ${counts.join(", ")}, ältester weg: ${oldGone}`);
+  await hooks({ retentionEvery: null, retentionMax: null, retentionReset: true });
 
   // ---------- Hello-Timeout ----------
   // Lokal (wrangler dev) kommt der Close-Frame eines von aussen geschlossenen

@@ -27,9 +27,9 @@ import {
   unmaskDetail,
   unmasker,
 } from "./fights";
-import { deleteEncounter, loadEncounter, reassignUploads, registerMember, removeMember, saveUpload } from "./store";
-import { activeMembers, isAllowed } from "./members";
-import { recordsOf } from "./stats";
+import { SaveResult, deleteEncounter, loadEncounter, reassignUploads, registerMember, removeMember, saveUpload, uploadIdOf } from "./store";
+import { activeMembers, fixedMembers, isAllowed } from "./members";
+import { handleStats, recordsOf } from "./stats";
 
 interface Attachment {
   role: Role | "pending";
@@ -52,6 +52,22 @@ interface RateState {
 const CHUNK = 1_500_000; // SQLite-Zeile max. 2 MB
 const RECORD_FRESH_MS = 3 * 3_600_000; // ältere Kämpfe (nachgeladen) melden keine Rekorde mehr
 const dec = new TextDecoder();
+
+/**
+ * Uploads, die D1 nicht annehmen konnte (Ausfall, Tageslimit): Rohdaten liegen schon im DO,
+ * nachgetragen wird per Alarm (Backoff) und sobald ein Upload wieder durchgeht.
+ */
+const PENDING_RETRY_MS = 60_000;
+const PENDING_RETRY_MAX_MS = 30 * 60_000;
+const PENDING_MAX_ATTEMPTS = 150; // bei 30 min Abstand gut drei Tage
+const PENDING_BATCH = 10;
+
+/** Übersicht (teuerste D1-Abfrage) je Raum zwischenspeichern: gilt bis zur nächsten Änderung, höchstens so lange */
+const STATS_TTL_MS = 30 * 60_000;
+const STATS_CACHE_MAX_BYTES = 1_900_000;
+
+/** Alte Kämpfe über LIMITS.maxEncountersPerRoom nur jeden n-ten Upload löschen */
+const RETENTION_EVERY = 25;
 
 function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
@@ -86,6 +102,10 @@ export class Room extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS raw_index (upload_id TEXT PRIMARY KEY, uploaded_at INTEGER NOT NULL, bytes INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS bosses (code INTEGER PRIMARY KEY, data TEXT NOT NULL, updated INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS raw_chunks (upload_id TEXT NOT NULL, idx INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (upload_id, idx));
+      CREATE TABLE IF NOT EXISTS pending_uploads (upload_id TEXT PRIMARY KEY, uploader TEXT NOT NULL, received_at INTEGER NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0, next_try INTEGER NOT NULL DEFAULT 0, last_error TEXT);
+      CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v NOT NULL);
+      CREATE TABLE IF NOT EXISTS stats_cache (key TEXT PRIMARY KEY, version INTEGER NOT NULL, fp TEXT NOT NULL, at INTEGER NOT NULL, data TEXT NOT NULL);
       DROP TABLE IF EXISTS fights; DROP TABLE IF EXISTS fight_chunks; DROP TABLE IF EXISTS names;
     `);
     // Heartbeat ohne das Objekt aufzuwecken: Client sendet "ping", Runtime antwortet "pong".
@@ -111,10 +131,18 @@ export class Room extends DurableObject<Env> {
       }
       if (rest === "/members-changed" && req.method === "POST") {
         // Dashboard hat die Mitgliederliste geändert → Live-Ansicht neu filtern
+        this.statsChanged();
         await this.refreshMembers(true);
         this.scheduleBroadcast();
         return json({ ok: true });
       }
+      if (rest === "/stats-changed" && req.method === "POST") {
+        // Worker hat in D1 geändert, was die Übersicht zeigt (Boss-Einstellungen, Wartung)
+        this.statsChanged();
+        return json({ ok: true });
+      }
+      if (rest === "/stats/overview" && req.method === "GET") return await this.cachedStats(room, rest, url, req);
+      if (rest === "/test/hooks" && req.method === "POST" && this.env.TEST_HOOKS === "1") return await this.testHooks(req, room);
       if (rest === "/fights" && req.method === "POST") {
         // Uploads pro Raum nacheinander: verhindert doppelte Kaempfe bei gleichzeitigen Uploads
         const run = this.uploadChain.then(() => this.upload(req, url, room));
@@ -154,10 +182,14 @@ export class Room extends DurableObject<Env> {
     const att: Attachment = { role: "pending", room, clientId: "", name: "", at: Date.now(), group: true, pre: req.headers.get("x-a2-session") === "1" };
     server.serializeAttachment(att);
     // Unangemeldete Sockets nach Timeout schliessen
-    this.ctx.storage.getAlarm().then((a) => {
-      if (a === null) this.ctx.storage.setAlarm(Date.now() + LIMITS.helloTimeoutMs);
-    });
+    this.ctx.waitUntil(this.alarmAt(Date.now() + LIMITS.helloTimeoutMs));
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** Alarm spätestens zu `at` (der Alarm dient Hello-Timeout, Live-Aufräumen und dem Nachtragen von Uploads). */
+  private async alarmAt(at: number): Promise<void> {
+    const cur = await this.ctx.storage.getAlarm();
+    if (cur === null || cur > at) await this.ctx.storage.setAlarm(at);
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
@@ -234,7 +266,11 @@ export class Room extends DurableObject<Env> {
         this.memberSeen.set(name, Date.now());
         this.ctx.waitUntil(
           registerMember(this.env.DB, att.room, name, Date.now(), isAllowed(this.env, att.room, name))
-            .then(() => this.refreshMembers(true))
+            .then((added) => {
+              // Neues Mitglied: maskierte Einträge tragen jetzt seinen Namen; Schreibweise kann sich ändern
+              if (added) this.statsChanged();
+              return this.refreshMembers(true);
+            })
             .then(() => this.scheduleBroadcast())
             .catch((e) => console.error("member", (e as Error).message)),
         );
@@ -361,7 +397,15 @@ export class Room extends DurableObject<Env> {
     const pending = this.reapPending(now);
     this.sql.exec("DELETE FROM live WHERE updated < ?", now - LIMITS.liveTtlMs);
     for (const [id, s] of this.snaps) if (now - s.ts > LIMITS.liveTtlMs) this.snaps.delete(id);
-    if (pending > 0) await this.ctx.storage.setAlarm(now + LIMITS.helloTimeoutMs);
+    let next = pending > 0 ? now + LIMITS.helloTimeoutMs : Infinity;
+    try {
+      next = Math.min(next, await this.retryPending());
+    } catch (e) {
+      console.error("pending retry", (e as Error)?.message);
+      next = Math.min(next, Date.now() + PENDING_RETRY_MS);
+    }
+    // Im Alarm selbst direkt setzen (getAlarm liefert hier evtl. noch den laufenden Alarm)
+    if (next !== Infinity) await this.ctx.storage.setAlarm(Math.max(next, Date.now() + 1000));
   }
 
   /** Schliesst Sockets ohne hello nach Timeout; liefert die Zahl der noch wartenden. */
@@ -527,40 +571,43 @@ export class Room extends DurableObject<Env> {
     assertRecord(record);
     this.uploadTimes.push(now);
 
-    const db = this.env.DB;
-    await registerMember(db, room, uploader, now, isAllowed(this.env, room, uploader));
-    this.memberSeen.set(uploader, now);
-    const known = await activeMembers(db, this.env, room);
-    const detail = buildUpload(record, uploader, known);
-    const res = await saveUpload(db, room, detail, gz.length, known, now);
-
-    // Original im Durable Object (D1-Zeilen sind auf 2 MB begrenzt)
+    // Zuerst das Original im Durable Object sichern (D1-Zeilen sind auf 2 MB begrenzt) und als
+    // "ausstehend" merken: fällt D1 aus (Tageslimit, Störung), geht der Kampf nicht verloren.
+    const uploadId = await uploadIdOf(room, uploader, String(record.id).slice(0, 128));
     this.ctx.storage.transactionSync(() => {
-      this.sql.exec("DELETE FROM raw_chunks WHERE upload_id = ?", res.uploadId);
-      for (let i = 0, idx = 0; i < gz.length; i += CHUNK, idx++) {
-        this.sql.exec("INSERT INTO raw_chunks (upload_id, idx, data) VALUES (?, ?, ?)", res.uploadId, idx, gz.slice(i, i + CHUNK).buffer);
-      }
+      this.storeRaw(uploadId, gz, now);
+      this.setMeta("room", room); // fürs Nachtragen im Alarm (dort fehlt die Anfrage-URL)
       this.sql.exec(
-        "INSERT INTO raw_index (upload_id, uploaded_at, bytes) VALUES (?, ?, ?) ON CONFLICT(upload_id) DO UPDATE SET uploaded_at = excluded.uploaded_at, bytes = excluded.bytes",
-        res.uploadId,
-        now,
-        gz.length,
+        `INSERT INTO pending_uploads (upload_id, uploader, received_at, attempts, next_try) VALUES (?, ?, ?, 0, 0)
+         ON CONFLICT(upload_id) DO UPDATE SET uploader = excluded.uploader, received_at = excluded.received_at`,
+        uploadId, uploader, now,
       );
-      const old = this.sql
-        .exec<{ upload_id: string }>("SELECT upload_id FROM raw_index ORDER BY uploaded_at DESC LIMIT -1 OFFSET ?", LIMITS.maxRawPerRoom)
-        .toArray()
-        .map((r) => r.upload_id);
-      for (const id of [...old, ...res.removedUploads]) this.forgetRaw(id);
     });
 
-    this.broadcast(JSON.stringify({ t: "fight", fight: res.detail.summary, replaced: res.replaced }), false);
-    // Neue Bestwerte an alle Meter und Dashboards, nur für frische Kämpfe (nicht beim Nachladen alter)
-    const s = res.detail.summary;
-    if (res.records.length && now - s.startMs < RECORD_FRESH_MS)
-      this.broadcast(
-        JSON.stringify({ t: "record", fightId: res.encounterId, boss: s.boss, mobCode: s.mobCode, dungeonId: s.dungeonId, records: res.records }),
-        false,
+    let res: SaveResult;
+    try {
+      res = await this.processUpload(room, uploadId, uploader, record, gz.length, now);
+    } catch (e) {
+      if (e instanceof RecordError) {
+        this.ctx.storage.transactionSync(() => {
+          this.sql.exec("DELETE FROM pending_uploads WHERE upload_id = ?", uploadId);
+          this.forgetRaw(uploadId);
+        });
+        throw e;
+      }
+      // D1 nicht erreichbar: später nachtragen. Die App bekommt Erfolg und verwirft den Kampf nicht.
+      const msg = String((e as Error)?.message ?? e).slice(0, 300);
+      console.error("upload pending", room, uploadId, msg);
+      this.sql.exec(
+        "UPDATE pending_uploads SET attempts = attempts + 1, next_try = ?, last_error = ? WHERE upload_id = ?",
+        now + PENDING_RETRY_MS, msg, uploadId,
       );
+      await this.alarmAt(now + PENDING_RETRY_MS);
+      return json(
+        { ok: true, pending: true, fightId: null, uploadId, replaced: false, perspectives: 0, url: "/#/fights", rawBytes: gz.length, records: [] },
+        202,
+      );
+    }
     return json(
       {
         ok: true,
@@ -575,6 +622,209 @@ export class Room extends DurableObject<Env> {
       res.replaced ? 200 : 201,
     );
   }
+
+  /** D1 im Upload-Pfad; in Tests (TEST_HOOKS) lässt sich ein Ausfall nach n Anweisungen simulieren. */
+  private failAfter: number | null = null;
+  private uploadDb(): D1Database {
+    if (this.failAfter === null) return this.env.DB;
+    const real = this.env.DB;
+    const tick = () => {
+      if (this.failAfter !== null && this.failAfter-- <= 0) throw new Error("D1_ERROR: simulierter Ausfall (Test)");
+    };
+    return {
+      prepare: (q: string) => {
+        tick();
+        return real.prepare(q);
+      },
+      batch: (s: D1PreparedStatement[]) => {
+        tick();
+        return real.batch(s);
+      },
+    } as unknown as D1Database;
+  }
+
+  /** Auswertung → D1. Idempotent: derselbe Upload (gleiche ID) ersetzt sich selbst. */
+  private async processUpload(room: string, uploadId: string, uploader: string, record: any, rawBytes: number, receivedAt: number): Promise<SaveResult> {
+    const db = this.uploadDb();
+    if (await registerMember(db, room, uploader, receivedAt, isAllowed(this.env, room, uploader))) this.statsChanged();
+    this.memberSeen.set(uploader, Date.now());
+    const known = await activeMembers(db, this.env, room);
+    const detail = buildUpload(record, uploader, known);
+    // Alte Kämpfe über dem Limit nur jeden n-ten Upload suchen (die Suche liest alle Kämpfe des Raums)
+    const sinceRetention = this.metaNum("since_retention") + 1;
+    const retention = sinceRetention >= (this.retentionEvery ?? RETENTION_EVERY);
+    const res = await saveUpload(db, room, detail, rawBytes, known, receivedAt, retention ? (this.retentionMax ?? LIMITS.maxEncountersPerRoom) : null);
+    this.setMeta("since_retention", retention ? 0 : sinceRetention);
+    if (res.uploadId !== uploadId) console.error("upload id mismatch", uploadId, res.uploadId);
+
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM pending_uploads WHERE upload_id = ?", uploadId);
+      // Ältere Rohdaten über dem Limit vergessen – ausstehende nie (sie werden noch gebraucht)
+      const old = this.sql
+        .exec<{ upload_id: string }>(
+          `SELECT upload_id FROM raw_index WHERE upload_id NOT IN (SELECT upload_id FROM pending_uploads)
+           ORDER BY uploaded_at DESC LIMIT -1 OFFSET ?`,
+          LIMITS.maxRawPerRoom,
+        )
+        .toArray()
+        .map((r) => r.upload_id);
+      for (const id of [...old, ...res.removedUploads]) this.forgetRaw(id);
+    });
+    this.statsChanged();
+
+    this.broadcast(JSON.stringify({ t: "fight", fight: res.detail.summary, replaced: res.replaced }), false);
+    // Neue Bestwerte an alle Meter und Dashboards, nur für frische Kämpfe (nicht beim Nachladen alter)
+    const s = res.detail.summary;
+    if (res.records.length && Date.now() - s.startMs < RECORD_FRESH_MS)
+      this.broadcast(
+        JSON.stringify({ t: "record", fightId: res.encounterId, boss: s.boss, mobCode: s.mobCode, dungeonId: s.dungeonId, records: res.records }),
+        false,
+      );
+
+    // D1 geht wieder: Liegengebliebenes gleich nachtragen (im Alarm, nicht in dieser Antwort)
+    const waiting = this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM pending_uploads").one().n;
+    if (waiting > 0) {
+      this.sql.exec("UPDATE pending_uploads SET next_try = 0");
+      this.ctx.waitUntil(this.alarmAt(Date.now() + 500));
+    }
+    return res;
+  }
+
+  private storeRaw(uploadId: string, gz: Uint8Array, now: number): void {
+    this.sql.exec("DELETE FROM raw_chunks WHERE upload_id = ?", uploadId);
+    for (let i = 0, idx = 0; i < gz.length; i += CHUNK, idx++) {
+      this.sql.exec("INSERT INTO raw_chunks (upload_id, idx, data) VALUES (?, ?, ?)", uploadId, idx, gz.slice(i, i + CHUNK).buffer);
+    }
+    this.sql.exec(
+      "INSERT INTO raw_index (upload_id, uploaded_at, bytes) VALUES (?, ?, ?) ON CONFLICT(upload_id) DO UPDATE SET uploaded_at = excluded.uploaded_at, bytes = excluded.bytes",
+      uploadId,
+      now,
+      gz.length,
+    );
+  }
+
+  /**
+   * Ausstehende Uploads nachtragen (nacheinander mit normalen Uploads). Bricht beim ersten
+   * D1-Fehler ab. Liefert, wann der nächste fällig ist (Infinity = keiner mehr).
+   */
+  private retryPending(force = false): Promise<number> {
+    const run = this.uploadChain.then(() => this.drainPending(force));
+    this.uploadChain = run.catch(() => undefined);
+    return run;
+  }
+
+  private async drainPending(force: boolean): Promise<number> {
+    const now = Date.now();
+    const due = this.sql
+      .exec<{ upload_id: string; uploader: string; received_at: number; attempts: number }>(
+        "SELECT upload_id, uploader, received_at, attempts FROM pending_uploads WHERE next_try <= ? ORDER BY received_at LIMIT ?",
+        force ? Number.MAX_SAFE_INTEGER : now,
+        PENDING_BATCH,
+      )
+      .toArray();
+    const room = this.roomName || String(this.sql.exec<{ v: string }>("SELECT v FROM meta WHERE k = 'room'").toArray()[0]?.v ?? "");
+    for (const p of due) {
+      const chunks = this.sql
+        .exec<{ data: ArrayBuffer }>("SELECT data FROM raw_chunks WHERE upload_id = ? ORDER BY idx", p.upload_id)
+        .toArray();
+      let record: any = null;
+      let bytes = 0;
+      try {
+        const gz = new Uint8Array(await new Blob(chunks.map((c) => c.data)).arrayBuffer());
+        bytes = gz.length;
+        record = JSON.parse(dec.decode(await gunzip(gz, LIMITS.maxRecordBytes)));
+        assertRecord(record);
+      } catch {
+        record = null;
+      }
+      if (!record || !room) {
+        console.error("pending upload unreadable, dropped", p.upload_id);
+        this.sql.exec("DELETE FROM pending_uploads WHERE upload_id = ?", p.upload_id);
+        continue;
+      }
+      try {
+        await this.processUpload(room, p.upload_id, p.uploader, record, bytes, p.received_at);
+      } catch (e) {
+        const msg = String((e as Error)?.message ?? e).slice(0, 300);
+        if (e instanceof RecordError || p.attempts + 1 >= PENDING_MAX_ATTEMPTS) {
+          console.error("pending upload given up", p.upload_id, msg);
+          this.sql.exec("DELETE FROM pending_uploads WHERE upload_id = ?", p.upload_id);
+          continue;
+        }
+        const wait = Math.min(PENDING_RETRY_MAX_MS, PENDING_RETRY_MS * 2 ** Math.min(p.attempts, 10));
+        this.sql.exec(
+          "UPDATE pending_uploads SET attempts = attempts + 1, next_try = ?, last_error = ? WHERE upload_id = ?",
+          Date.now() + wait, msg, p.upload_id,
+        );
+        break; // D1 weiter gestört: die übrigen beim nächsten Alarm
+      }
+    }
+    const next = this.sql.exec<{ t: number | null }>("SELECT MIN(next_try) AS t FROM pending_uploads").one().t;
+    return next === null ? Infinity : next;
+  }
+
+  // ================= Übersicht (Cache) =================
+
+  /** Raum-Version: steigt bei jeder Änderung, die die Übersicht betrifft (Upload, Löschen, Mitglieder, Bosse, Wartung). */
+  private version: number | null = null;
+  private statsVersion(): number {
+    if (this.version === null) {
+      this.version = this.metaNum("stats_version");
+    }
+    return this.version;
+  }
+  private metaNum(k: string): number {
+    return Number(this.sql.exec<{ v: number }>("SELECT v FROM meta WHERE k = ?", k).toArray()[0]?.v ?? 0);
+  }
+  private setMeta(k: string, v: number | string): void {
+    this.sql.exec("INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", k, v);
+  }
+  private statsChanged(): void {
+    const v = this.statsVersion() + 1;
+    this.version = v;
+    this.setMeta("stats_version", v);
+    this.sql.exec("DELETE FROM stats_cache");
+  }
+
+  private async cachedStats(room: string, rest: string, url: URL, req: Request): Promise<Response> {
+    // Feste Mitgliederliste (Worker-Variable) gehört zum Schlüssel: ändert sie sich, gilt der Cache nicht mehr
+    const fp = JSON.stringify(fixedMembers(this.env, room) ?? null);
+    const v = this.statsVersion();
+    const row = this.sql
+      .exec<{ version: number; fp: string; at: number; data: string }>("SELECT version, fp, at, data FROM stats_cache WHERE key = ?", rest)
+      .toArray()[0];
+    if (row && row.version === v && row.fp === fp && Date.now() - row.at < STATS_TTL_MS) {
+      return new Response(row.data, { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-a2-cache": "hit" } });
+    }
+    const data = await handleStats(this.env.DB, this.env, room, rest, url, req);
+    if (data === null) return json({ error: "not_found" }, 404);
+    if (typeof data === "object" && data && "error" in data) return json(data, 400);
+    const text = JSON.stringify(data);
+    // Nur speichern, wenn sich während der Abfrage nichts geändert hat
+    if (this.statsVersion() === v && text.length < STATS_CACHE_MAX_BYTES) {
+      this.sql.exec(
+        "INSERT INTO stats_cache (key, version, fp, at, data) VALUES (?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET version = excluded.version, fp = excluded.fp, at = excluded.at, data = excluded.data",
+        rest, v, fp, Date.now(), text,
+      );
+    }
+    return new Response(text, { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-a2-cache": "miss" } });
+  }
+
+  // ================= Test-Hooks (nur mit TEST_HOOKS=1, nie in Produktion) =================
+
+  private async testHooks(req: Request, room: string): Promise<Response> {
+    const b = ((await req.json().catch(() => null)) ?? {}) as { failAfter?: number | null; drain?: boolean; retentionEvery?: number | null; retentionMax?: number | null; retentionReset?: boolean };
+    if ("failAfter" in b) this.failAfter = typeof b.failAfter === "number" ? b.failAfter : null;
+    if ("retentionEvery" in b) this.retentionEvery = typeof b.retentionEvery === "number" ? b.retentionEvery : null;
+    if ("retentionMax" in b) this.retentionMax = typeof b.retentionMax === "number" ? b.retentionMax : null;
+    if (b.retentionReset) this.setMeta("since_retention", 0);
+    if (b.drain) await this.retryPending(true);
+    const pending = this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM pending_uploads").one().n;
+    const enc = await this.env.DB.prepare("SELECT COUNT(*) AS n FROM encounters WHERE room = ?1").bind(room).first<{ n: number }>();
+    return json({ ok: true, pending, encounters: enc?.n ?? 0, statsVersion: this.statsVersion() });
+  }
+  private retentionEvery: number | null = null;
+  private retentionMax: number | null = null;
 
   private forgetRaw(uploadId: string): void {
     this.sql.exec("DELETE FROM raw_chunks WHERE upload_id = ?", uploadId);
@@ -641,6 +891,7 @@ export class Room extends DurableObject<Env> {
       this.memberSeen.delete(name);
       result = { uploads: res.uploads.length, fights: res.fights, deletedFights: res.deletedFights };
     }
+    this.statsChanged();
     await this.refreshMembers(true);
     this.scheduleBroadcast();
     return json({ ok: true, ...(result as object) });
@@ -651,6 +902,7 @@ export class Room extends DurableObject<Env> {
     if (!exists) return json({ error: "not_found" }, 404);
     const ups = await deleteEncounter(this.env.DB, id);
     this.ctx.storage.transactionSync(() => ups.forEach((u) => this.forgetRaw(u)));
+    this.statsChanged();
     this.broadcast(JSON.stringify({ t: "fightDeleted", id }), false);
     return json({ ok: true });
   }
