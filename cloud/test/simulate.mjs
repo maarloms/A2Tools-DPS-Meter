@@ -12,6 +12,8 @@
 import { gzipSync } from "node:zlib";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { WEEK_MS, weekStart } from "../src/weekly-core.ts";
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:8787";
 const ROOM = process.env.ROOM ?? "testraum";
@@ -599,6 +601,10 @@ async function main() {
     late.ws.close(1000);
   }
 
+  // ---------- Wochenrückblick (Discord-Webhook) ----------
+  if (process.env.FAKE_DISCORD_PORT) await weeklyTests(t0f, NEU);
+  else console.log("SKIP  Wochenrückblick (ohne FAKE_DISCORD_PORT, nur mit npm test)");
+
   // ---------- Hello-Timeout ----------
   // Lokal (wrangler dev) kommt der Close-Frame eines von aussen geschlossenen
   // Sockets erst beim naechsten Verkehr an; die vorausgeschickte error-Nachricht
@@ -611,6 +617,139 @@ async function main() {
   for (const c of [viewer, ...apps]) c.ws.close(1000);
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail ? 1 : 0);
+}
+
+/**
+ * Discord-Ersatz: merkt sich jeden POST. Antwort je Webhook-ID:
+ * 1111… → 200, 4040… → 404, 4290… → einmal 429 (retry_after 0,3 s), dann 200, 5000… → 500.
+ */
+function fakeDiscord(port) {
+  const hits = [];
+  const seen429 = new Set();
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (d) => (body += d));
+    req.on("end", () => {
+      const m = /^\/api\/webhooks\/(\d+)\/([^/?]+)/.exec(req.url);
+      let json = null;
+      try {
+        json = JSON.parse(body);
+      } catch {
+        /* egal */
+      }
+      hits.push({ id: m?.[1], url: req.url, method: req.method, json });
+      const id = m?.[1] ?? "";
+      const reply = (status, data) => {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(JSON.stringify(data ?? {}));
+      };
+      if (id.startsWith("404")) return reply(404, { message: "Unknown Webhook", code: 10015 });
+      if (id.startsWith("500")) return reply(500, { message: "kaputt" });
+      if (id.startsWith("429") && !seen429.has(id)) {
+        seen429.add(id);
+        return reply(429, { message: "You are being rate limited.", retry_after: 0.3, global: false });
+      }
+      reply(200, { id: "1", type: 0 });
+    });
+  });
+  return new Promise((res) => server.listen(port, "127.0.0.1", () => res({ hits, close: () => server.close() })));
+}
+
+async function weeklyTests(t0f, hiddenName) {
+  const discord = await fakeDiscord(Number(process.env.FAKE_DISCORD_PORT));
+  const TOKEN = "TestToken_" + "x".repeat(50) + "-AbCd";
+  const hook = (id) => `https://discord.com/api/webhooks/${id}/${TOKEN}`;
+  const wh = (method, body, headers = admin, path = "/webhook") =>
+    fetch(`${BASE}/api/rooms/${ROOM}${path}`, { method, headers: { ...headers, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const whj = async (...a) => {
+    const r = await wh(...a);
+    const text = await r.text();
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      /* kein JSON */
+    }
+    return { status: r.status, text, json: json ?? {} };
+  };
+  // Cron lokal auslösen (Miniflare): time = scheduledTime in ms
+  const cron = async (time) => (await fetch(`${BASE}/cdn-cgi/handler/scheduled?cron=${encodeURIComponent("15 7-23 * * 3")}&time=${time}`)).status;
+  const noSecret = (text) => !text.includes(TOKEN) && !text.includes("webhooks/");
+
+  const g0 = await whj("GET", null, auth);
+  check("Webhook: anfangs nicht eingerichtet", g0.status === 200 && g0.json.configured === false && g0.json.enabled === false, g0.text);
+  check("Webhook setzen ohne Admin → 403", (await wh("PATCH", { url: hook("111111111111111111"), enabled: true }, auth)).status === 403);
+  check("Webhook-Test ohne Admin → 403", (await wh("POST", null, auth, "/webhook/test")).status === 403);
+  check("Webhook löschen ohne Admin → 403", (await wh("DELETE", null, auth)).status === 403);
+  const bad = await whj("PATCH", { url: "https://evil.example/api/webhooks/111111111111111111/" + TOKEN, enabled: true });
+  check("fremde Webhook-URL → 400 bad_url", bad.status === 400 && bad.json.error === "bad_url", bad.text);
+  check("http:// statt https:// → 400", (await wh("PATCH", { url: hook("111111111111111111").replace("https:", "http:") })).status === 400);
+  check("einschalten ohne URL → 400", (await whj("PATCH", { enabled: true })).json.error === "no_webhook");
+
+  const set = await whj("PATCH", { url: hook("111111111111111111"), enabled: true });
+  check("Webhook gesetzt: nur Hinweis, nie die URL", set.status === 200 && set.json.configured && set.json.enabled && set.json.hint === "…AbCd" && noSecret(set.text), set.text);
+  const g1 = await whj("GET", null, auth);
+  check("GET /webhook ohne Geheimnis", g1.json.configured === true && noSecret(g1.text), g1.text);
+
+  // Test-Post: laufende Woche
+  const t = await whj("POST", null, admin, "/webhook/test");
+  const tp = discord.hits.at(-1);
+  check("Test-Post gesendet", t.status === 200 && t.json.ok === true && noSecret(t.text) && discord.hits.length === 1, t.text);
+  check("Test-Post: gekennzeichnete Karte ohne Erwähnungen", /^Test · Wochenrückblick testraum/.test(tp?.json?.embeds?.[0]?.title ?? "") &&
+    tp.json.allowed_mentions?.parse?.length === 0 && /wait=true/.test(tp.url), JSON.stringify(tp?.json).slice(0, 300));
+  check("zweiter Test sofort → 400 too_soon", (await whj("POST", null, admin, "/webhook/test")).json.error === "too_soon" && discord.hits.length === 1);
+
+  // Cron in der Woche nach den Testkämpfen
+  const cronAt = weekStart(t0f) + WEEK_MS + 15 * 60_000;
+  check("Cron lokal auslösbar", (await cron(cronAt)) === 200);
+  const wp = discord.hits.at(-1);
+  const emb = wp?.json?.embeds?.[0];
+  const fields = Object.fromEntries((emb?.fields ?? []).map((f) => [f.name, f.value]));
+  check("Cron postet Wochenrückblick", discord.hits.length === 2 && /^Wochenrückblick testraum · \d\d\.\d\d\.–\d\d\.\d\d\.\d{4}$/.test(emb?.title ?? ""), emb?.title);
+  check("Karte: Kämpfe, bester Kampf, Top-DPS, Vorwoche, Link", /\*\*\d+\*\* Bosskämpfe/.test(emb?.description ?? "") && !!fields["Bester Kampf"] &&
+    /Top-\d-DPS der Woche/.test(Object.keys(fields).join("|")) && "Kills gegen Vorwoche" in fields && emb?.url === `${BASE}/#/overview` && emb?.color === 0xd4af69,
+    JSON.stringify(emb).slice(0, 400));
+  const topText = Object.entries(fields).find(([k]) => k.startsWith("Top-"))?.[1] ?? "";
+  check("Top-DPS nur Mitglieder (ausgeblendete und Fremde nicht)", topText.includes("Marlon") && !topText.includes(hiddenName) && !topText.includes("Mitspieler"), topText);
+  check("Cron zweimal → kein zweiter Post", (await cron(cronAt + 3_600_000)) === 200 && discord.hits.length === 2);
+  const g2 = await whj("GET", null, auth);
+  check("Stand: gepostet, Woche gemerkt", g2.json.status === "ok" && /^w\d{4}-\d\d-\d\d$/.test(g2.json.lastWeek ?? "") && g2.json.lastPostMs > 0, g2.text);
+  check("Woche ohne Kämpfe wird nicht gepostet", (await cron(cronAt + 2 * WEEK_MS)) === 200 && discord.hits.length === 2);
+
+  // 404 → ungültig, kein weiterer Versuch
+  await wh("DELETE");
+  await wh("PATCH", { url: hook("404404404404404404"), enabled: true });
+  await cron(cronAt);
+  const g3 = await whj("GET", null, auth);
+  check("404 → Webhook ungültig", discord.hits.length === 3 && g3.json.status === "invalid" && g3.json.lastCode === 404 && noSecret(g3.text), g3.text);
+  await wh("PATCH", { enabled: true }); // nur einschalten setzt den Status nicht zurück
+  await cron(cronAt);
+  await cron(cronAt + 60_000);
+  check("ungültig → keine Wiederholung", discord.hits.length === 3, `${discord.hits.length} Aufrufe`);
+
+  // 429 mit kurzer Wartezeit → einmal neu, dann gepostet
+  await wh("DELETE");
+  await wh("PATCH", { url: hook("429429429429429429"), enabled: true });
+  await cron(cronAt);
+  const g4 = await whj("GET", null, auth);
+  check("429 → kurz gewartet, einmal neu gesendet", discord.hits.length === 5 && g4.json.status === "ok" && !!g4.json.lastWeek, `${discord.hits.length} ${g4.text}`);
+
+  // 500 → Fehler, nächster Cron-Lauf versucht es nochmal
+  await wh("DELETE");
+  await wh("PATCH", { url: hook("500500500500500500"), enabled: true });
+  await cron(cronAt);
+  const g5 = await whj("GET", null, auth);
+  await cron(cronAt + 3_600_000);
+  check("500 → Fehler gemerkt, nächster Lauf versucht neu", g5.json.status === "error" && g5.json.lastWeek === null && discord.hits.length === 7, `${discord.hits.length} ${g5.text}`);
+
+  // Ausschalten: kein Post
+  await wh("DELETE");
+  await wh("PATCH", { url: hook("111111111111111111"), enabled: false });
+  await cron(cronAt);
+  check("ausgeschaltet → kein Post", discord.hits.length === 7);
+  const del = await whj("DELETE");
+  check("Webhook löschen", del.status === 200 && del.json.configured === false && (await whj("GET", null, auth)).json.configured === false);
+  discord.close();
 }
 
 main().catch((e) => {
