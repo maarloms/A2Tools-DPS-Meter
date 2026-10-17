@@ -11,9 +11,14 @@
 
 use x11_dl::xlib;
 
-/// GNOME uses compositor resizing on both native Wayland and X11.
+/// GNOME and KDE resize the overlay through the compositor, on native
+/// Wayland and X11. Elsewhere the page grows the window to the space right
+/// and below it and resizes inside that; on KWin that space, measured from a
+/// position Wayland does not give, made the window huge and KWin moved it:
+/// the resize "glitched all over" (2026-10-17). KWin already resized the
+/// meter's other windows this way.
 pub fn compositor_resize_supported(window: &tauri::WebviewWindow) -> bool {
-    if !super::process::is_gnome() {
+    if !super::process::is_gnome() && !super::process::is_kde() {
         return false;
     }
     use gtk::prelude::*;
@@ -228,6 +233,13 @@ pub fn hide_in_place(window: &tauri::WebviewWindow) {
     let target = window.clone();
     let concealed = super::dialog::on_gtk_thread(move || {
         let gtk_window = target.gtk_window().ok()?;
+        // A window never shown has no GDK window yet, and tao unwraps it when
+        // told to ignore the mouse: a panic in a GTK callback, so an abort (a
+        // CachyOS player's meter, at a plugin's hide at start, 2026-10-16).
+        // It has no place to keep either, so it is hidden as usual.
+        if !gtk_window.is_visible() || gtk_window.window().is_none() {
+            return None;
+        }
         if !WidgetExt::screen(&gtk_window)?.is_composited() {
             return None;
         }
@@ -263,6 +275,17 @@ pub fn reveal_in_place(window: &tauri::WebviewWindow) -> bool {
     });
     let _ = window.set_always_on_top(true);
     true
+}
+
+/// Keep the meter's windows where they were left (#76): on Wayland through
+/// KWin, which may place windows where an application may not
+/// (`focus::keep_places`). `save` gets a window's title and its place (x, y,
+/// width, height); `load` answers where a window of that title belongs.
+pub fn keep_places(
+    save: impl Fn(&str, (i32, i32, i32, i32)) + Send + Sync + 'static,
+    load: impl Fn(&str) -> Option<(i32, i32, i32, i32)> + Send + Sync + 'static,
+) {
+    super::focus::keep_places(super::focus::Places { save: Box::new(save), load: Box::new(load) });
 }
 
 /// Whether `hide_in_place` has this window hidden.

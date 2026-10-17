@@ -7,7 +7,11 @@
       "ariaDps": "Affiche les DPS",
       "ariaDamage": "Affiche les dégâts totaux",
       "both": "LES 2",
-      "ariaBoth": "Affiche les DPS et les dégâts totaux"
+      "ariaBoth": "Affiche les DPS et les dégâts totaux",
+      "hps": "HPS",
+      "totalHeal": "HEAL",
+      "ariaHps": "Affiche les soins par seconde",
+      "ariaHeal": "Affiche les soins totaux"
     }
   },
   "details": {
@@ -255,6 +259,7 @@
     "showOdyle": "Afficher l'énergie d'Odyle",
     "odyleEnergy": "Énergie d'Odyle",
     "showTtk": "Afficher le temps de kill estimé",
+    "showHealModes": "Afficher les soins dans le bouton DPS/DMG",
     "showTotalDps": "Afficher le total du groupe",
     "roundDps": "Abréger le DPS en milliers (13k)",
     "showDpsSuffix": "Ajouter /s au DPS",
@@ -271,7 +276,9 @@
     "discord": {
       "title": "Discord",
       "activity": "Afficher dans Discord ce à quoi je joue",
-      "activityHint": "Tant qu'AION2 est ouvert, votre statut Discord affiche le nom de votre personnage, sa classe, son niveau, votre serveur et le boss que vous combattez. Cela passe par l'application Discord de cet ordinateur ; aucun compte n'est nécessaire."
+      "activityHint": "Tant qu'AION2 est ouvert, votre statut Discord affiche le nom de votre personnage, sa classe, son niveau, votre serveur et le boss que vous combattez. Cela passe par l'application Discord de cet ordinateur ; aucun compte n'est nécessaire. Avec un Nombre dans Discord choisi, il affiche aussi votre puissance de combat ou votre score d'équipement.",
+      "stat": "Nombre dans Discord",
+      "statHint": "Le nombre que votre statut Discord affiche après votre niveau."
     },
     "streamOverlay": {
       "title": "Streaming",
@@ -335,6 +342,9 @@
     },
     "windowOpacity": {
       "label": "Opacité du fond"
+    },
+    "titleOpacity": {
+      "label": "Opacité de la barre de titre"
     },
     "meterOpacity": {
       "label": "Opacité des barres"
@@ -438,11 +448,13 @@
       "autoHideMeter": "Le compteur disparaît quand une autre fenêtre passe devant le jeu, et revient avec lui.",
       "detailsMonitor": "Ouvre la fenêtre Détails sur l'écran choisi et l'y garde.",
       "showTtk": "À côté du chronomètre, une estimation de la durée totale du combat contre le boss.",
+      "showHealModes": "Le bouton DPS/DMG du compteur affiche aussi les soins par seconde et les soins totaux.",
       "showTotalDps": "Une barre sous les lignes avec le DPS et les dégâts de tout le groupe.",
       "roundDps": "13 412 s'affiche 13k.",
       "showSuspendBtn": "Un bouton sur le compteur qui arrête la lecture du trafic du jeu jusqu'à ce que tu appuies à nouveau.",
       "showLockBtn": "Un bouton qui fait ignorer la souris au compteur, pour que les clics passent au jeu.",
       "windowOpacity": "La transparence du fond du compteur. Les barres et le texte ne changent pas.",
+      "titleOpacity": "La transparence de la barre de titre du meter, à part du fond en dessous. Tant que vous ne le bougez pas, il suit le fond.",
       "meterOpacity": "L'opacité des barres de dégâts colorées.",
       "meterSaturation": "L'intensité des couleurs des barres : plus bas pour plus doux, plus haut pour plus vif.",
       "bossNameSize": "Taille du nom du boss ou de la cible au-dessus des barres.",
@@ -457,7 +469,8 @@
       "debugLogging": "Écrit un journal de diagnostic que le développeur peut utiliser pour trouver les problèmes.",
       "saveRawPackets": "Enregistre le trafic brut du jeu pour les rapports de bug. Le journal de débogage s'active avec.",
       "globalHotkeys": "Les touches ci-dessous fonctionnent partout, même quand le jeu est au premier plan. Désactivé, elles sont libérées pour d'autres programmes. Sous Linux, le bureau les enregistre et peut vous demander de les approuver.",
-      "pluginDevMode": "Charge des plugins depuis des dossiers de cet ordinateur, pour les créer et les tester. Ils ne sont pas vérifiés : ne chargez que des plugins de confiance."
+      "pluginDevMode": "Charge des plugins depuis des dossiers de cet ordinateur, pour les créer et les tester. Ils ne sont pas vérifiés : ne chargez que des plugins de confiance.",
+      "showMeter": "Désactivé : seuls vos plugins s'affichent. Le meter continue d'enregistrer les combats et de les envoyer en arrière-plan. Réaffichez-le ici, avec le raccourci afficher/masquer, ou avec le bouton meter d'une fenêtre de plugin."
     },
     "globalHotkeys": "Utiliser les raccourcis",
     "hotkeyConsent": {
@@ -506,12 +519,14 @@
       "permStorage": "Enregistrer ses propres données sur cet ordinateur",
       "permNotify": "Afficher de courts messages dans sa fenêtre",
       "permWindow": "Afficher et masquer sa propre fenêtre, sans retirer le focus au jeu",
+      "permWidgets": "Afficher ses propres petites fenêtres, que vous pouvez déplacer n'importe où et verrouiller",
       "permBossTimers": "Lire les minuteurs des boss de terrain partagés par les joueurs via a2tools.app",
       "permCharacter": "Voir le nom, le serveur, la classe et le niveau de votre personnage",
       "permDecoder": "Lire vos propres données de jeu : {name}",
       "permNone": "Rien d'autre qu'afficher sa fenêtre",
       "enabled": "Activé",
-      "enabledTip": "Activé : démarre avec le compteur. Désactivé : reste installé mais ne s'exécute pas."
+      "enabledTip": "Activé : démarre avec le compteur. Désactivé : reste installé mais ne s'exécute pas.",
+      "showMeter": "Afficher le DPS meter"
     }
   },
   "support": {
@@ -599,6 +614,8 @@
   },
   "presence": {
     "level": "Niv. {level}",
+    "combatPower": "CP {cp}",
+    "gearScore": "GS {gs}",
     "fighting": "Combat {boss}",
     "inGame": "En jeu",
     "elyos": "Élyséens",

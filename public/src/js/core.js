@@ -6,6 +6,8 @@ const SETTING_CHOICES = {
   trainSelectionMode: { allowed: ["all", "highestDamage"], fallback: "all" },
   // The figure beside each player's name, in the meter and in Details.
   partyStat: { allowed: ["combatPower", "gearScore", "both", "off"], fallback: "combatPower" },
+  // The number after the level in the Discord activity (presence.rs).
+  discordStat: { allowed: ["combatPower", "gearScore", "off"], fallback: "off" },
   // A pattern over the meter's bars: a supporter's perk (applyBarTexture).
   barTexture: { allowed: ["none", "flames", "crystal", "glacier", "feathers", "wing", "storm", "nebula", "galaxy", "aura"], fallback: "none" },
 };
@@ -39,6 +41,7 @@ const REMOTE_APPLIED_SETTING_CONTROLS = {
   "dpsMeter.showPing": ".showPingCheckbox",
   "dpsMeter.showOdyle": ".showOdyleCheckbox",
   "dpsMeter.showTtk": ".showTtkCheckbox",
+  "dpsMeter.showHealModes": ".showHealModesCheckbox",
   "dpsMeter.bossNameSize": ".bossNameSizeInput",
   "dpsMeter.showSupporterColors": ".showSupporterColorsCheckbox",
   "dpsMeter.barTextureOffset": ".textureOffsetCheckbox",
@@ -99,6 +102,7 @@ class DpsApp {
       showOdyle: "dpsMeter.showOdyle",
       odyleLast: "dpsMeter.odyleLast",
       showTtk: "dpsMeter.showTtk",
+      showHealModes: "dpsMeter.showHealModes",
       showTotalDps: "dpsMeter.showTotalDps",
       roundDps: "dpsMeter.roundDps",
       autoDetectDevice: "dpsMeter.autoDetectDevice",
@@ -113,11 +117,13 @@ class DpsApp {
       saveRawPackets: "dpsMeter.saveRawPackets",
       autoUpload: "dpsMeter.autoUpload",
       discordActivity: "dpsMeter.discordActivity",
+      discordStat: "dpsMeter.discordStat",
       discordPromoShown: "dpsMeter.discordPromoShown",
       partyPresence: "dpsMeter.partyPresence",
       partyPromoShown: "dpsMeter.partyPromoShown",
       accountPromoShown: "dpsMeter.accountPromoShown",
       windowOpacity: "dpsMeter.windowOpacity",
+      titleOpacity: "dpsMeter.titleOpacity",
       bossNameSize: "dpsMeter.bossNameSize",
       betaUi: "dpsMeter.betaUi",
       detailsMonitor: "dpsMeter.detailsMonitor",
@@ -315,6 +321,7 @@ class DpsApp {
       this.showPing = this.safeGetSetting(this.storageKeys.showPing) !== "false";
       this.showOdyle = this.safeGetSetting(this.storageKeys.showOdyle) === "true";
       this.showTtk = this.safeGetSetting(this.storageKeys.showTtk) !== "false";
+      this.showHealModes = this.safeGetSetting(this.storageKeys.showHealModes) !== "false";
       this.showTotalDps = this.safeGetSetting(this.storageKeys.showTotalDps) !== "false";
       this.roundDps = this.safeGetSetting(this.storageKeys.roundDps) !== "false";
       this.showDpsSuffix = this.safeGetSetting(this.storageKeys.showDpsSuffix) !== "false";
@@ -472,6 +479,8 @@ class DpsApp {
     this.updateOdyle();
     // Time to kill beside the battle timer, for bosses; on unless turned off.
     this.showTtk = this.safeGetSetting(this.storageKeys.showTtk) !== "false";
+    // HPS and total heal in the DPS/DMG button's cycle; on unless turned off.
+    this.showHealModes = this.safeGetSetting(this.storageKeys.showHealModes) !== "false";
     this.ttk = typeof createTtkEstimator === "function" ? createTtkEstimator() : null;
     // Ping is pushed immediately from PingTracker via window._dpsApp.updatePing().
     // A slow fallback poll handles edge cases (e.g. push not wired yet on startup).
@@ -1024,10 +1033,15 @@ class DpsApp {
     const container = tooltip.offsetParent;
     const origin = container?.getBoundingClientRect?.() || { left: 0, top: 0 };
     const screen = window.screen || {};
-    const availableWidth = Math.max(32, (screen.availLeft || 0) + (screen.availWidth || window.innerWidth)
-      - (window.screenX || 0) - origin.left);
-    const availableHeight = Math.max(32, (screen.availTop || 0) + (screen.availHeight || window.innerHeight)
-      - (window.screenY || 0) - origin.top);
+    // On Linux the tooltip stays inside the window: growing the window for it
+    // made KWin move the meter up and left while it showed (2026-10-16).
+    const inWindow = !!document.documentElement?.classList.contains("linux");
+    const availableWidth = Math.max(32, inWindow
+      ? window.innerWidth - origin.left
+      : (screen.availLeft || 0) + (screen.availWidth || window.innerWidth) - (window.screenX || 0) - origin.left);
+    const availableHeight = Math.max(32, inWindow
+      ? window.innerHeight - origin.top
+      : (screen.availTop || 0) + (screen.availHeight || window.innerHeight) - (window.screenY || 0) - origin.top);
     const margin = 8;
     const gap = 12;
     const limits = {
@@ -1528,8 +1542,10 @@ class DpsApp {
       const name = hasNickname ? nickname : idText;
 
       const dpsRaw = isObj ? value.dps : value;
-      const dps = Math.trunc(Number(dpsRaw));
-      const totalDamage = Math.trunc(Number(isObj ? value.amount : 0));
+      const dps = Math.trunc(Number(dpsRaw)) || 0;
+      const totalDamage = Math.trunc(Number(isObj ? value.amount : 0)) || 0;
+      const hps = Math.trunc(Number(isObj ? value.hps : 0)) || 0;
+      const healAmount = Math.trunc(Number(isObj ? value.healAmount : 0)) || 0;
 
       // 소수점 한자리
       const contribRaw = isObj ? Number(value.damageContribution) : NaN;
@@ -1537,7 +1553,7 @@ class DpsApp {
         ? Math.round(contribRaw * 10) / 10
         : NaN;
 
-      if (!Number.isFinite(dps)) {
+      if (!Number.isFinite(dps) && healAmount <= 0) {
         continue;
       }
 
@@ -1552,6 +1568,8 @@ class DpsApp {
         job,
         dps,
         totalDamage,
+        hps,
+        healAmount,
         damageContribution,
         combatPower,
         gearScore,
@@ -1766,6 +1784,33 @@ class DpsApp {
     if (persist) {
       this.safeSetSetting(this.storageKeys.windowOpacity, String(normalized));
     }
+    // The title bar follows the background until it is set apart.
+    if (!this.titleOpacitySet()) this.syncSettingsRangeValue?.(this.titleOpacityInput, this.titleOpacityValue, normalized);
+  }
+
+  // The title bar's own opacity, or null: it follows the background's.
+  titleOpacitySet() {
+    const stored = this.safeGetStorage(this.storageKeys.titleOpacity);
+    return stored !== null && String(stored).trim() !== "" && Number.isFinite(Number(stored));
+  }
+
+  applyTitleOpacity(percent, { persist } = {}) {
+    const numeric = Number(percent);
+    const normalized = Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : 40;
+    document.documentElement.style.setProperty("--title-opacity", String(normalized / 100));
+    if (persist) {
+      this.safeSetSetting(this.storageKeys.titleOpacity, String(normalized));
+    }
+  }
+
+  // The title bar's height, for the background layer behind it.
+  watchTitleHeight() {
+    const meter = document.querySelector(".meter");
+    const header = meter?.querySelector(".header");
+    if (!meter || !header || typeof ResizeObserver !== "function") return;
+    const sync = () => meter.style.setProperty("--title-h", `${header.offsetHeight}px`);
+    new ResizeObserver(sync).observe(header);
+    sync();
   }
 
   resetAllSettings() {
@@ -2361,8 +2406,11 @@ class DpsApp {
       }
     });
     this.metricToggleBtn?.addEventListener("click", () => {
-      // DPS -> total damage -> both -> DPS.
-      const order = ["dps", "totalDamage", "both"];
+      // DPS -> total damage -> both (-> HPS -> total heal, unless turned
+      // off in Settings) -> DPS.
+      const order = this.showHealModes === false
+        ? ["dps", "totalDamage", "both"]
+        : ["dps", "totalDamage", "both", "hps", "totalHeal"];
       const nextMode = order[(order.indexOf(this.displayMode) + 1) % order.length];
       this.setDisplayMode(nextMode, { persist: true });
       this.renderCurrentRows();
@@ -2508,6 +2556,8 @@ class DpsApp {
     this.barTextureHint = document.querySelector(".barTextureHint");
     this.textureOffsetCheckbox = document.querySelector(".textureOffsetCheckbox");
     this.partyStatDropdownMenu = document.querySelector(".partyStatDropdownMenu");
+    this.discordStatDropdownBtn = document.querySelector(".discordStatDropdownBtn");
+    this.discordStatDropdownMenu = document.querySelector(".discordStatDropdownMenu");
     this.trainSelectionModeDropdownMenu = document.querySelector(".trainSelectionModeDropdownMenu");
     this.defaultMeterModeDropdownBtn = document.querySelector(".defaultMeterModeDropdownBtn");
     this.defaultMeterModeDropdownMenu = document.querySelector(".defaultMeterModeDropdownMenu");
@@ -2550,6 +2600,8 @@ class DpsApp {
     this.bossNameSizeValue = document.querySelector(".bossNameSizeValue");
     this.windowOpacityInput = document.querySelector(".windowOpacityInput");
     this.windowOpacityValue = document.querySelector(".windowOpacityValue");
+    this.titleOpacityInput = document.querySelector(".titleOpacityInput");
+    this.titleOpacityValue = document.querySelector(".titleOpacityValue");
     this.discordButton = document.querySelector(".discordButton");
     this.supportWidget = document.querySelector(".supportWidget");
     this.supportButton = document.querySelector(".supportButton");
@@ -2576,6 +2628,7 @@ class DpsApp {
       allTargetsWindowMs: "120000",
       trainSelectionMode: "all",
       partyStat: "combatPower",
+      discordStat: "off",
       barTexture: "none",
     };
 
@@ -2722,6 +2775,7 @@ class DpsApp {
     this.partyStat = pickSettingChoice("partyStat", storedPartyStat);
     this.settingsSelections.partyStat = this.partyStat;
     this.syncPreviewPartyStat();
+    this.settingsSelections.discordStat = pickSettingChoice("discordStat", this.safeGetSetting(this.storageKeys.discordStat));
     this.barTexture = pickSettingChoice("barTexture", this.safeGetSetting(this.storageKeys.barTexture));
     this.settingsSelections.barTexture = this.barTexture;
     this.applyBarTexture(this.barTexture);
@@ -2789,6 +2843,30 @@ class DpsApp {
         this.showTtk = !!event.target?.checked;
         this.safeSetSetting(this.storageKeys.showTtk, String(this.showTtk));
         if (!this.showTtk) this.battleTime?.setTtk?.(null);
+      });
+    }
+    this.showHealModesCheckbox = document.querySelector(".showHealModesCheckbox");
+    if (this.showHealModesCheckbox) {
+      this.showHealModesCheckbox.checked = this.showHealModes;
+      this.showHealModesCheckbox.addEventListener("change", (event) => {
+        this.showHealModes = !!event.target?.checked;
+        this.safeSetSetting(this.storageKeys.showHealModes, String(this.showHealModes));
+        // Turned off while showing healing: back to DPS.
+        if (!this.showHealModes && (this.displayMode === "hps" || this.displayMode === "totalHeal")) {
+          this.setDisplayMode("dps", { persist: true });
+          this.renderCurrentRows?.();
+        }
+      });
+    }
+    // Plugins only: the meter window hidden, the backend keeps it so (and
+    // tells every window when it changes, from the hotkey or a plugin bar).
+    const showMeterCheckbox = document.querySelector(".showMeterCheckbox");
+    const tauriInvoke = window.__TAURI__?.core?.invoke;
+    if (showMeterCheckbox && tauriInvoke) {
+      tauriInvoke("meter_shown").then((shown) => { showMeterCheckbox.checked = shown !== false; }).catch(() => {});
+      window.__TAURI__?.event?.listen?.("meter-shown", (event) => { showMeterCheckbox.checked = event.payload !== false; });
+      showMeterCheckbox.addEventListener("change", (event) => {
+        tauriInvoke("set_meter_shown", { shown: !!event.target?.checked }).catch(() => {});
       });
     }
     this.showTotalDpsCheckbox = document.querySelector(".showTotalDpsCheckbox");
@@ -2965,8 +3043,7 @@ class DpsApp {
     Promise.resolve(window.javaBridge?.discordActivityAvailable?.())
       .catch(() => false)
       .then((ok) => {
-        const group = document.querySelector(".discordActivityGroup");
-        if (group && ok) group.style.display = "";
+        if (ok) for (const group of document.querySelectorAll(".discordActivityGroup")) group.style.display = "";
         if (window.A2_VIEW !== "main") return;
         // fork: no Discord or a2tools.app sign-in offers.
       });
@@ -3103,6 +3180,25 @@ class DpsApp {
       });
     }
 
+    // Title bar opacity: its own once moved, else the background's.
+    this.watchTitleHeight();
+    if (this.titleOpacitySet()) this.applyTitleOpacity(this.safeGetStorage(this.storageKeys.titleOpacity), { persist: false });
+    if (this.titleOpacityInput && this.titleOpacityValue) {
+      const shown = this.titleOpacitySet()
+        ? Math.max(0, Math.min(100, Math.round(Number(this.safeGetStorage(this.storageKeys.titleOpacity)))))
+        : Number(this.windowOpacityInput?.value ?? 40);
+      this.titleOpacityInput.value = String(shown);
+      this.titleOpacityValue.textContent = `${shown}%`;
+      const stopDrag = (event) => event.stopPropagation();
+      this.titleOpacityInput.addEventListener("mousedown", stopDrag);
+      this.titleOpacityInput.addEventListener("touchstart", stopDrag, { passive: true });
+      this.titleOpacityInput.addEventListener("input", (event) => {
+        const next = Math.max(0, Math.min(100, Math.round(Number(event.target?.value))));
+        this.titleOpacityValue.textContent = `${next}%`;
+        this.applyTitleOpacity(next, { persist: true });
+      });
+    }
+
     // Mirror each slider's position into a CSS custom property so the track
     // can paint a filled portion. Presentation only — no setting reads it.
     const syncRangeFill = (input) => {
@@ -3221,8 +3317,11 @@ class DpsApp {
       window.javaBridge?.openBrowser?.("https://ko-fi.com/W7W51T1YW9");
     });
 
+    // This version's release notes; the list when the version isn't known.
     this.settingsVersionLink?.addEventListener("click", () => {
-      window.javaBridge?.openBrowser?.("https://github.com/taengu/AION2-DPS-Meter/releases");
+      const releases = "https://github.com/taengu/A2Tools-DPS-Meter/releases";
+      const version = /^v\d+\.\d+\.\d+$/.exec(this.settingsVersionValue?.textContent?.trim() || "")?.[0];
+      window.javaBridge?.openBrowser?.(version ? `${releases}/tag/${version}` : releases);
     });
 
     // Quit is wired in startApp, before anything that can be slow.
@@ -3546,6 +3645,7 @@ class DpsApp {
       { value: "both", label: this.i18n?.t("settings.partyStat.options.both", "Both") },
       { value: "off", label: this.i18n?.t("settings.partyStat.options.off", "Off") },
     ];
+    const discordStatOptions = partyStatOptions.filter((opt) => SETTING_CHOICES.discordStat.allowed.includes(opt.value));
 
     const trainModeOptions = [
       { value: "all", label: this.i18n?.t("settings.trainingMode.options.all", "All") },
@@ -3646,6 +3746,18 @@ class DpsApp {
         this.settingsSelections.partyStat = value;
         this.applyPartyStat(value);
         this.safeSetSetting(this.storageKeys.partyStat, value);
+      }
+    );
+
+    setupDropdown(
+      this.discordStatDropdownBtn,
+      this.discordStatDropdownMenu,
+      discordStatOptions,
+      this.settingsSelections.discordStat,
+      (value) => {
+        if (!value) return;
+        this.settingsSelections.discordStat = value;
+        this.safeSetSetting(this.storageKeys.discordStat, value);
       }
     );
 
@@ -4627,6 +4739,7 @@ class DpsApp {
       ["meterFillOpacity", get("meterFillOpacity")],
       ["meterFillSaturation", get("meterFillSaturation")],
       ["windowOpacity", get("windowOpacity")],
+      ["titleOpacity", get("titleOpacity")],
       ["barGap", get("barGap")],
     ]) {
       if (isSet(value)) this.applyRemoteSettingChange(this.storageKeys[name], value);
@@ -4923,7 +5036,8 @@ class DpsApp {
   }
 
   setDisplayMode(mode, { persist = false } = {}) {
-    this.displayMode = mode === "totalDamage" || mode === "both" ? mode : "dps";
+    const valid = this.showHealModes === false ? ["totalDamage", "both"] : ["totalDamage", "both", "hps", "totalHeal"];
+    this.displayMode = valid.includes(mode) ? mode : "dps";
     if (persist) {
       this.safeSetStorage(this.storageKeys.displayMode, this.displayMode);
     }
@@ -4935,6 +5049,8 @@ class DpsApp {
     const [labelKey, labelFallback, ariaKey, ariaFallback] = {
       totalDamage: ["header.display.total", "DMG", "header.display.ariaDamage", "Showing total damage"],
       both: ["header.display.both", "BOTH", "header.display.ariaBoth", "Showing DPS and total damage"],
+      hps: ["header.display.hps", "HPS", "header.display.ariaHps", "Showing healing per second"],
+      totalHeal: ["header.display.totalHeal", "HEAL", "header.display.ariaHeal", "Showing total healing"],
       dps: ["header.display.dps", "DPS", "header.display.ariaDps", "Showing DPS"],
     }[this.displayMode];
     const label = this.i18n?.t(labelKey, labelFallback) ?? labelFallback;
@@ -5214,6 +5330,13 @@ class DpsApp {
       this.syncSettingsRangeValue(this.meterSaturationInput, this.meterSaturationValue, normalized);
       return;
     }
+    if (key === this.storageKeys.titleOpacity) {
+      const numeric = Number(value);
+      const normalized = Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : 40;
+      this.applyTitleOpacity(normalized, { persist: false });
+      this.syncSettingsRangeValue(this.titleOpacityInput, this.titleOpacityValue, normalized);
+      return;
+    }
     if (key === this.storageKeys.meterFillOpacity || key === this.storageKeys.windowOpacity) {
       const meterFill = key === this.storageKeys.meterFillOpacity;
       const numeric = Number(value);
@@ -5246,6 +5369,7 @@ class DpsApp {
       allTargetsWindowMs: "allTargetsWindow",
       updateRateMs: "updateRate",
       partyStat: "partyStat",
+      discordStat: "discordStat",
       barTexture: "barTexture",
     };
     for (const [name, control] of Object.entries(choices)) {
@@ -5332,6 +5456,14 @@ class DpsApp {
         value: totalDamage,
         text: this.formatAbbreviatedNumber(totalDamage),
       };
+    }
+    if (this.displayMode === "hps") {
+      const hps = Number(row?.hps) || 0;
+      return { value: hps, text: `${this.formatDpsThousands(hps)}${this.meterDpsSuffix()}` };
+    }
+    if (this.displayMode === "totalHeal") {
+      const healAmount = Number(row?.healAmount) || 0;
+      return { value: healAmount, text: this.formatAbbreviatedNumber(healAmount) };
     }
     const dps = Number(row?.dps) || 0;
     const dpsText = `${this.formatDpsThousands(dps)}${this.meterDpsSuffix()}`;

@@ -10,10 +10,8 @@
 //! same record, byte for byte. That is what lets a log be re-derived later, by
 //! anyone with the slice and the published source.
 
-use std::io::Read;
-
 use a2tools_dps_meter_lib::capture::evidence_slice;
-use a2tools_dps_meter_lib::rederive::{derive_fight, DeriveError};
+use a2tools_dps_meter_lib::rederive::{derive_decoded, Decoded, DeriveError};
 use flate2::read::GzDecoder;
 use ruzstd::StreamingDecoder;
 use worker::*;
@@ -28,21 +26,25 @@ const DOTS: &str = include_str!("../../src/data/dot_skill_ids.json");
 
 /// Upper bounds, generous against real slices (a party boss fight compresses to
 /// tens or hundreds of KB) and tight against anything built to make this Worker
-/// work. They hold for both encodings (see `inflate`).
-const MAX_GZIPPED: usize = 4 * 1024 * 1024;
-const MAX_INFLATED: u64 = 24 * 1024 * 1024;
+/// work. The second is on the fight's packets as version 2 stores them (see
+/// `read_slice`), so it takes or refuses a fight alike in every version.
+// 16 MiB, as the site takes (was 4): a slice carries 30 minutes of the zone's
+// state before the pull, which in a crowded place passed 4 MiB for a short
+// fight (2026-10-17).
+const MAX_GZIPPED: usize = 16 * 1024 * 1024;
+const MAX_RECORD_BYTES: usize = 24 * 1024 * 1024;
 
-/// The slice inside an upload: zstd from meters 2.0.67 on, gzip before. Told
-/// apart by their magic bytes, so every stored slice still derives. At most
-/// `MAX_INFLATED + 1` bytes are read, so a bomb stops there.
-fn inflate(body: &[u8]) -> Option<Vec<u8>> {
-    let mut slice = Vec::new();
-    let read = if body.starts_with(&[0x28, 0xB5, 0x2F, 0xFD]) {
-        StreamingDecoder::new(body).ok()?.take(MAX_INFLATED + 1).read_to_end(&mut slice)
+/// The slice inside an upload: zstd from meters 2.0.67 on, gzip before, told
+/// apart by their magic bytes, so every stored slice still derives. Read as it
+/// is unpacked, never whole: version 3 stores bundles unpacked and is larger
+/// so, but its records read back as version 2's, and only those are counted.
+/// A bomb stops at the limit. None for anything that is not a slice.
+fn read_slice(body: &[u8]) -> Option<Decoded> {
+    if body.starts_with(&[0x28, 0xB5, 0x2F, 0xFD]) {
+        evidence_slice::decode_from(StreamingDecoder::new(body).ok()?, MAX_RECORD_BYTES)
     } else {
-        GzDecoder::new(body).take(MAX_INFLATED + 1).read_to_end(&mut slice)
-    };
-    read.ok().map(|_| slice)
+        evidence_slice::decode_from(GzDecoder::new(body), MAX_RECORD_BYTES)
+    }
 }
 
 #[event(fetch)]
@@ -53,9 +55,15 @@ async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
     // Defence in depth: the binding is the real boundary, but a Worker that
     // does expensive work on request should not trust that nobody ever adds a
     // route to it by mistake.
-    let key = env.secret("LOG_SERVICE_KEY").map(|s| s.to_string()).unwrap_or_default();
+    // Two keys may be accepted, so the key can change without a gap:
+    // LOG_SERVICE_KEY and, while the callers move to a new one,
+    // LOG_SERVICE_KEY_PREVIOUS. One unset or empty accepts nothing.
     let presented = req.headers().get("x-a2-service-key")?.unwrap_or_default();
-    if key.is_empty() || !constant_time_eq(key.as_bytes(), presented.as_bytes()) {
+    let accepted = ["LOG_SERVICE_KEY", "LOG_SERVICE_KEY_PREVIOUS"].iter().any(|name| {
+        let key = env.secret(name).map(|s| s.to_string()).unwrap_or_default();
+        !key.is_empty() && constant_time_eq(key.as_bytes(), presented.as_bytes())
+    });
+    if !accepted {
         return Response::error("forbidden", 403);
     }
 
@@ -63,12 +71,13 @@ async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
     if body.len() > MAX_GZIPPED {
         return error("too_large", "The slice is larger than any real fight.", 413);
     }
-    let Some(slice) = inflate(&body) else {
-        return error("not_gzip", "The body must be a gzipped or zstd-compressed Evidence Slice.", 400);
+    let Some(decoded) = read_slice(&body) else {
+        return error(
+            "not_a_slice",
+            "Not a gzipped or zstd-compressed Evidence Slice this build reads, or larger than any real fight.",
+            422,
+        );
     };
-    if slice.len() as u64 > MAX_INFLATED {
-        return error("too_large", "The slice inflates past any real fight.", 413);
-    }
 
     // The names the upload says it showed, base64 of a JSON array, optional:
     // the client's own leak check, run again here, where a client cannot skip it.
@@ -79,11 +88,9 @@ async fn fetch(mut req: Request, env: Env, _ctx: Context) -> Result<Response> {
         .and_then(|raw| serde_json::from_slice(&raw).ok())
         .unwrap_or_default();
 
-    match derive_fight(&slice, NPCS, SKILLS, DOTS) {
+    match derive_decoded(&decoded, NPCS, SKILLS, DOTS) {
         Ok(fight) => {
-            let leaked = evidence_slice::decode(&slice)
-                .map(|(records, _)| evidence_slice::leaked_names(&records, &names))
-                .unwrap_or(0);
+            let leaked = evidence_slice::leaked_names(&decoded.0, &names);
             let mut json = serde_json::to_value(&fight)?;
             json["checks"]["leakedNames"] = serde_json::json!(leaked);
             Response::from_json(&json)

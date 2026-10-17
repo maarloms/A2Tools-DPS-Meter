@@ -116,6 +116,115 @@ pub struct OverlayLock {
     applied: Mutex<Option<bool>>,
 }
 
+/// The setting that hides the DPS meter, for players who use only plugins:
+/// capture, uploads and plugins go on; the overlay stays hidden until shown
+/// again (Settings → Plugins, the toggle hotkey, or a plugin window's bar).
+const SHOW_METER_KEY: &str = "dpsMeter.showMeter";
+
+fn meter_wanted(app: &tauri::AppHandle) -> bool {
+    app.try_state::<AppState>()
+        .and_then(|s| s.settings.get(SHOW_METER_KEY))
+        .as_deref()
+        != Some("false")
+}
+
+/// Show or hide the DPS meter and remember it. Hidden in place (Linux keeps
+/// it mapped, so it comes back where it was). Every window hears
+/// "meter-shown", so Settings and plugin bars follow.
+fn set_meter_wanted(app: &tauri::AppHandle, shown: bool) {
+    if let Some(state) = app.try_state::<AppState>() {
+        state.settings.set(SHOW_METER_KEY, if shown { "true" } else { "false" });
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        if shown {
+            show_meter_again(app, &window);
+        } else {
+            platform::window::hide_in_place(&window);
+        }
+    }
+    let _ = app.emit("meter-shown", shown);
+}
+
+#[tauri::command]
+fn set_meter_shown(app: tauri::AppHandle, shown: bool) {
+    set_meter_wanted(&app, shown);
+}
+
+#[tauri::command]
+fn meter_shown(app: tauri::AppHandle) -> bool {
+    meter_wanted(&app)
+}
+
+/// Show the meter that auto-hide hid: in place where it was hidden so
+/// (Linux), else as usual. The page re-measures, as its content may have
+/// changed meanwhile.
+fn show_meter_again(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
+    if platform::window::reveal_in_place(window) {
+        // Revealing takes the mouse back; the lock decides that.
+        if let Some(state) = app.try_state::<AppState>() {
+            let lock = state.overlay_lock.clone();
+            *lock.applied.lock() = None;
+            sync_click_through(app, &lock, false);
+        }
+    } else {
+        platform::window::show_on_top_without_focus(window);
+    }
+    let _ = window.emit("force-resize", ());
+}
+
+/// The label of the meter window titled `title`.
+fn window_titled(app: &tauri::AppHandle, title: &str) -> Option<String> {
+    app.webview_windows()
+        .into_iter()
+        .find(|(_, window)| window.title().ok().as_deref() == Some(title))
+        .map(|(label, _)| label)
+}
+
+/// Where the window manager says a window was left, by its label (#76).
+fn save_window_place(app: &tauri::AppHandle, title: &str, (x, y, w, h): (i32, i32, i32, i32)) {
+    let (Some(label), Some(state)) = (window_titled(app, title), app.try_state::<AppState>()) else { return };
+    state.settings.set(&format!("window.{label}.placed"), &format!("{x},{y},{w},{h}"));
+}
+
+/// Where a window belongs, for the window manager to put it (#76). The
+/// overlay sizes itself to its content, so it gets its place only.
+fn load_window_place(app: &tauri::AppHandle, title: &str) -> Option<(i32, i32, i32, i32)> {
+    let label = window_titled(app, title)?;
+    let state = app.try_state::<AppState>()?;
+    let placed = |label: &str| {
+        let value = state.settings.get(&format!("window.{label}.placed"))?;
+        let n: Vec<i32> = value.split(',').filter_map(|v| v.trim().parse().ok()).collect();
+        let [x, y, w, h] = n[..] else { return None };
+        Some((x, y, w, h))
+    };
+    match placed(&label) {
+        Some((x, y, w, h)) => Some(if label == "main" { (x, y, 0, 0) } else { (x, y, w, h) }),
+        // A plugin's widget never moved: beside its others, not mid-screen.
+        None => crate::plugins::widgets::place_beside_others(app, &label, placed).map(|(x, y)| (x, y, 0, 0)),
+    }
+}
+
+/// Auto-hide at once, when the desktop says the active window changed (KWin,
+/// see platform::linux::focus): the 500 ms check and its wait before hiding
+/// left the meter up for a moment after an alt-tab (2026-10-17). The check
+/// still runs, for every other desktop and as a fallback.
+fn auto_hide_now(app: &tauri::AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else { return };
+    if state.settings.get("dpsMeter.autoHideMeter").unwrap_or_default() != "true" || !meter_wanted(app) {
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else { return };
+    let front = platform::window_detector::is_aion2_foreground() || window.is_focused().unwrap_or(false);
+    let hidden = !window.is_visible().unwrap_or(true)
+        || window.is_minimized().unwrap_or(false)
+        || platform::window::is_hidden_in_place(&window);
+    if front && hidden {
+        show_meter_again(app, &window);
+    } else if !front && !hidden {
+        platform::window::minimize_off_top(&window);
+    }
+}
+
 /// Tell the main window whether to ignore the mouse: when locked, unless the
 /// pointer is over the lock button or a card is open.
 fn sync_click_through(app: &tauri::AppHandle, lock: &OverlayLock, over_button: bool) {
@@ -128,6 +237,11 @@ fn sync_click_through(app: &tauri::AppHandle, lock: &OverlayLock, over_button: b
             *applied = Some(ignore);
             return;
         }
+    }
+    // Not applied on Linux means the window has no GDK window yet, and tao's
+    // own call would unwrap it and abort. Left for the next sync.
+    if cfg!(target_os = "linux") {
+        return;
     }
     if *applied == Some(ignore) {
         return;
@@ -713,17 +827,20 @@ fn start_hotkeys(app: &tauri::AppHandle, settings: &Settings) {
         {
             let h = hotkey_handle.clone();
             move || {
-                // Toggle window visibility
-                if let Some(window) = h.get_webview_window("main") {
-                    if window.is_visible().unwrap_or(false) {
-                        let _ = window.hide();
-                    } else {
-                        crate::fork::reopen_meter(); // fork
-                        let _ = window.show();
-                        let _ = window.set_always_on_top(true);
-                        let _ = window.set_focus();
-                    }
+                // Show or hide the meter, and remember it (as Settings →
+                // Plugins → Show the DPS meter does). Hidden by auto-hide
+                // only, it is shown, as before, and nothing changes.
+                if meter_wanted(&h)
+                    && let Some(window) = h.get_webview_window("main")
+                    && (!window.is_visible().unwrap_or(true) || platform::window::is_hidden_in_place(&window))
+                {
+                    crate::fork::reopen_meter(); // fork
+                    show_meter_again(&h, &window);
+                    return;
                 }
+                let shown = !meter_wanted(&h);
+                if shown { crate::fork::reopen_meter(); } // fork
+                set_meter_wanted(&h, shown);
             }
         },
         {
@@ -1510,6 +1627,11 @@ fn resize_window(app: tauri::AppHandle, width: f64, height: f64, scale: Option<f
 /// position and sizing the meter, so its initial 400x300 rectangle never flashes.
 #[tauri::command]
 fn main_window_ready(window: tauri::WebviewWindow) {
+    // Hidden for plugins only: it stays hidden.
+    if window.label() == "main" && !meter_wanted(window.app_handle()) {
+        platform::window::hide_in_place(&window);
+        return;
+    }
     platform::window_startup::main_ready(&window);
 }
 
@@ -2677,11 +2799,38 @@ pub fn run() {
         // Closing the meter quits, even with Details, History or a kept
         // Settings window still open.
         .on_window_event(|window, event| {
-            // Plugin windows open where they were left.
+            // Plugin windows open where they were left, at the size they
+            // were left (#76).
             if let tauri::WindowEvent::Moved(at) = event
                 && window.label().starts_with("plugin-")
             {
                 crate::plugins::note_moved(window.app_handle(), window.label(), *at);
+            }
+            if let tauri::WindowEvent::Resized(size) = event
+                && window.label().starts_with("plugin-")
+            {
+                crate::plugins::note_resized(window.app_handle(), window, *size);
+            }
+            // Plugin widgets (#77) open where they were left, and close with
+            // their plugin's window.
+            if let tauri::WindowEvent::Moved(at) = event
+                && window.label().starts_with("pw_")
+            {
+                crate::plugins::widgets::note_moved(window.app_handle(), window.label(), *at);
+            }
+            if let tauri::WindowEvent::Destroyed = event
+                && let Some(id) = window.label().strip_prefix("plugin-")
+            {
+                crate::plugins::widgets::close_all(window.app_handle(), id);
+                crate::plugins::boss_live::forget_plugin(window.app_handle(), id);
+                // The meter hidden and its last plugin window closed: nothing
+                // would be left on screen, so the meter comes back.
+                let app = window.app_handle();
+                let label = window.label().to_string();
+                let others = app.webview_windows().into_keys().any(|l| l != label && l.starts_with("plugin-"));
+                if !others && !meter_wanted(app) {
+                    set_meter_wanted(app, true);
+                }
             }
             if window.label() == "main"
                 && let tauri::WindowEvent::CloseRequested { api, .. } = event
@@ -2825,7 +2974,15 @@ pub fn run() {
                     let state = handle.state::<AppState>();
                     // For "Hide when AION2 isn't focused": KWin says which
                     // window is active (platform::linux::focus).
-                    if let Err(e) = platform::window_detector::watch_focus() {
+                    // On Wayland, KWin keeps the windows where they were
+                    // left (#76). Before the watch, which starts the script.
+                    let (save_app, load_app) = (handle.clone(), handle.clone());
+                    platform::window::keep_places(
+                        move |title, rect| save_window_place(&save_app, title, rect),
+                        move |title| load_window_place(&load_app, title),
+                    );
+                    let focus_app = handle.clone();
+                    if let Err(e) = platform::window_detector::watch_focus(move || auto_hide_now(&focus_app)) {
                         tracing::warn!("Cannot follow the active window: {e}");
                     }
                     if let Err(e) = platform::window_rules::keep_above_fullscreen(false) {
@@ -2898,7 +3055,22 @@ pub fn run() {
                 if let Ok(size) = window.inner_size() {
                     platform::window::set_size(&window, tauri::Size::Physical(size));
                 }
-                platform::window_startup::arm_main_fallback(window);
+                if meter_wanted(app.handle()) {
+                    platform::window_startup::arm_main_fallback(window);
+                } else {
+                    // Plugins only: the meter stays hidden, unless no plugin
+                    // has started by then (all turned off or removed).
+                    platform::window::hide_in_place(&window);
+                    let handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+                        let plugins = handle.webview_windows().into_keys().any(|l| l.starts_with("plugin-"));
+                        if !plugins && !meter_wanted(&handle) {
+                            let h = handle.clone();
+                            let _ = handle.run_on_main_thread(move || set_meter_wanted(&h, true));
+                        }
+                    });
+                }
             }
 
             // Check if Npcap is available before starting capture
@@ -2910,7 +3082,7 @@ pub fn run() {
             // Start capture pipeline
             let (tx, rx) = mpsc::channel::<CapturedPayload>(4096);
 
-            let capturer = PcapCapturer::new(tx);
+            let capturer = PcapCapturer::new(tx, port_detector.clone());
             if npcap_available {
                 capturer.start();
             } else {
@@ -3054,7 +3226,8 @@ pub fn run() {
                         // --- Auto-hide when AION2 loses focus (every tick) ---
                         let auto_hide = tick_count > 20
                             && state.settings.get("dpsMeter.autoHideMeter")
-                                .unwrap_or_default() == "true";
+                                .unwrap_or_default() == "true"
+                            && meter_wanted(&handle);
                         if auto_hide && !crate::fork::meter_closed() { // fork: closed beside the timer
                             if let Some(window) = handle.get_webview_window("main") {
                                 let aion_fg = platform::window_detector::is_aion2_foreground();
@@ -3073,18 +3246,7 @@ pub fn run() {
                                 if aion_fg || is_self_fg {
                                     hide_delay = 0;
                                     if hidden {
-                                        if platform::window::reveal_in_place(&window) {
-                                            // Revealing takes the mouse back;
-                                            // the lock decides that.
-                                            let lock = state.overlay_lock.clone();
-                                            *lock.applied.lock() = None;
-                                            sync_click_through(&handle, &lock, false);
-                                        } else {
-                                            platform::window::show_on_top_without_focus(&window);
-                                        }
-                                        // Notify frontend to recalculate window size
-                                        // (content may have changed while minimized)
-                                        let _ = window.emit("force-resize", ());
+                                        show_meter_again(&handle, &window);
                                     }
                                 } else if !hidden {
                                     // Wait 3 ticks (1.5s) before hiding to avoid
@@ -3313,6 +3475,18 @@ pub fn run() {
             crate::plugins::plugin_open,
             crate::plugins::plugin_set_enabled,
             crate::plugins::plugin_hello,
+            crate::plugins::widgets::plugin_widget_open,
+            crate::plugins::widgets::plugin_widget_close,
+            crate::plugins::widgets::plugin_widget_send,
+            crate::plugins::widgets::plugin_widgets_lock,
+            crate::plugins::widgets::plugin_widgets_locked,
+            crate::plugins::widgets::plugin_widget_hello,
+            crate::plugins::widgets::plugin_widget_post,
+            crate::plugins::widgets::plugin_widget_drag,
+            crate::plugins::boss_live::plugin_boss_follow,
+            crate::plugins::widgets::plugin_widget_area,
+            set_meter_shown,
+            meter_shown,
             crate::plugins::plugin_storage_get,
             crate::plugins::plugin_boss_timers,
             crate::plugins::plugin_storage_set,

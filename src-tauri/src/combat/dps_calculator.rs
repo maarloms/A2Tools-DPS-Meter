@@ -299,6 +299,19 @@ impl DpsCalculator {
             0
         };
 
+        // Fight window for windowed heal totals (union of all target windows)
+        let (fight_start, fight_end) = {
+            let mut first = i64::MAX;
+            let mut last = 0i64;
+            for &tid in &target_ids {
+                if let Some(td) = combat_data.get(&tid) {
+                    first = first.min(td.first_damage_time);
+                    last = last.max(td.last_damage_time);
+                }
+            }
+            if first == i64::MAX { (0i64, 0i64) } else { (first, last) }
+        };
+
         if (battle_time == 0 && combined_actors.is_empty()) || combined_actors.is_empty() {
             if let Some(ref mut snapshot) = self.last_dps_snapshot {
                 snapshot.target_name = dps_data.target_name.clone();
@@ -324,8 +337,14 @@ impl DpsCalculator {
 
         let mut total_damage: f64 = 0.0;
 
-        // Build PersonalData from aggregates (no packet iteration!)
-        for (&actor_id, &damage) in &combined_actors {
+        // Build PersonalData from aggregates (no packet iteration!), in a fixed
+        // order: a row is a player and their summons, and it takes its job
+        // from the first of them with one. In the map's order that was any of
+        // them, and a player's class flipped between derives of the same slice
+        // (2026-10-17). The player's own entity comes first, then by id.
+        let mut actors: Vec<(i32, i64)> = combined_actors.iter().map(|(&a, &d)| (a, d)).collect();
+        actors.sort_unstable_by_key(|&(actor_id, _)| (summon_resolver::resolve(actor_id, &summon_data) != actor_id, actor_id));
+        for (actor_id, damage) in actors {
             let raw_uid = summon_resolver::resolve(actor_id, &summon_data);
             if raw_uid <= 0 { continue; }
             let nickname = resolve_nickname(raw_uid, &nickname_data, &summon_data);
@@ -348,8 +367,15 @@ impl DpsCalculator {
 
             entry.amount += damage as f64;
 
-            if entry.job.is_empty() {
-                if let Some(job) = combined_jobs.get(&actor_id).and_then(|j| *j) {
+            // The class this player is seen to play wins over the cache, which
+            // is keyed by name alone and outlives the session's fights: a name
+            // once cached with another class (a stale binding, or a namesake
+            // on another server) showed the wrong class, and in an instance
+            // the class rule then merged two players' rows. A summon's own
+            // class never decides its owner's.
+            if let Some(job) = combined_jobs.get(&actor_id).and_then(|j| *j) {
+                let player_itself = actor_id == raw_uid;
+                if entry.job.is_empty() || (player_itself && entry.job != job.class_name()) {
                     entry.job = job.class_name().to_string();
                     self.cache_job(&nickname, job.class_name());
                 }
@@ -494,6 +520,31 @@ impl DpsCalculator {
             }
         }
 
+        // Heal data: per-actor totals windowed to the fight
+        let heal_totals = self.data_storage.get_heal_totals_in_window(fight_start, fight_end);
+        let mut resolved_heals: HashMap<i32, i64> = HashMap::new();
+        for (&actor_id, &heal) in &heal_totals {
+            let raw_uid = summon_resolver::resolve(actor_id, &summon_data);
+            if raw_uid <= 0 { continue; }
+            let nickname = resolve_nickname(raw_uid, &nickname_data, &summon_data);
+            let uid = *canonical.get(&nickname).unwrap_or(&raw_uid);
+            *resolved_heals.entry(uid).or_insert(0) += heal;
+        }
+        let bt = battle_time.max(1000);
+        for (&uid, &heal) in &resolved_heals {
+            let entry = dps_data.map.entry(uid).or_insert_with(|| {
+                let nickname = resolve_nickname(uid, &nickname_data, &summon_data);
+                let cached_job = self.cached_job(&nickname);
+                if let Some(job) = cached_job {
+                    PersonalData::with_job(nickname, job)
+                } else {
+                    PersonalData::new(nickname)
+                }
+            });
+            entry.heal_amount = heal as f64;
+            entry.hps = heal as f64 / bt as f64 * 1000.0;
+        }
+
         // Filter and compute DPS
         let party_members = self.data_storage.get_party_members();
         if group_mode {
@@ -507,7 +558,6 @@ impl DpsCalculator {
                 group.contains(uid) || party_members.contains_key(data.nickname.trim())
             });
         }
-        let bt = battle_time.max(1000);
         let local_gear = self.data_storage.local_gear(); // fork
         let local_name = self.data_storage.local_character_name().map(|n| n.trim().to_string());
         let mut to_remove = Vec::new();
@@ -523,7 +573,9 @@ impl DpsCalculator {
                 if let Some(gs) = local_gear.0 { data.gear_score = gs; }
             }
             if data.job.is_empty() {
-                if local_ids.as_ref().is_some_and(|ids| ids.contains(&uid)) {
+                if local_ids.as_ref().is_some_and(|ids| ids.contains(&uid))
+                    || data.heal_amount > 0.0
+                {
                     // A class seen earlier this session survives a reset
                     // (issue #9); "Unknown" draws no icon.
                     data.job = self.cached_job(&data.nickname).unwrap_or_else(|| "Unknown".to_string());
@@ -1032,14 +1084,11 @@ impl DpsCalculator {
                 let uid = skill.actor_id;
                 record_actors.entry(uid).or_insert_with(|| {
                     let nick = resolve_nickname(uid, &nickname_data, &summon_data_snap);
-                    let job = if !skill.job.is_empty() { skill.job.clone() }
-                        else { JobClass::convert_from_skill(skill.code).map(|j| j.class_name().to_string()).unwrap_or_default() };
+                    let job = class_by_damage(details.skills.iter().filter(|s| s.actor_id == uid).map(|s| (s.code, s.dmg)))
+                        .map(|j| j.class_name().to_string())
+                        .unwrap_or_default();
                     (nick, job)
                 });
-                let entry = record_actors.get_mut(&uid).unwrap();
-                if entry.1.is_empty() && !skill.job.is_empty() {
-                    entry.1 = skill.job.clone();
-                }
             }
 
             let local_id = self.data_storage.local_player_id().unwrap_or(-1) as i32;
@@ -1052,11 +1101,8 @@ impl DpsCalculator {
                     } else {
                         crate::entity::fight_record::obscure_nickname(nick)
                     };
-                    let job_class = JobClass::convert_from_skill(
-                        details.skills.iter()
-                            .find(|s| s.actor_id == id && !s.job.is_empty())
-                            .map(|s| s.code)
-                            .unwrap_or(0)
+                    let job_class = class_by_damage(
+                        details.skills.iter().filter(|s| s.actor_id == id).map(|s| (s.code, s.dmg)),
                     );
                     // Aggregate per-actor stats across all targets
                     let (mut party_heal, mut regen, mut dmg_recv, mut hits_recv) = (0i64, 0i64, 0i64, 0i32);
@@ -1268,15 +1314,12 @@ impl DpsCalculator {
 
         let actors: Vec<DetailsActorSummary> = actor_meta.iter()
             .map(|(&id, (nick, job))| {
-                let job_id = if let Some(jc) = JobClass::convert_from_skill(
-                    // Find a skill code from this actor's aggregate data
+                let job_id = class_by_damage(
                     combat_data.values()
                         .flat_map(|td| td.actors.get(&id))
-                        .flat_map(|ad| ad.skills.keys())
-                        .find(|&&(sc, _)| JobClass::convert_from_skill(sc).is_some())
-                        .map(|&(sc, _)| sc)
-                        .unwrap_or(0)
-                ) { jc.class_prefix() } else { 0 };
+                        .flat_map(|ad| ad.skills.values())
+                        .map(|sd| (sd.skill_code, sd.total_damage)),
+                ).map_or(0, |jc| jc.class_prefix());
                 // Aggregate per-actor stats
                 let (mut party_heal, mut regen, mut dmg_recv, mut hits_recv) = (0i64, 0i64, 0i64, 0i32);
                 for td in combat_data.values() {
@@ -1768,6 +1811,23 @@ fn fight_dungeon(npcs: &NpcLookup, mob_code: i32, roster: i32) -> i32 {
     npcs.dungeon_of(mob_code).unwrap_or(roster)
 }
 
+/// An actor's class, by which class's skills did the most damage (each skill
+/// counts at least 1, so a class seen only in heals still counts), then the
+/// lower class id. Not the first skill that names a class: skills come in a
+/// HashMap's order, and one stray code of another class then decided it, so a
+/// player's class flipped between derives of the same slice (2026-10-17).
+fn class_by_damage(skills: impl Iterator<Item = (i32, i32)>) -> Option<JobClass> {
+    let mut by_class: std::collections::BTreeMap<i32, (i64, JobClass)> = std::collections::BTreeMap::new();
+    for (code, dmg) in skills {
+        if let Some(job) = JobClass::convert_from_skill(code) {
+            by_class.entry(job.class_prefix()).or_insert((0, job)).0 += i64::from(dmg.max(0)) + 1;
+        }
+    }
+    by_class.into_iter()
+        .max_by_key(|&(prefix, (dmg, _))| (dmg, std::cmp::Reverse(prefix)))
+        .map(|(_, (_, job))| job)
+}
+
 fn build_nickname_canonical_map_from_aggregates(
     actor_damage: &HashMap<i32, i64>,
     summon_data: &HashMap<i32, i32>,
@@ -1794,9 +1854,13 @@ fn build_nickname_canonical_map_from_aggregates(
                 continue;
             }
         }
-        let direct_owner = id_damage.keys().find(|&&id| nickname_data.get(&id).is_some_and(|n| n == nickname));
-        let canonical = direct_owner.copied()
-            .or_else(|| id_damage.iter().max_by_key(|(_, d)| *d).map(|(id, _)| *id));
+        // Most damage, then the lower id: never the map's order, which differs
+        // from one map to the next and flipped rows between derives.
+        let pick = |only_owner: bool| id_damage.iter()
+            .filter(|(id, _)| !only_owner || nickname_data.get(id).is_some_and(|n| n == nickname))
+            .max_by_key(|&(&id, &d)| (d, std::cmp::Reverse(id)))
+            .map(|(&id, _)| id);
+        let canonical = pick(true).or_else(|| pick(false));
         if let Some(id) = canonical {
             result.insert(nickname.clone(), id);
         }
@@ -2045,6 +2109,37 @@ mod tests {
         let rows: HashSet<i32> = details.skills.iter().map(|s| s.actor_id).collect();
         assert_eq!(rows, HashSet::from([1490, 5886, 7001, 7002, 119]),
             "spirit to the Spiritmaster; the old id and the aura to the Cleric; two Gladiators: unknown");
+    }
+
+    /// A main-window row's class came from a cache keyed by name alone and was
+    /// never corrected, so a Sorcerer whose name had once been cached as a
+    /// Templar showed as one, and in an instance the class rule then merged
+    /// the two players' rows (Details, which reads the class seen, kept them
+    /// apart). Reported 2026-10-17, log tMRqyYEStEUK7HJPC9GS6g.
+    #[test]
+    fn the_class_seen_on_a_player_beats_a_stale_cached_class() {
+        use crate::combat::data_storage::PartyMember;
+        use crate::entity::job_class::JobClass;
+        let storage = Arc::new(DataStorage::new());
+        storage.set_current_dungeon(600_072);
+        let member = |slot, job| PartyMember { slot, job: Some(job), ..Default::default() };
+        storage.set_party_roster(vec![
+            ("Tank".into(), member(1, JobClass::Templar)),
+            ("X".into(), member(2, JobClass::Sorcerer)),
+        ], true);
+        storage.append_nickname_authoritative(4186, "Tank");
+        storage.append_nickname_authoritative(5740, "X");
+        rotation(&storage, 4186, 50_000, 12, 8);     // the Templar
+        rotation(&storage, 5740, 50_000, 15, 8);     // the Sorcerer
+        let mut calc = meter(&storage);
+        calc.cache_job("X", JobClass::Templar.class_name());   // a stale class for the name
+        calc.set_target_selection_mode("allTargets");
+        let shown = calc.get_dps();
+        let mut rows: Vec<(String, String)> = shown.map.values().map(|d| (d.nickname.clone(), d.job.clone())).collect();
+        rows.sort();
+        let (templar, sorcerer) = (JobClass::Templar.class_name().to_string(), JobClass::Sorcerer.class_name().to_string());
+        assert_eq!(rows, vec![("Tank".to_string(), templar), ("X".to_string(), sorcerer.clone())]);
+        assert_eq!(calc.cached_job("X"), Some(sorcerer), "the cache is corrected");
     }
 
     #[test]

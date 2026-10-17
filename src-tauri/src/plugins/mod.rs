@@ -14,6 +14,18 @@
 #[cfg(feature = "online")]
 pub mod catalog;
 pub mod decoder;
+pub mod widgets;
+#[cfg(feature = "online")]
+pub mod boss_live;
+/// Without the network there is nothing to follow.
+#[cfg(not(feature = "online"))]
+pub mod boss_live {
+    #[tauri::command]
+    pub fn plugin_boss_follow(_server: u32, _bosses: Vec<String>) -> Result<(), String> {
+        Err("live boss updates need the online build".into())
+    }
+    pub fn forget_plugin(_app: &tauri::AppHandle, _id: &str) {}
+}
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -766,6 +778,7 @@ struct PromptTexts {
     perm_storage: String,
     perm_notify: String,
     perm_window: String,
+    perm_widgets: String,
     perm_character: String,
     perm_decoder: String,
 }
@@ -797,6 +810,7 @@ fn prompt_texts(data_dir: Option<&Path>, lang: &str) -> PromptTexts {
         perm_storage: perm("permStorage", "Save its own data on this computer"),
         perm_notify: perm("permNotify", "Show short messages in its window"),
         perm_window: perm("permWindow", "Show and hide its own window, without taking focus from the game"),
+        perm_widgets: perm("permWidgets", "Show small windows of its own, which you can move anywhere and lock in place"),
         perm_character: perm("permCharacter", "See your character's name, server, class and level"),
         perm_decoder: perm("permDecoder", "Read your own game data: {name}"),
     }
@@ -809,6 +823,7 @@ fn describe_permission(t: &PromptTexts, permission: &str) -> String {
         "storage" => t.perm_storage.clone(),
         "notify" => t.perm_notify.clone(),
         "window" => t.perm_window.clone(),
+        "widgets" => t.perm_widgets.clone(),
         "events:character" => t.perm_character.clone(),
         p => match p.strip_prefix("decoder:") {
             Some(name) => t.perm_decoder.replace("{name}", name),
@@ -1121,6 +1136,51 @@ pub fn note_moved(app: &tauri::AppHandle, label: &str, at: tauri::PhysicalPositi
     });
 }
 
+/// How big a plugin window was last left, `"w,h"` (logical pixels), per id.
+const SIZE_PREFIX: &str = "dpsMeter.pluginWindowSize.";
+
+/// The size a plugin window was left at, if it is a usable one.
+fn saved_size(app: &tauri::AppHandle, id: &str) -> Option<(f64, f64)> {
+    let value = app.try_state::<AppState>()?.settings.get(&format!("{SIZE_PREFIX}{id}"))?;
+    let (w, h) = value.split_once(',')?;
+    let (w, h): (f64, f64) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+    (w.is_finite() && h.is_finite() && w >= 120.0 && h >= 120.0).then_some((w.min(2000.0), h.min(1600.0)))
+}
+
+/// A plugin window was resized: remember its size, once it has settled, as
+/// `note_moved` does its place. Not while it is being shown, nor a minimized
+/// or hidden window's.
+pub fn note_resized(app: &tauri::AppHandle, window: &tauri::Window, size: tauri::PhysicalSize<u32>) {
+    static LATEST: std::sync::OnceLock<Mutex<HashMap<String, (f64, f64)>>> = std::sync::OnceLock::new();
+    let Some(id) = window.label().strip_prefix("plugin-").filter(|id| valid_id(id)).map(str::to_string) else { return };
+    if window.is_minimized().unwrap_or(false) || !window.is_visible().unwrap_or(true) {
+        return;
+    }
+    let placing = shown_at()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&id)
+        .is_some_and(|t| t.elapsed() < Duration::from_millis(700));
+    let scale = window.scale_factor().unwrap_or(1.0).max(0.1);
+    let logical = (f64::from(size.width) / scale, f64::from(size.height) / scale);
+    if placing || logical.0 < 120.0 || logical.1 < 120.0 {
+        return;
+    }
+    let latest = LATEST.get_or_init(Mutex::default);
+    let first = latest.lock().unwrap_or_else(|p| p.into_inner()).insert(id.clone(), logical).is_none();
+    if !first {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        let Some((w, h)) = latest.lock().unwrap_or_else(|p| p.into_inner()).remove(&id) else { return };
+        if let Some(state) = app.try_state::<AppState>() {
+            state.settings.set(&format!("{SIZE_PREFIX}{id}"), &format!("{},{}", w.round(), h.round()));
+        }
+    });
+}
+
 /// Build (or show) a plugin's window; `visible: false` builds it hidden, for a
 /// plugin restored at start that was watching in the background.
 fn open_window(app: &tauri::AppHandle, id: &str, visible: bool) -> Result<(), String> {
@@ -1144,10 +1204,12 @@ fn open_window(app: &tauri::AppHandle, id: &str, visible: bool) -> Result<(), St
         }
         return Ok(());
     }
+    // The size it was left at, else the manifest's panel and its title bar.
+    let (inner_w, inner_h) = saved_size(app, id).unwrap_or((width, height + 30.0));
     tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App("plugin-host.html".into()))
         .initialization_script(format!("window.__A2_PLUGIN_ID__ = {};", serde_json::to_string(id).unwrap_or_default()))
         .title(format!("{name} (plugin)"))
-        .inner_size(width, height + 30.0)
+        .inner_size(inner_w, inner_h)
         .min_inner_size(240.0, (height + 30.0).min(230.0))
         .decorations(false)
         .always_on_top(true)
@@ -1269,13 +1331,15 @@ pub fn plugin_window_fit(app: tauri::AppHandle, window: tauri::WebviewWindow, he
     Ok(())
 }
 
-/// The window's close button: close it until the next start (turning the
-/// plugin off in Settings keeps it closed).
+/// The window's × button: hide it (see below).
 #[tauri::command]
 pub fn plugin_close(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
+    // Hidden, not stopped: a plugin that is on keeps running (its widgets,
+    // its alerts) until it is turned off in Settings; Open shows it again.
+    // Closing it stopped everything it did, which players did not expect.
     let id = window_plugin(&window)?;
-    host(&app)?.closed.lock().unwrap_or_else(|e| e.into_inner()).insert(id);
-    let _ = window.close();
+    crate::platform::window::hide_in_place(&window);
+    remember_window(&app, &id, Some("hidden"));
     Ok(())
 }
 
@@ -1355,8 +1419,11 @@ pub async fn plugin_boss_timers(app: tauri::AppHandle, window: tauri::WebviewWin
 async fn boss_timers(app: &tauri::AppHandle, server: u32) -> Result<Option<Value>, String> {
     static CACHE: std::sync::OnceLock<Mutex<HashMap<u32, (Instant, Option<Value>)>>> = std::sync::OnceLock::new();
     let cache = CACHE.get_or_init(Mutex::default);
+    // As long as the CDN keeps the file (max-age 2): a plugin following a
+    // boss that is being fought reads it every few seconds, for its HP as it
+    // falls and its kill (Event Timers' pinned bosses).
     if let Some((at, value)) = cache.lock().unwrap_or_else(|p| p.into_inner()).get(&server) {
-        if at.elapsed() < Duration::from_secs(60) {
+        if at.elapsed() < Duration::from_secs(2) {
             return Ok(value.clone());
         }
     }

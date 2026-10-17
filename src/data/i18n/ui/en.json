@@ -7,7 +7,11 @@
       "ariaDps": "Showing DPS",
       "ariaDamage": "Showing total damage",
       "both": "BOTH",
-      "ariaBoth": "Showing DPS and total damage"
+      "ariaBoth": "Showing DPS and total damage",
+      "hps": "HPS",
+      "totalHeal": "HEAL",
+      "ariaHps": "Showing raw healing per second (excludes passive regen)",
+      "ariaHeal": "Showing total raw healing (excludes passive regen)"
     }
   },
   "details": {
@@ -265,6 +269,7 @@
     "showOdyle": "Show Odyle energy",
     "odyleEnergy": "Odyle Energy",
     "showTtk": "Show time to kill estimate",
+    "showHealModes": "Show healing in the DPS/DMG button",
     "showTotalDps": "Show party total",
     "roundDps": "Shorten DPS to thousands (13k)",
     "showDpsSuffix": "Add /s to DPS",
@@ -281,7 +286,9 @@
     "discord": {
       "title": "Discord",
       "activity": "Show what I'm playing in Discord",
-      "activityHint": "While AION2 is open, your Discord status shows your character's name, class, level and server, and the boss you are fighting. It goes through the Discord app on this computer; no account is needed."
+      "activityHint": "While AION2 is open, your Discord status shows your character's name, class, level and server, and the boss you are fighting. It goes through the Discord app on this computer; no account is needed. With Number in Discord set, it also shows your combat power or gear score.",
+      "stat": "Number in Discord",
+      "statHint": "The number your Discord status shows after your level."
     },
     "streamOverlay": {
       "title": "Streaming",
@@ -345,6 +352,9 @@
     },
     "windowOpacity": {
       "label": "Background opacity"
+    },
+    "titleOpacity": {
+      "label": "Title bar opacity"
     },
     "meterOpacity": {
       "label": "Bar opacity"
@@ -450,11 +460,13 @@
       "autoHideMeter": "The meter disappears while another window is in front of the game, and comes back with it.",
       "detailsMonitor": "Opens the Details window on the chosen display and keeps it there.",
       "showTtk": "Beside the battle timer, an estimate of how long the whole boss fight will take.",
+      "showHealModes": "The DPS/DMG button on the meter also cycles through healing per second and total healing.",
       "showTotalDps": "A bar under the rows with the party's combined DPS and damage.",
       "roundDps": "13,412 shows as 13k.",
       "showSuspendBtn": "A button on the meter that stops reading game traffic until you press it again.",
       "showLockBtn": "A button that makes the meter ignore the mouse, so clicks go through to the game.",
       "windowOpacity": "How see-through the meter's background is. Bars and text stay as they are.",
+      "titleOpacity": "How see-through the meter's title bar is, apart from the background under it. Until you move it, it follows the background.",
       "meterOpacity": "How solid the coloured damage bars are.",
       "meterSaturation": "How strong the bars' colours are: lower for softer, higher for more vivid.",
       "bossNameSize": "Size of the boss or target name above the bars.",
@@ -469,7 +481,8 @@
       "debugLogging": "Writes a diagnostic log the developer can use to track down problems.",
       "saveRawPackets": "Records raw game traffic for bug reports. Debug logging turns on with it.",
       "globalHotkeys": "The keys below work anywhere, even while the game is in front. Off, they are released for other programs. On Linux your desktop registers them and may ask you to approve them.",
-      "pluginDevMode": "Loads plugins from folders on this computer, for building and testing them. They are not reviewed, so only load plugins you trust."
+      "pluginDevMode": "Loads plugins from folders on this computer, for building and testing them. They are not reviewed, so only load plugins you trust.",
+      "showMeter": "Off: only your plugins show. The meter keeps reading combat and uploading in the background. Bring it back here, with the show/hide hotkey, or with the meter button on a plugin window."
     },
     "globalHotkeys": "Use keybinds",
     "hotkeyConsent": {
@@ -518,12 +531,14 @@
       "permStorage": "Save its own data on this computer",
       "permNotify": "Show short messages in its window",
       "permWindow": "Show and hide its own window, without taking focus from the game",
+      "permWidgets": "Show small windows of its own, which you can move anywhere and lock in place",
       "permBossTimers": "Read the field boss timers players share through a2tools.app",
       "permCharacter": "See your character's name, server, class and level",
       "permDecoder": "Read your own game data: {name}",
       "permNone": "Nothing beyond showing its window",
       "enabled": "Enabled",
-      "enabledTip": "On: starts with the meter. Off: stays installed but doesn't run."
+      "enabledTip": "On: starts with the meter. Off: stays installed but doesn't run.",
+      "showMeter": "Show the DPS meter"
     }
   },
   "support": {
@@ -611,6 +626,8 @@
   },
   "presence": {
     "level": "Lv {level}",
+    "combatPower": "CP {cp}",
+    "gearScore": "GS {gs}",
     "fighting": "Fighting {boss}",
     "inGame": "In game",
     "elyos": "Elyos",

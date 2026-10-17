@@ -7,7 +7,11 @@
       "ariaDps": "显示 DPS",
       "ariaDamage": "显示总伤害",
       "both": "两者",
-      "ariaBoth": "显示 DPS 和总伤害"
+      "ariaBoth": "显示 DPS 和总伤害",
+      "hps": "HPS",
+      "totalHeal": "HEAL",
+      "ariaHps": "显示每秒治疗量",
+      "ariaHeal": "显示总治疗量"
     }
   },
   "details": {
@@ -260,6 +264,7 @@
     "showOdyle": "显示奥德能量",
     "odyleEnergy": "奥德能量",
     "showTtk": "显示预计击杀时间",
+    "showHealModes": "在 DPS/DMG 按钮中显示治疗",
     "showTotalDps": "显示队伍总计",
     "roundDps": "DPS 以千为单位显示 (13k)",
     "showDpsSuffix": "DPS 后显示 /s",
@@ -276,7 +281,9 @@
     "discord": {
       "title": "Discord",
       "activity": "在 Discord 显示我正在玩的内容",
-      "activityHint": "AION2 打开时，你的 Discord 状态会显示角色名、职业、等级、服务器，以及正在对战的首领。通过这台电脑上的 Discord 应用显示，不需要账号。"
+      "activityHint": "AION2 打开时，你的 Discord 状态会显示角色名、职业、等级、服务器，以及正在对战的首领。通过这台电脑上的 Discord 应用显示，不需要账号。选择 Discord 中显示的数值后，还会显示战斗力或装备分数。",
+      "stat": "Discord 中显示的数值",
+      "statHint": "Discord 状态中显示在等级后面的数值。"
     },
     "streamOverlay": {
       "title": "直播",
@@ -340,6 +347,9 @@
     },
     "windowOpacity": {
       "label": "背景不透明度"
+    },
+    "titleOpacity": {
+      "label": "标题栏不透明度"
     },
     "meterOpacity": {
       "label": "条形不透明度"
@@ -445,11 +455,13 @@
       "autoHideMeter": "其他窗口位于游戏前方时计量器会隐藏，回到游戏后再出现。",
       "detailsMonitor": "在所选显示器上打开详情窗口并保持在那里。",
       "showTtk": "在战斗计时器旁显示整场首领战的预计时长。",
+      "showHealModes": "计量器上的 DPS/DMG 按钮也会切换到每秒治疗量和总治疗量。",
       "showTotalDps": "在各行下方显示队伍总 DPS 和总伤害的条。",
       "roundDps": "13,412 显示为 13k。",
       "showSuspendBtn": "在计量器上显示一个按钮，按下后停止读取游戏流量，再按一次恢复。",
       "showLockBtn": "让计量器忽略鼠标、点击直接作用于游戏的按钮。",
       "windowOpacity": "计量器背景的透明程度。条形和文字不受影响。",
+      "titleOpacity": "统计窗口标题栏的透明程度，与下方背景分开设置。移动它之前，它跟随背景不透明度。",
       "meterOpacity": "彩色伤害条的不透明程度。",
       "meterSaturation": "条形颜色的浓淡：调低更柔和，调高更鲜艳。",
       "bossNameSize": "条形上方首领或目标名称的大小。",
@@ -464,7 +476,8 @@
       "debugLogging": "写入开发者用于排查问题的诊断日志。",
       "saveRawPackets": "记录原始游戏流量以便提交错误报告。调试日志会随之开启。",
       "globalHotkeys": "下面的按键在游戏处于前台时也能使用。关闭后，这些按键会释放给其他程序。在 Linux 上由桌面注册这些按键，桌面可能会请你批准。",
-      "pluginDevMode": "从这台电脑上的文件夹加载插件，用于开发和测试。这些插件未经审核，请只加载你信任的插件。"
+      "pluginDevMode": "从这台电脑上的文件夹加载插件，用于开发和测试。这些插件未经审核，请只加载你信任的插件。",
+      "showMeter": "关闭：只显示插件。统计仍在后台记录战斗并上传。可在此处、用显示/隐藏快捷键，或插件窗口上的统计按钮重新显示。"
     },
     "globalHotkeys": "使用快捷键",
     "hotkeyConsent": {
@@ -513,12 +526,14 @@
       "permStorage": "在此电脑上保存自己的数据",
       "permNotify": "在自己的窗口中显示简短消息",
       "permWindow": "显示和隐藏自己的窗口，不会抢走游戏的焦点",
+      "permWidgets": "显示可随意移动并锁定位置的小窗口",
       "permBossTimers": "读取玩家通过 a2tools.app 分享的野外首领计时",
       "permCharacter": "查看你角色的名称、服务器、职业和等级",
       "permDecoder": "读取你自己的游戏数据：{name}",
       "permNone": "除显示窗口外不做其他事",
       "enabled": "启用",
-      "enabledTip": "开启：随计量器启动。关闭：保持安装，但不运行。"
+      "enabledTip": "开启：随计量器启动。关闭：保持安装，但不运行。",
+      "showMeter": "显示 DPS 统计"
     }
   },
   "support": {
@@ -606,6 +621,8 @@
   },
   "presence": {
     "level": "Lv {level}",
+    "combatPower": "战斗力 {cp}",
+    "gearScore": "装备分数 {gs}",
     "fighting": "正在挑战 {boss}",
     "inGame": "游戏中",
     "elyos": "天族",

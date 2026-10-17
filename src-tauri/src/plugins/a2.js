@@ -29,11 +29,39 @@
 //                                              "feed:boss-timers", meter 2.0.65 on): { bosses: { <id>:
 //                                              { state, upSince, nextSpawn, reportedAt, confirmed } } }
 //                                              or null
+//   await a2.followBosses(serverId, ["101006", ...])  follow these field bosses live (permission
+//                                              "feed:boss-timers", meter 2.0.68 on): each change comes at
+//                                              once as a2.on("bossLive", (m) => ...), m being
+//                                              { type: "state", server, bosses } on following,
+//                                              { type: "boss", server, boss, entry } on each change (an
+//                                              entry as a2.bossTimers gives it), or
+//                                              { type: "status", server, connected }; [] stops
 //   a2.window.show() / a2.window.hide()        its own window, shown on top without taking focus
 //   a2.window.fit(height) / a2.window.fit()    the window fitted to that much content (an alert),
 //                                              its title bar hidden; then back to its size and
 //                                              title bar (meter 2.0.65 on)
 //                                              (permission "window", plugin API 2)
+//   Widgets (permission "widgets", meter 2.0.68 on): small windows of the plugin's own, each
+//   showing its widget.html (?name=<name>), which the player can drag anywhere and lock in place.
+//   From the plugin's page:
+//   await a2.widgets.open("name", { width, height })  open one, or show it again; at most 16
+//   await a2.widgets.close("name")
+//   await a2.widgets.send("name", data)        the widget hears it: a2.on("widget", (data) => ...)
+//   await a2.widgets.lock(true / false)        locked, clicks go through them and they stay put
+//   await a2.widgets.locked()                  whether they are locked
+//   a2.on("widget-message", ({ name, data }) => ...)  what a widget posted
+//   From a widget's page (widget.html):
+//   a2.widget.name                             its name
+//   a2.widget.drag()                           call on mousedown: the widget follows the pointer
+//                                              (not while locked)
+//   a2.widget.area({ x, y, width, height })    the part of the page that takes the mouse (CSS px);
+//                                              elsewhere clicks go through to what is under the
+//                                              window, so widgets set close together don't catch
+//                                              each other's drags (Linux; meter 2.0.70 on)
+//   a2.widget.post(data)                       to the plugin's page ("widget-message")
+//   a2.on("widget", (data) => ...)             what the plugin sent it
+//   a2.on("locked", (locked) => ...)           whether the widgets are locked, at start and on change
+//
 //   a2.ready()                                 call once the handlers are set
 //
 // A link (<a href="https://...">) clicked in the page opens in the browser
@@ -79,10 +107,24 @@
     }),
     notify: (text) => call("notify", [String(text)]),
     bossTimers: (server) => call("bossTimers", [Number(server)]),
+    followBosses: (server, bosses) => call("bossTimers.follow", [Number(server), (bosses || []).map(String)]),
     window: Object.freeze({
       show: () => call("window.show", []),
       hide: () => call("window.hide", []),
       fit: (height) => call("window.fit", [height ?? null]),
+    }),
+    widgets: Object.freeze({
+      open: (name, size) => call("widgets.open", [String(name), size || {}]),
+      close: (name) => call("widgets.close", [String(name)]),
+      send: (name, data) => call("widgets.send", [String(name), data]),
+      lock: (locked) => call("widgets.lock", [!!locked]),
+      locked: () => call("widgets.locked", []),
+    }),
+    widget: Object.freeze({
+      name: new URLSearchParams(location.search).get("name") || "",
+      drag: () => call("widget.drag", []),
+      area: (r) => call("widget.area", [r || {}]),
+      post: (data) => call("widget.post", [data]),
     }),
     ready: () => call("ready", []),
   });

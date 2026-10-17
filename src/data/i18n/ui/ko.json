@@ -7,7 +7,11 @@
       "ariaDps": "DPS 표시 중",
       "ariaDamage": "총 피해 표시 중",
       "both": "둘 다",
-      "ariaBoth": "DPS와 총 피해 표시 중"
+      "ariaBoth": "DPS와 총 피해 표시 중",
+      "hps": "HPS",
+      "totalHeal": "HEAL",
+      "ariaHps": "초당 힐량 표시 중",
+      "ariaHeal": "총 힐량 표시 중"
     }
   },
   "details": {
@@ -260,6 +264,7 @@
     "showOdyle": "오드 에너지 표시",
     "odyleEnergy": "오드 에너지",
     "showTtk": "예상 처치 시간 표시",
+    "showHealModes": "DPS/DMG 버튼에 치유량 표시",
     "showTotalDps": "파티 합계 표시",
     "roundDps": "DPS를 천 단위로 줄이기 (13k)",
     "showDpsSuffix": "DPS에 /s 붙이기",
@@ -276,7 +281,9 @@
     "discord": {
       "title": "디스코드",
       "activity": "디스코드에 플레이 중인 정보 표시",
-      "activityHint": "AION2가 실행 중일 때 디스코드 상태에 캐릭터 이름, 직업, 레벨, 서버와 싸우고 있는 보스를 표시합니다. 이 컴퓨터의 디스코드 앱을 통해 표시되며 계정은 필요하지 않습니다."
+      "activityHint": "AION2가 실행 중일 때 디스코드 상태에 캐릭터 이름, 직업, 레벨, 서버와 싸우고 있는 보스를 표시합니다. 이 컴퓨터의 디스코드 앱을 통해 표시되며 계정은 필요하지 않습니다. 디스코드에 표시할 수치를 고르면 전투력이나 장비 점수도 표시합니다.",
+      "stat": "디스코드에 표시할 수치",
+      "statHint": "디스코드 상태에서 레벨 뒤에 표시할 수치입니다."
     },
     "streamOverlay": {
       "title": "방송",
@@ -340,6 +347,9 @@
     },
     "windowOpacity": {
       "label": "배경 불투명도"
+    },
+    "titleOpacity": {
+      "label": "제목 표시줄 불투명도"
     },
     "meterOpacity": {
       "label": "막대 불투명도"
@@ -445,11 +455,13 @@
       "autoHideMeter": "다른 창이 게임 앞에 있으면 미터가 사라지고, 게임으로 돌아오면 다시 나타납니다.",
       "detailsMonitor": "선택한 디스플레이에서 상세 정보 창을 열고 그곳에 유지합니다.",
       "showTtk": "전투 타이머 옆에 보스전 전체에 걸릴 예상 시간을 표시합니다.",
+      "showHealModes": "미터의 DPS/DMG 버튼으로 초당 치유량과 총 치유량도 볼 수 있습니다.",
       "showTotalDps": "행 아래에 파티 전체 DPS와 피해량을 보여 주는 막대를 표시합니다.",
       "roundDps": "13,412는 13k로 표시됩니다.",
       "showSuspendBtn": "다시 누를 때까지 게임 트래픽 읽기를 멈추는 버튼을 미터에 표시합니다.",
       "showLockBtn": "미터가 마우스를 무시하게 하여 클릭이 게임으로 전달되도록 하는 버튼입니다.",
       "windowOpacity": "미터 배경의 투명도입니다. 막대와 글자는 그대로입니다.",
+      "titleOpacity": "미터 제목 표시줄의 투명도를 아래 배경과 따로 정합니다. 움직이기 전까지는 배경 불투명도를 따릅니다.",
       "meterOpacity": "색이 있는 피해량 막대의 불투명도입니다.",
       "meterSaturation": "막대 색의 진하기입니다. 낮추면 부드럽게, 높이면 더 선명하게 보입니다.",
       "bossNameSize": "막대 위에 있는 보스 또는 대상 이름의 크기입니다.",
@@ -464,7 +476,8 @@
       "debugLogging": "개발자가 문제를 찾는 데 쓸 수 있는 진단 로그를 기록합니다.",
       "saveRawPackets": "버그 보고용으로 원시 게임 트래픽을 기록합니다. 디버그 로그도 함께 켜집니다.",
       "globalHotkeys": "아래 키는 게임 화면이 앞에 있을 때도 작동합니다. 끄면 다른 프로그램이 이 키를 쓸 수 있습니다. 리눅스에서는 데스크톱이 키를 등록하며 승인을 요청할 수 있습니다.",
-      "pluginDevMode": "이 컴퓨터의 폴더에서 플러그인을 불러와 만들고 시험할 수 있습니다. 검토되지 않은 플러그인이므로 신뢰할 수 있는 것만 불러오세요."
+      "pluginDevMode": "이 컴퓨터의 폴더에서 플러그인을 불러와 만들고 시험할 수 있습니다. 검토되지 않은 플러그인이므로 신뢰할 수 있는 것만 불러오세요.",
+      "showMeter": "끄면 플러그인만 표시됩니다. 미터는 백그라운드에서 전투 기록과 업로드를 계속합니다. 여기, 표시/숨기기 단축키, 또는 플러그인 창의 미터 버튼으로 다시 켤 수 있습니다."
     },
     "globalHotkeys": "단축키 사용",
     "hotkeyConsent": {
@@ -513,12 +526,14 @@
       "permStorage": "이 컴퓨터에 자체 데이터 저장",
       "permNotify": "자체 창에 짧은 메시지 표시",
       "permWindow": "게임의 포커스를 빼앗지 않고 자체 창을 표시하거나 숨기기",
+      "permWidgets": "어디로든 옮기고 고정할 수 있는 작은 전용 창 표시",
       "permBossTimers": "a2tools.app에서 플레이어들이 공유하는 필드 보스 타이머 읽기",
       "permCharacter": "캐릭터의 이름, 서버, 클래스, 레벨 보기",
       "permDecoder": "내 게임 데이터 읽기: {name}",
       "permNone": "창을 표시하는 것 외에는 없음",
       "enabled": "사용",
-      "enabledTip": "켜짐: 미터와 함께 시작됩니다. 꺼짐: 설치된 상태로 남지만 실행되지 않습니다."
+      "enabledTip": "켜짐: 미터와 함께 시작됩니다. 꺼짐: 설치된 상태로 남지만 실행되지 않습니다.",
+      "showMeter": "DPS 미터 표시"
     }
   },
   "support": {
@@ -606,6 +621,8 @@
   },
   "presence": {
     "level": "Lv {level}",
+    "combatPower": "전투력 {cp}",
+    "gearScore": "장비 점수 {gs}",
     "fighting": "{boss} 전투 중",
     "inGame": "게임 중",
     "elyos": "천족",

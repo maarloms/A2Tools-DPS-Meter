@@ -548,6 +548,18 @@
                       <span class="settingsToggleTrack" aria-hidden="true"></span>
                     </span>
                   </label>
+                  <div class="settingsRow settingsRowSelect discordActivityGroup" style="display:none">
+                    <div class="settingsInfo">
+                      <div class="settingsLabel" data-i18n="settings.discord.stat" title="The number your Discord status shows after your level." data-i18n-title="settings.discord.statHint">Number in Discord</div>
+                    </div>
+                    <div class="settingsDropdownWrapper discordStatDropdownWrapper">
+                      <button class="settingsDropdownBtn discordStatDropdownBtn" type="button">
+                        <span class="settingsDropdownText">-</span>
+                        <span class="settingsDropdownCaret" aria-hidden="true">▾</span>
+                      </button>
+                      <div class="settingsDropdownMenu discordStatDropdownMenu" role="menu"></div>
+                    </div>
+                  </div>
                   <label class="settingsToggle" title="When a boss fight ends it is uploaded to your account, with the visibility you chose on a2tools.app. Other players stay masked. Training dummies are never uploaded." data-i18n-title="settings.account.autoUploadHint">
                     <span class="settingsToggleLabel settingsLabel" data-i18n="settings.account.autoUpload">Upload boss fights automatically</span>
                     <span class="settingsToggleControl">
@@ -653,6 +665,13 @@
                     <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showTtk" title="Beside the battle timer, an estimate of how long the whole boss fight will take." data-i18n-title="settings.tips.showTtk">Show time to kill estimate</span>
                     <span class="settingsToggleControl">
                       <input type="checkbox" class="showTtkCheckbox" />
+                      <span class="settingsToggleTrack" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                  <label class="settingsToggle">
+                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showHealModes" title="The DPS/DMG button on the meter also cycles through healing per second and total healing." data-i18n-title="settings.tips.showHealModes">Show healing in the DPS/DMG button</span>
+                    <span class="settingsToggleControl">
+                      <input type="checkbox" class="showHealModesCheckbox" checked />
                       <span class="settingsToggleTrack" aria-hidden="true"></span>
                     </span>
                   </label>
@@ -770,6 +789,24 @@
                         aria-label="Background opacity"
                         data-i18n-aria-label="settings.windowOpacity.label" />
                       <div class="settingsValue windowOpacityValue">40%</div>
+                    </div>
+                  </div>
+                  <div class="settingsRow settingsRowInput">
+                    <div class="settingsInfo">
+                      <div class="settingsLabel" data-i18n="settings.titleOpacity.label" title="How see-through the meter's title bar is, apart from the background under it. Until you move it, it follows the background." data-i18n-title="settings.tips.titleOpacity">Title bar opacity</div>
+                    </div>
+                    <div class="settingsRangeInline">
+                      <input
+                        id="titleOpacityInput"
+                        class="settingsRange titleOpacityInput"
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value="40"
+                        aria-label="Title bar opacity"
+                        data-i18n-aria-label="settings.titleOpacity.label" />
+                      <div class="settingsValue titleOpacityValue">40%</div>
                     </div>
                   </div>
                   <div class="settingsRow settingsRowInput">
@@ -973,6 +1010,13 @@
                       <button class="settingsAction pluginUpdateBtn" type="button" data-i18n="settings.plugins.checkUpdates">Check for updates</button>
                     </div>
                   </div>
+                  <label class="settingsToggle showMeterToggle">
+                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.plugins.showMeter" title="Off: only your plugins show. The meter keeps reading combat and uploading in the background. Bring it back here, with the show/hide hotkey, or with the meter button on a plugin window." data-i18n-title="settings.tips.showMeter">Show the DPS meter</span>
+                    <span class="settingsToggleControl">
+                      <input type="checkbox" class="showMeterCheckbox" checked />
+                      <span class="settingsToggleTrack" aria-hidden="true"></span>
+                    </span>
+                  </label>
                   <h3 class="pluginListTitle" data-i18n="settings.plugins.installed">Installed</h3>
                   <div class="pluginList"></div>
                   <div class="settingsHint pluginListEmpty" data-i18n="settings.plugins.none">No plugins installed yet.</div>

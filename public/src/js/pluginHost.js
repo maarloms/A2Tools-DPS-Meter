@@ -29,7 +29,7 @@
   const deliver = (event, data, extra = {}) => {
     if (event.startsWith("decoded:") && !allowed(`decoder:${event.slice(8)}`)) return;
     if (event === "character" && !allowed("events:character")) return;
-    if (event === "bossMap" && !allowed("feed:boss-timers")) return;
+    if ((event === "bossMap" || event === "bossLive") && !allowed("feed:boss-timers")) return;
     const msg = { event, data, ...extra };
     if (ready) send(msg);
     else queue.push(msg);
@@ -65,6 +65,12 @@
       if (!allowed("feed:boss-timers")) throw new Error('the plugin lacks the "feed:boss-timers" permission');
       return invoke("plugin_boss_timers", { server: Number(server) });
     },
+    // Follow some of a server's field bosses: each change comes at once as a
+    // "bossLive" event (meter 2.0.68). An empty list stops following.
+    "bossTimers.follow": ([server, bosses]) => {
+      if (!allowed("feed:boss-timers")) throw new Error('the plugin lacks the "feed:boss-timers" permission');
+      return invoke("plugin_boss_follow", { server: Number(server), bosses: (Array.isArray(bosses) ? bosses : []).map(String) });
+    },
     "storage.set": ([key, value]) => invoke("plugin_storage_set", { key: String(key), value: String(value) }),
     "window.show": () => {
       if (!allowed("window")) throw new Error('the plugin lacks the "window" permission');
@@ -82,6 +88,28 @@
     "window.hide": () => {
       if (!allowed("window")) throw new Error('the plugin lacks the "window" permission');
       return invoke("plugin_window", { visible: false });
+    },
+    // Small windows of the plugin's own, which the player can move and lock
+    // (plugin widgets, #77; permission "widgets").
+    "widgets.open": ([name, size]) => {
+      if (!allowed("widgets")) throw new Error('the plugin lacks the "widgets" permission');
+      return invoke("plugin_widget_open", { name: String(name), width: Number(size?.width) || 64, height: Number(size?.height) || 64 });
+    },
+    "widgets.close": ([name]) => {
+      if (!allowed("widgets")) throw new Error('the plugin lacks the "widgets" permission');
+      return invoke("plugin_widget_close", { name: String(name) });
+    },
+    "widgets.send": ([name, data]) => {
+      if (!allowed("widgets")) throw new Error('the plugin lacks the "widgets" permission');
+      return invoke("plugin_widget_send", { name: String(name), data: data ?? null });
+    },
+    "widgets.lock": ([locked]) => {
+      if (!allowed("widgets")) throw new Error('the plugin lacks the "widgets" permission');
+      return invoke("plugin_widgets_lock", { locked: !!locked });
+    },
+    "widgets.locked": () => {
+      if (!allowed("widgets")) throw new Error('the plugin lacks the "widgets" permission');
+      return invoke("plugin_widgets_locked");
     },
     notify: ([text]) => {
       if (!allowed("notify")) throw new Error('the plugin lacks the "notify" permission');
@@ -124,9 +152,27 @@
     invoke("start_tool_drag").catch(() => {});
   });
   document.querySelector(".pluginClose").addEventListener("click", () => {
-    // Closed until the next start; turning the plugin off in Settings keeps
-    // it closed.
+    // Hidden: the plugin keeps running (its widgets and alerts) until it is
+    // turned off in Settings, where Open shows it again.
     invoke("plugin_close").catch(() => {});
+  });
+
+  // The DPS meter itself, for players who use only plugins: show or hide it
+  // (kept across restarts), and Settings, which is otherwise on the meter.
+  const meterBtn = document.querySelector(".pluginMeter");
+  const showMeterState = (shown) => {
+    meterBtn.setAttribute("aria-pressed", String(shown));
+    const label = shown ? "Hide the DPS meter" : "Show the DPS meter";
+    meterBtn.setAttribute("aria-label", label);
+    meterBtn.title = label;
+  };
+  invoke("meter_shown").then((shown) => showMeterState(shown !== false)).catch(() => {});
+  listen("meter-shown", (event) => showMeterState(event.payload !== false));
+  meterBtn.addEventListener("click", () => {
+    invoke("set_meter_shown", { shown: meterBtn.getAttribute("aria-pressed") !== "true" }).catch(() => {});
+  });
+  document.querySelector(".pluginSettings").addEventListener("click", () => {
+    invoke("open_settings_window").catch(() => {});
   });
 
   // Panel preferences, per plugin, kept by this page: background opacity, and
@@ -168,6 +214,9 @@
     // name passed the permission check: with a copy of the Pet Soul Tracker
     // open beside it, every soul counted twice in both.
     if (payload.plugin !== undefined && payload.plugin !== id) return;
+    // Sent to this plugin's widgets, not to its window.
+    if (payload.event === "widget" || payload.event === "locked") return;
+    if (payload.event === "widget-message" && !allowed("widgets")) return;
     if (typeof payload.seq !== "number") deliver(payload.event, payload.data);
     else if (early) early.push(payload);
     else deliverLogged(payload);
