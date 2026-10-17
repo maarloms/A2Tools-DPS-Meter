@@ -54,7 +54,11 @@
       console.warn("[Puppen-Test] status:", e);
     }
     schedule();
-    render();
+    // Rebuild only when something changed: a rebuilt button loses the click
+    // that was just under way.
+    const sig = `${status.phase}|${status.hasLocal}|${status.durationMs}|${status.result?.id ?? ""}|${!!panel}`;
+    if (sig !== lastSig) render();
+    else renderClock();
   }
 
   function schedule() {
@@ -220,7 +224,9 @@
     clockEls.live.textContent = `${L.fmtCompact(status.damage)} Schaden · ${L.fmtInt((Number(status.damage) || 0) / (elapsed / 1000))} DPS`;
   }
 
+  let lastSig = "";
   function render() {
+    lastSig = `${status.phase}|${status.hasLocal}|${status.durationMs}|${status.result?.id ?? ""}|${!!panel}`;
     renderButton();
     if (!panel) return;
     const { body, actions, sub } = panel;

@@ -329,6 +329,10 @@ test("dummy.js: cancel while ready, warning without a known character, locked ov
   ui.press("Starten");
   await settle();
   assert.match(ui.popup().textContent, /noch nicht erkannt/);
+  // Polling without a change keeps the buttons: a rebuilt one would lose a click.
+  const before = ui.buttons()[0];
+  await ui.ctx.ForkDummy.poll();
+  assert.equal(ui.buttons()[0], before);
   ui.press("Abbrechen");
   await settle();
   assert.ok(ui.calls.some(([c]) => c === "fork_dummy_cancel"));
