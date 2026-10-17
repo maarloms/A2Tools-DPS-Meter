@@ -187,7 +187,8 @@ export async function api(path, opts = {}) {
     location.replace("/");
     throw new AuthError("unauthorized");
   }
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  // softFail: 400 nicht werfen, damit die Seite den Fehlertext vom Server zeigen kann
+  if (!r.ok && !(opts.softFail && r.status === 400)) throw new Error(`HTTP ${r.status}`);
   return r;
 }
 export const apiJson = async (path) => (await api(path)).json();
@@ -211,7 +212,7 @@ export function currentRoute() {
   if ((m = /^#\/fight\/([0-9a-f]{16})\/vs\/([0-9a-f]{16})$/.exec(h))) return { name: "versus", a: m[1], b: m[2] };
   if ((m = /^#\/fight\/([0-9a-f]{16})$/.exec(h))) return { name: "fight", id: m[1] };
   if ((m = /^#\/me(?:\/(.+))?$/.exec(h))) return { name: "me", who: m[1] ? decodeURIComponent(m[1]) : "" };
-  for (const n of ["overview", "compare", "fights", "live", "timer", "checklist", "members", "bosses", "patchnotes", "start"]) if (h.startsWith(`#/${n}`)) return { name: n };
+  for (const n of ["overview", "compare", "fights", "live", "timer", "checklist", "members", "bosses", "patchnotes", "settings", "start"]) if (h.startsWith(`#/${n}`)) return { name: n };
   return { name: "start" };
 }
 

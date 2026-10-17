@@ -539,3 +539,9 @@ details.more[open] > summary::before { content: "▾ "; }
   .notes { padding: 0 14px 4px; }
   .rel-foot { padding: 0 14px 12px; }
 }
+
+/* Einstellungen (Wochenrückblick) */
+.badge.bad { color: var(--bad); border-color: rgba(232, 138, 143, 0.45); }
+.badge.warn { color: var(--warn); border-color: rgba(255, 207, 110, 0.45); }
+.card p.good { color: var(--good); }
+.card p.bad { color: var(--bad); }
