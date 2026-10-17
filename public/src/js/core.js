@@ -3319,7 +3319,7 @@ class DpsApp {
 
     // This version's release notes; the list when the version isn't known.
     this.settingsVersionLink?.addEventListener("click", () => {
-      const releases = "https://github.com/taengu/A2Tools-DPS-Meter/releases";
+      const releases = "https://github.com/maarloms/A2Tools-DPS-Meter/releases"; // fork: upstream taengu
       const version = /^v\d+\.\d+\.\d+$/.exec(this.settingsVersionValue?.textContent?.trim() || "")?.[0];
       window.javaBridge?.openBrowser?.(version ? `${releases}/tag/${version}` : releases);
     });
