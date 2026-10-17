@@ -756,7 +756,9 @@ export class Room extends DurableObject<Env> {
           "UPDATE pending_uploads SET attempts = attempts + 1, next_try = ?, last_error = ? WHERE upload_id = ?",
           Date.now() + wait, msg, p.upload_id,
         );
-        break; // D1 weiter gestört: die übrigen beim nächsten Alarm
+        // D1 weiter gestört: die übrigen nicht gleich hinterher, sondern mit demselben Abstand
+        this.sql.exec("UPDATE pending_uploads SET next_try = MAX(next_try, ?)", Date.now() + wait);
+        break;
       }
     }
     const next = this.sql.exec<{ t: number | null }>("SELECT MIN(next_try) AS t FROM pending_uploads").one().t;
