@@ -10,6 +10,7 @@ import { handleDiagnostics, isDiagnosticPath } from "./diagnostics";
 import { LIMITS, PROTOCOL_VERSION, ROOM_CODE_RE } from "./protocol";
 import { SESSION_DAYS, createSession, sessionCookie, sessionRoom } from "./session";
 import { handleStats } from "./stats";
+import { handleWebhook, runWeekly } from "./weekly";
 
 export { Room } from "./room";
 
@@ -54,6 +55,8 @@ function routeOf(method: string, rest: string): "do" | "d1" | null {
   if (rest === "/members") return method === "GET" || method === "PATCH" ? "d1" : null;
   if (rest === "/boss-settings") return method === "GET" || method === "PATCH" ? "d1" : null;
   if (rest === "/checklist") return method === "GET" || method === "PATCH" ? "d1" : null;
+  if (rest === "/webhook") return method === "GET" || method === "PATCH" || method === "DELETE" ? "d1" : null;
+  if (rest === "/webhook/test") return method === "POST" ? "d1" : null;
   if (rest === "/maintenance/backfill" || rest === "/maintenance/dedupe") return method === "POST" ? "d1" : null;
   if (rest === "/maintenance/rename" || rest === "/maintenance/remove") return method === "POST" ? "do" : null;
   if (/^\/stats\/(overview|bosses|leaderboard|player|compare|trends)$/.test(rest)) return method === "GET" ? "d1" : null;
@@ -184,7 +187,9 @@ export default {
 
     // Lesende Statistik + Mitgliederverwaltung direkt aus D1 – kein Durable-Object-Aufruf
     if (target === "d1") {
-      const data = await handleStats(env.DB, env, code, rest, url, req);
+      const data = rest.startsWith("/webhook")
+        ? await handleWebhook(env.DB, env, code, rest, url, req)
+        : await handleStats(env.DB, env, code, rest, url, req);
       if (req.method === "PATCH" && rest === "/members" && data && typeof data === "object" && "ok" in data) {
         // Live-Ansicht im DO über die geänderte Mitgliederliste informieren
         await stub.fetch(new Request(new URL(`/api/rooms/${code}/members-changed`, url.origin), { method: "POST" }));
@@ -214,5 +219,11 @@ export default {
       }),
     );
     return withHeaders(resp, { ...SECURITY_HEADERS, ...NO_STORE, ...cors });
+  },
+
+  // Cron (wrangler.jsonc "triggers"): Wochenrückblick nach dem Reset an Discord
+  async scheduled(ctrl: ScheduledController, env: Env): Promise<void> {
+    const r = await runWeekly(env, ctrl.scheduledTime);
+    if (r.length) console.log(`Wochenrückblick: ${r.map((x) => `${x.room}=${x.result}`).join(", ")}`);
   },
 } satisfies ExportedHandler<Env>;

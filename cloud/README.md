@@ -12,7 +12,7 @@ liefert der Server nur eine schlichte Login-Seite (neutraler Titel, `noindex`), 
   mit Ø-DPS 7 Tage + Trendpfeil, Gruppenzahlen, wer führt pro Boss, letzte Kämpfe, Live-Panel) · **Mein Bereich**
   („Wer bist du?“, KPIs, Verlauf, Rekorde je Boss, letzte Kämpfe; umschaltbar) · **Vergleich** (Kennzahlen als Balken,
   Verlauf, pro Boss) · **Kämpfe** (Liste + Detail mit DPS-Kurve, Skill-Analyse, Skill-Zeitleiste, Boss-HP, Ping) ·
-  **Live** · **Event-Timer** · **Mitglieder**.
+  **Live** · **Event-Timer** · **Mitglieder** · **Einstellungen** (Wochenrückblick in Discord).
 - **Nur wir:** Überall erscheinen ausschließlich Raum-Mitglieder. Alle anderen Spieler zählen im Bossschaden (und damit in
   den Anteilen) mit und stehen höchstens als Sammelzeile „Andere (n)“ da.
 - **App-Anbindung:** siehe [PROTOCOL.md](PROTOCOL.md).
@@ -23,6 +23,22 @@ Standard: jeder Name, der sich mit der App verbindet (`hello`) oder einen Kampf 
 Tippfehler blendet man im Dashboard unter **Mitglieder** aus (Daten bleiben, wieder einblendbar).
 Wer es strikt will, setzt in `wrangler.jsonc` die Variable `ROOM_MEMBERS` (z. B. `"atreia-trio:marloms|Name2|Name3"`):
 dann zählen nur diese Namen und die Verwaltung im Dashboard ist schreibgeschützt.
+
+## Wochenrückblick in Discord (Opt-in je Raum)
+
+Dashboard → **Einstellungen**: Discord-Webhook-Adresse hinterlegen (nur `https://discord.com/api/webhooks/…` bzw.
+`discordapp.com`), einschalten, „Test-Post senden“. Ändern/Testen/Entfernen verlangt das Admin-Passwort.
+Die Adresse ist ein Geheimnis: Sie steht nur in D1 (`room_webhooks`) und geht nie an Clients zurück (nur „…abcd“).
+
+- Cron `15 7-23 * * 3` (wrangler.jsonc `triggers`): mittwochs nach dem Reset (07:00 UTC, wie die Checkliste) stündlich.
+  Jeder Raum bekommt die abgelaufene Woche **einmal** (`last_week`); spätere Läufe holen nur Fehlschläge nach.
+- Inhalt: Bosskämpfe, Boss-Kills, bester Kampf (höchste Gruppen-DPS der Mitglieder, besiegte zuerst), Top-3-DPS (bester
+  Kampfschnitt je Mitglied), Kills und Ø DPS je Boss gegen die Vorwoche, Link zum Dashboard. Nur Mitglieder, ohne
+  Feldbosse/ausgeblendete Bosse/Training. Wochen ohne Kämpfe werden nicht gepostet.
+- Fehler: 401/403/404 → Webhook „ungültig“, kein weiterer Versuch bis zur neuen Adresse. 429 → bei ≤ 5 s einmal warten
+  und neu senden, sonst nächster Lauf. 5xx/Netz → nächster Lauf. Test-Posts höchstens alle 30 s.
+- Lokal testen: `wrangler dev`, dann `http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=*&time=<ms>`.
+  `DISCORD_API_BASE` (nur Tests) leitet die Posts an einen lokalen Discord-Ersatz um – in Produktion nicht setzen.
 
 ## Zugang / Sessions
 
@@ -51,6 +67,8 @@ cloud/
     room.ts                 Durable Object: WebSocket-Relay, Uploads (serialisiert), Rohdaten
     fights.ts / store.ts    FightRecord → Detail, Zusammenführung, D1-Schreiben
     stats.ts                D1-Abfragen: Übersicht, Mein Bereich, Vergleich, Kampfliste, Trends, Mitglieder
+    weekly.ts               Wochenrückblick: Webhook-Einstellungen, Auswertung aus D1, Cron-Versand an Discord
+    weekly-core.ts          dazu die reine Logik (Wochengrenzen, URL-Prüfung, Discord-Karte), ohne Imports
   public/
     login.html/.js/.css     einzige öffentliche Seite
     index.html, app.js, style.css, js/*.js   Dashboard (nur mit Session)
@@ -58,6 +76,7 @@ cloud/
     shared/                 ← beim Build kopiert: events.json, schedule.js, markdown.js aus app/public/fork (nicht von Hand ändern)
   scripts/sync-shared.mjs
   test/releases.test.mjs    Unit-Test Release-Verlauf (Sortierung, Fehlertexte, Markdown)
+  test/weekly.test.mjs      Unit-Test Wochenrückblick (Wochengrenzen inkl. Zeitumstellung, URL, Karte, Fehlerklassen)
   test/simulate.mjs         End-to-End-Test (Live, Upload, Statistik, Mitglieder, Session)
   test/seed.mjs             Testdaten: 3 Mitglieder (marloms, Lyrienne, Kaedros) + Fremde, ~45 Tage; optional Live-Kampf
 ```

@@ -16,6 +16,8 @@ export interface Env {
   ALLOWED_ORIGINS?: string;
   /** Zweites Passwort für Löschen, Ausblenden und Wartung. Ohne: wie das Raum-Secret. */
   ADMIN_SECRET?: string;
+  /** Nur für Tests: Discord-Host für Webhooks ersetzen (z. B. http://127.0.0.1:9999). In Produktion NICHT setzen. */
+  DISCORD_API_BASE?: string;
 }
 
 const MIN_SECRET_LEN = 16;
@@ -80,7 +82,10 @@ export function isAdminRoute(method: string, rest: string): boolean {
   return (
     (method === "DELETE" && /^\/fights\//.test(rest)) ||
     (method === "PATCH" && (rest === "/members" || rest === "/boss-settings")) ||
-    (method === "POST" && rest.startsWith("/maintenance/"))
+    (method === "POST" && rest.startsWith("/maintenance/")) ||
+    // Wochenrückblick: Webhook setzen/löschen/testen (Lesen dürfen alle im Raum, die URL sieht niemand)
+    ((method === "PATCH" || method === "DELETE") && rest === "/webhook") ||
+    (method === "POST" && rest === "/webhook/test")
   );
 }
 
