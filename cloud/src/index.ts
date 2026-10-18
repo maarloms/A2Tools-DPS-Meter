@@ -230,7 +230,7 @@ export default {
     return withHeaders(resp, { ...SECURITY_HEADERS, ...NO_STORE, ...cors });
   },
 
-  // Cron (wrangler.jsonc "triggers"): Wochenrückblick nach dem Reset an Discord
+  // Cron (wrangler.jsonc "triggers"): Wochenrückblick vorberechnen (sendet nichts, gepostet wird nur das Wochenbild)
   async scheduled(ctrl: ScheduledController, env: Env): Promise<void> {
     const r = await runWeekly(env, ctrl.scheduledTime);
     if (r.length) console.log(`Wochenrückblick: ${r.map((x) => `${x.room}=${x.result}`).join(", ")}`);

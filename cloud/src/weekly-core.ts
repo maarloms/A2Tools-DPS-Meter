@@ -15,19 +15,15 @@ export const RESET_WEEKDAY = 3;
 export const EMBED_COLOR = 0xd4af69;
 /** Test-Posts höchstens so oft je Raum */
 export const TEST_MIN_INTERVAL_MS = 30_000;
-/** Bei 429 so lange höchstens warten und einmal neu senden; länger → nächster Cron-Lauf */
+/** Bei 429 so lange höchstens warten und einmal neu senden; länger → 502 an den Agenten, der es später neu versucht */
 export const MAX_RETRY_WAIT_MS = 5_000;
-/**
- * Wochenbild (lokal gerendertes PNG, POST /api/weekly/:room/image): so lange nach dem Reset wartet der Cron
- * auf das Bild, danach sendet er die Text-Karte. 4 h → 11:00 UTC = 12:00 MEZ / 13:00 MESZ
- * (der Cron läuft zur Minute 15, also sendet der Lauf um 11:15 UTC).
- */
-export const IMAGE_DEADLINE_MS = 4 * 3_600_000;
+// Wochenbild (lokal gerendertes PNG, POST /api/weekly/:room/image): KEINE Frist und KEIN Text-Ersatz –
+// der Rückblick geht nur als Bild raus und bleibt offen, bis es gepostet ist (bis zum nächsten Reset).
 /** Höchstgröße des Wochenbilds */
 export const MAX_IMAGE_BYTES = 1_048_576;
 /** Höchstmaß je Seite (Discord zeigt ohnehin klein) */
 export const MAX_IMAGE_SIDE = 4096;
-/** Versand-Sperre je Raum (Cron und Bild-Upload gleichzeitig): so lange gilt ein Claim */
+/** Versand-Sperre je Raum (zwei Bild-Uploads gleichzeitig): so lange gilt ein Claim */
 export const CLAIM_MS = 60_000;
 /** Dateiname des Anhangs (embed.image.url = attachment://…) */
 export const IMAGE_NAME = "wochenbild.png";
@@ -56,7 +52,7 @@ export function lastWeek(now: number): Week {
   return { from, to, key: weekKey(from) };
 }
 
-/** Die laufende Woche bis jetzt (für den Test-Post) */
+/** Die laufende Woche (Reset bis nächster Reset) */
 export function currentWeek(now: number): Week {
   const from = weekStart(now);
   return { from, to: from + WEEK_MS, key: weekKey(from) };
@@ -225,11 +221,6 @@ export function isoWeek(ms: number): number {
   return 1 + Math.floor((thursday - Date.UTC(y, 0, 1)) / WEEK_MS);
 }
 
-/** Wartet der Cron noch auf das Wochenbild? (nur wenn der Bild-Weg eingeschaltet ist) */
-export function waitingForImage(now: number, week: Week, imageEnabled: boolean, imageWeek: string | null): boolean {
-  return imageEnabled && imageWeek !== week.key && now < week.to + IMAGE_DEADLINE_MS;
-}
-
 // ---------- Wochenbild ----------
 
 /** Breite/Höhe aus dem PNG-Kopf, null = kein PNG (Signatur + IHDR als erster Chunk) */
@@ -323,16 +314,17 @@ export function escapeMd(s: string): string {
 export interface EmbedOptions {
   /** Dashboard-Adresse (Origin), unter der der Raum eingerichtet wurde */
   origin: string;
-  /** Test-Post aus dem Dashboard: laufende Woche, gekennzeichnet */
-  test?: boolean;
   /** Zeitstempel der Karte (Standard: Wochenende bzw. jetzt) */
   now?: number;
 }
 
 const PLACE = ["1.", "2.", "3."];
 
-/** Discord-Webhook-Payload (eine Embed-Karte), ohne Erwähnungen */
-export function buildPayload(r: Recap, opts: EmbedOptions) {
+/**
+ * Embed-Karte zum Wochenbild, ohne Erwähnungen. Bewusst nicht exportiert: allein (ohne Bild) wird sie nie
+ * gesendet – der Wochenrückblick geht nur als Bild raus (buildImagePayload).
+ */
+function cardPayload(r: Recap, opts: EmbedOptions) {
   const link = (path: string) => `${opts.origin}/#/${path}`;
   const fields: { name: string; value: string; inline?: boolean }[] = [];
 
@@ -356,10 +348,9 @@ export function buildPayload(r: Recap, opts: EmbedOptions) {
     { name: "Ø DPS je Boss gegen Vorwoche", value: fmtPct(r.dpsChange), inline: true },
   );
 
-  const title = `${opts.test ? "Test · " : ""}Wochenrückblick ${r.room} · ${weekLabel(r.week)}`;
+  const title = `Wochenrückblick ${r.room} · ${weekLabel(r.week)}`;
   const description =
     `**${nf0.format(r.fights)}** Bosskämpfe · **${nf0.format(r.kills)}** Boss-Kills` +
-    (opts.test ? "\n_Test-Post aus dem Dashboard: laufende Woche bis jetzt._" : "") +
     `\n[Zum Dashboard](${link("overview")})`;
 
   return {
@@ -379,9 +370,9 @@ export function buildPayload(r: Recap, opts: EmbedOptions) {
   };
 }
 
-/** Wie buildPayload, dazu das Wochenbild als Anhang groß in der Karte (multipart: payload_json + files[0]) */
+/** Karte mit dem Wochenbild als Anhang groß darin (multipart: payload_json + files[0]) */
 export function buildImagePayload(r: Recap, opts: EmbedOptions) {
-  const p = buildPayload(r, opts);
+  const p = cardPayload(r, opts);
   return {
     ...p,
     embeds: p.embeds.map((e) => ({ ...e, image: { url: `attachment://${IMAGE_NAME}` } })),
@@ -389,7 +380,7 @@ export function buildImagePayload(r: Recap, opts: EmbedOptions) {
   };
 }
 
-/** Test-Post, wenn die Woche noch keine Kämpfe hat */
+/** Testnachricht aus dem Dashboard („Test-Post senden“) – kein Wochenrückblick */
 export function buildPingPayload(room: string, origin: string) {
   return {
     username: "AION2 DPS Meter",
@@ -398,7 +389,7 @@ export function buildPingPayload(room: string, origin: string) {
       {
         title: `Test · Wochenrückblick ${room}`,
         url: `${origin}/#/overview`,
-        description: "Der Webhook funktioniert. Diese Woche gibt es noch keine Bosskämpfe – der Rückblick kommt nach dem Reset am Mittwoch.",
+        description: "Der Webhook funktioniert. Der Wochenrückblick kommt nach dem Reset am Mittwoch als Bild.",
         color: EMBED_COLOR,
       },
     ],

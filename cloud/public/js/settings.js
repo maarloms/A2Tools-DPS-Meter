@@ -17,7 +17,7 @@ const ERRORS = {
   admin_required: "Dafür ist das Admin-Passwort nötig.",
 };
 const OUTCOME = {
-  ok: "Test-Post gesendet – schau in den Discord-Kanal.",
+  ok: "Testnachricht gesendet – schau in den Discord-Kanal.",
   invalid: "Discord kennt diesen Webhook nicht (gelöscht oder Token falsch). Bitte neu anlegen und hinterlegen.",
   rate_limited: "Discord bremst gerade (Rate-Limit). Bitte später noch einmal versuchen.",
   retry: "Discord ist gerade nicht erreichbar. Bitte später noch einmal versuchen.",
@@ -56,7 +56,7 @@ function statusLine(h) {
   if (!h.configured) return `<span class="muted">Kein Webhook hinterlegt.</span>`;
   const parts = [`<b>Webhook gesetzt ✓</b> <span class="muted">(${esc(h.hint)})</span>`];
   if (h.status === "invalid") parts.push(`<span class="badge bad">ungültig</span>`);
-  else if (h.status === "error") parts.push(`<span class="badge warn">Fehler beim letzten Versuch</span>`);
+  else if (h.status === "error") parts.push(`<span class="badge warn">Fehler beim letzten Versuch – wird wiederholt</span>`);
   return parts.join(" ");
 }
 
@@ -67,9 +67,11 @@ function render() {
     ${pageHead("Einstellungen", `Raum ${esc(state.room)}`)}
     <section class="card">
       <h2>Wochenrückblick in Discord</h2>
-      <p class="muted">Nach dem wöchentlichen Reset (mittwochs ${resetText()}) postet der Server eine Karte mit Kämpfen, Boss-Kills,
-        bestem Kampf, Top-3-DPS und dem Vergleich zur Vorwoche in euren Discord-Kanal. Es zählen nur Mitglieder und Bosse, die auch hier
+      <p class="muted">Nach dem wöchentlichen Reset (mittwochs ${resetText()}) kommt der Wochenrückblick als Bild in euren Discord-Kanal:
+        Kämpfe, Boss-Kills, bester Kampf, Top-DPS und der Vergleich zur Vorwoche. Es zählen nur Mitglieder und Bosse, die auch hier
         zählen. Wochen ohne Kämpfe werden nicht gepostet.</p>
+      <p class="muted small">Das Bild erstellt ein Rechner bei uns (mittwochs ab 09:30 Uhr). Ist er dann aus, kommt das Bild, sobald er wieder
+        läuft – es gibt keinen Text-Ersatz. Spätestens mit dem nächsten Reset verfällt eine nicht gepostete Woche.</p>
       <p class="muted small">So kommst du an die Adresse: Discord → Kanal bearbeiten → Integrationen → Webhooks → Neuer Webhook → „Webhook-URL kopieren“.
         Die Adresse ist wie ein Passwort: Wer sie kennt, kann in den Kanal schreiben. Sie wird hier nie wieder angezeigt.</p>
       <p>${statusLine(h)}</p>

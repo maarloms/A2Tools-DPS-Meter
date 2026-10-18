@@ -3,28 +3,31 @@
 //  GET    /api/rooms/:code/webhook       Stand (nie die URL selbst, nur "…abcd")
 //  PATCH  /api/rooms/:code/webhook       { url?, enabled? }        Admin
 //  DELETE /api/rooms/:code/webhook                                 Admin
-//  POST   /api/rooms/:code/webhook/test  Test-Post (laufende Woche) Admin
+//  POST   /api/rooms/:code/webhook/test  Testnachricht (kein Wochenrückblick) Admin
 //
 //  Wochenbild (lokal gerendert, tools/wochenbild; Auth: Bearer WEEKLY_RENDER_KEY, ohne Secret 404):
 //  GET    /api/weekly/pending            Räume, deren abgelaufene Woche noch auf ein Bild wartet, mit Recap-Daten
 //  POST   /api/weekly/:room/image        PNG (≤ 1 MB) → Discord als Karte mit Bild, Woche erledigt
 //
-// Cron (wrangler.jsonc "triggers"): Mittwochs nach dem Reset stündlich; jeder Raum bekommt
-// die abgelaufene Woche genau einmal (room_webhooks.last_week). Ist WEEKLY_RENDER_KEY gesetzt, wartet
-// der Cron bis IMAGE_DEADLINE_MS nach dem Reset auf das Bild und sendet erst dann die Text-Karte.
-// Wochen ohne Kämpfe werden still übersprungen. Datenquelle: encounters/player_stats wie Übersicht und
-// Wochenrückblick im Dashboard – nur Mitglieder, nur zählende Bosse (ohne Feldbosse), ohne Training.
-// Die Auswertung der abgelaufenen Woche wird je Raum einmal berechnet und in room_webhooks.recap_json
-// abgelegt (Cron, pending und Bild-Upload lesen sie von dort, statt D1 mehrfach abzufragen).
+// Der Wochenrückblick geht NUR als Bild raus (Vorgabe Marlon, 18.10.2026): Der Worker sendet nie eine
+// Text-Karte – weder ohne Secret noch nach einer Frist noch nach einem abgelehnten Bild. Ist der PC des
+// Render-Agenten aus, holt der Agent das Bild nach, sobald er läuft: ein Raum bleibt in /pending, bis sein
+// Bild gepostet ist. Erst mit dem nächsten Reset ersetzt die neue Woche die alte (lastWeek(now) wechselt);
+// eine Woche alte Rückblicke werden nicht mehr nachgeschoben.
+// Cron (wrangler.jsonc "triggers", mittwochs nach dem Reset): sendet nichts, sondern berechnet die Auswertung
+// der abgelaufenen Woche je Raum vor und legt sie in room_webhooks.recap_json ab (pending und Bild-Upload
+// lesen sie von dort, statt D1 mehrfach abzufragen). Wochen ohne Kämpfe werden still als erledigt markiert.
+// Datenquelle: encounters/player_stats wie Übersicht und Wochenrückblick im Dashboard – nur Mitglieder,
+// nur zählende Bosse (ohne Feldbosse), ohne Training.
 
 import { Env, checkRenderKey, roomDigest } from "./auth";
 import { relevant } from "./bosses";
 import { activeMembers } from "./members";
 import { ROOM_CODE_RE } from "./protocol";
 import {
-  CLAIM_MS, IMAGE_DEADLINE_MS, IMAGE_NAME, MAX_IMAGE_BYTES, MAX_IMAGE_SIDE, MAX_RETRY_WAIT_MS, Recap, SendOutcome,
-  TEST_MIN_INTERVAL_MS, Week, WeekFight, bossDpsChange, bossTable, buildImagePayload, buildPayload, buildPingPayload,
-  classifyStatus, currentWeek, lastWeek, parseWebhookUrl, pendingView, pickFights, pngSize, resolveJobId, retryAfterMs, waitingForImage,
+  CLAIM_MS, IMAGE_NAME, MAX_IMAGE_BYTES, MAX_IMAGE_SIDE, MAX_RETRY_WAIT_MS, Recap, SendOutcome,
+  TEST_MIN_INTERVAL_MS, Week, WeekFight, bossDpsChange, bossTable, buildImagePayload, buildPingPayload,
+  classifyStatus, lastWeek, parseWebhookUrl, pendingView, pickFights, pngSize, resolveJobId, retryAfterMs,
   webhookHint, WEEK_MS,
 } from "./weekly-core";
 
@@ -122,10 +125,8 @@ async function testPost(db: D1Database, env: Env, room: string) {
     return { error: "too_soon", message: "Bitte kurz warten, bevor du noch einen Test sendest" };
   }
   await db.prepare("UPDATE room_webhooks SET last_test_ms = ?2 WHERE room = ?1").bind(room, now).run();
-  // Laufende Woche: NICHT zwischenspeichern (der Schlüssel wäre nächste Woche der der abgelaufenen Woche)
-  const recap = await buildRecap(db, env, room, currentWeek(now), now);
-  const payload = recap.fights ? buildPayload(recap, { origin: row.origin, test: true, now }) : buildPingPayload(room, row.origin);
-  const res = await send(env, row.url, jsonBody(payload), false);
+  // Nur eine Testnachricht, keine Text-Karte des Rückblicks (der kommt ausschließlich als Bild)
+  const res = await send(env, row.url, jsonBody(buildPingPayload(room, row.origin)), false);
   await saveOutcome(db, room, res, null, now);
   return { ok: res.outcome === "ok", outcome: res.outcome, code: res.code, ...publicView(await load(db, room)) };
 }
@@ -207,7 +208,7 @@ export async function buildRecap(db: D1Database, env: Env, room: string, week: W
 
 /**
  * Auswertung der abgelaufenen Woche: aus room_webhooks.recap_json, sonst einmal berechnen und ablegen.
- * Später eintreffende Uploads dieser Woche ändern das Bild/die Karte dann nicht mehr (gewollt: beide zeigen dasselbe).
+ * Später eintreffende Uploads dieser Woche ändern Bild und Karte dann nicht mehr (gewollt: beide zeigen dasselbe).
  */
 async function weekRecap(env: Env, row: Row, week: Week, now: number): Promise<Recap> {
   if (row.recap_week === week.key && row.recap_json) {
@@ -226,7 +227,7 @@ async function weekRecap(env: Env, row: Row, week: Week, now: number): Promise<R
 }
 
 /**
- * Versand-Sperre: nur einer (Cron oder Bild-Upload) sendet je Raum und Woche. true = Sperre erhalten.
+ * Versand-Sperre: nur ein Bild-Upload sendet je Raum und Woche (z. B. zwei Agenten-Läufe gleichzeitig). true = Sperre erhalten.
  * Bedingung im UPDATE selbst, damit zwei gleichzeitige Aufrufe nicht beide gewinnen.
  */
 async function claim(db: D1Database, room: string, week: string, now: number): Promise<boolean> {
@@ -318,8 +319,8 @@ async function send(env: Env, hook: string, body: Body, allowWait: boolean): Pro
 const ERROR_TEXT: Record<SendOutcome, string | null> = {
   ok: null,
   invalid: "Webhook ungültig (in Discord gelöscht oder Token falsch) – bitte neu hinterlegen",
-  rate_limited: "Discord-Rate-Limit – neuer Versuch beim nächsten Lauf",
-  retry: "Discord nicht erreichbar – neuer Versuch beim nächsten Lauf",
+  rate_limited: "Discord-Rate-Limit – das Bild wird beim nächsten Lauf des Agenten erneut gesendet",
+  retry: "Discord nicht erreichbar – das Bild wird beim nächsten Lauf des Agenten erneut gesendet",
   rejected: "Discord hat die Nachricht abgelehnt",
 };
 
@@ -336,16 +337,20 @@ async function saveOutcome(db: D1Database, room: string, res: SendResult, week: 
     .run();
 }
 
-/** Erledigt: gepostet, ungültig oder abgelehnt. Rate-Limit/Störung: nächster Lauf. */
-const isDone = (o: SendOutcome) => o === "ok" || o === "invalid" || o === "rejected";
+/** Woche ohne Kämpfe: still als erledigt merken (kein Bild, kein Post) */
+async function markNoFights(db: D1Database, room: string, week: string) {
+  await db.prepare("UPDATE room_webhooks SET last_week = ?2 WHERE room = ?1").bind(room, week).run();
+}
 
 /**
- * Cron: für jeden eingeschalteten Raum die abgelaufene Woche posten (einmal).
+ * Cron: sendet NIE etwas an Discord. Berechnet für jeden eingeschalteten Raum die Auswertung der abgelaufenen
+ * Woche vor (recap_json), damit /pending keine zusätzlichen D1-Abfragen braucht; Wochen ohne Kämpfe gelten als
+ * erledigt. Ohne Secret WEEKLY_RENDER_KEY gibt es keinen Bild-Weg und damit nichts zu tun (keine D1-Abfragen).
  * Rückgabe für Logs/Tests: je Raum, was passiert ist.
  */
 export async function runWeekly(env: Env, now: number): Promise<{ room: string; result: string }[]> {
+  if (!env.WEEKLY_RENDER_KEY) return [];
   const week = lastWeek(now);
-  const imageEnabled = !!env.WEEKLY_RENDER_KEY;
   const rows = (
     await env.DB
       .prepare("SELECT * FROM room_webhooks WHERE enabled = 1 AND status != 'invalid' AND (last_week IS NULL OR last_week != ?1) ORDER BY room")
@@ -358,28 +363,16 @@ export async function runWeekly(env: Env, now: number): Promise<{ room: string; 
       out.push({ room: row.room, result: "unknown_room" });
       continue;
     }
-    // Bild-Weg: bis zur Frist auf das Bild warten (keine D1-Abfragen); abgelehntes Bild → sofort Text
-    if (waitingForImage(now, week, imageEnabled, row.image_week)) {
-      out.push({ room: row.room, result: "waiting_image" });
-      continue;
-    }
     try {
       const recap = await weekRecap(env, row, week, now);
       if (!recap.fights) {
-        await env.DB.prepare("UPDATE room_webhooks SET last_week = ?2 WHERE room = ?1").bind(row.room, week.key).run();
+        await markNoFights(env.DB, row.room, week.key);
         out.push({ room: row.room, result: "no_fights" });
         continue;
       }
-      if (!(await claim(env.DB, row.room, week.key, now))) {
-        out.push({ room: row.room, result: "busy" });
-        continue;
-      }
-      const res = await send(env, row.url, jsonBody(buildPayload(recap, { origin: row.origin })), true);
-      await saveOutcome(env.DB, row.room, res, isDone(res.outcome) ? week.key : null, now);
-      out.push({ room: row.room, result: res.outcome });
+      out.push({ room: row.room, result: "waiting_image" });
     } catch (e) {
       console.error(`Wochenrückblick ${row.room}: ${(e as Error).message}`);
-      await release(env.DB, row.room).catch(() => {});
       out.push({ room: row.room, result: "error" });
     }
   }
@@ -459,8 +452,10 @@ export async function handleWeeklyApi(req: Request, env: Env, url: URL): Promise
       if (!(await roomDigest(env, row.room))) continue;
       const recap = await weekRecap(env, row, week, now);
       if (recap.fights) rooms.push(pendingView(recap));
+      else await markNoFights(env.DB, row.room, week.key);
     }
-    return apiJson({ week: { key: week.key, from: week.from, to: week.to }, deadlineMs: week.to + IMAGE_DEADLINE_MS, rooms }, 200);
+    // Offen bleibt ein Raum, bis sein Bild gepostet ist; mit dem nächsten Reset (week.to + WEEK_MS) ersetzt die neue Woche die alte
+    return apiJson({ week: { key: week.key, from: week.from, to: week.to }, replacedMs: week.to + WEEK_MS, rooms }, 200);
   }
 
   const m = /^\/api\/weekly\/([^/]+)\/image$/.exec(url.pathname);
@@ -495,11 +490,13 @@ export async function handleWeeklyApi(req: Request, env: Env, url: URL): Promise
       return apiJson({ error: "no_fights" }, 409);
     }
     const res = await send(env, row.url, imageBody(buildImagePayload(recap, { origin: row.origin }), png), true);
-    // Bild abgelehnt (z. B. 400): Woche NICHT erledigt, der Cron schickt sofort die Text-Karte.
-    // Rate-Limit/Störung: Agent darf es erneut versuchen, sonst Text-Karte nach der Frist.
-    const done = res.outcome === "ok" || res.outcome === "invalid";
-    await saveOutcome(env.DB, room, res, done ? week.key : null, now);
-    const imageWeek = res.outcome === "ok" || res.outcome === "rejected" ? week.key : null;
+    // Erledigt ist die Woche nur, wenn das Bild gepostet ist. Abgelehnt/Rate-Limit/Störung: bleibt in /pending,
+    // der Agent versucht es beim nächsten Lauf erneut – eine Text-Karte gibt es nie.
+    // Webhook ungültig (401/403/404): Status "invalid" nimmt den Raum aus /pending; wird im Dashboard eine neue
+    // Adresse hinterlegt (Status wieder "ok"), ist die Woche noch offen und das Bild kommt doch noch.
+    const posted = res.outcome === "ok";
+    await saveOutcome(env.DB, room, res, posted ? week.key : null, now);
+    const imageWeek = posted ? week.key : null;
     await env.DB
       .prepare("UPDATE room_webhooks SET image_week = COALESCE(?2, image_week), image_status = ?3 WHERE room = ?1")
       .bind(room, imageWeek, res.outcome)

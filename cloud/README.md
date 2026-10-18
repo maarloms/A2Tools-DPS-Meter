@@ -27,16 +27,26 @@ dann zählen nur diese Namen und die Verwaltung im Dashboard ist schreibgeschüt
 ## Wochenrückblick in Discord (Opt-in je Raum)
 
 Dashboard → **Einstellungen**: Discord-Webhook-Adresse hinterlegen (nur `https://discord.com/api/webhooks/…` bzw.
-`discordapp.com`), einschalten, „Test-Post senden“. Ändern/Testen/Entfernen verlangt das Admin-Passwort.
+`discordapp.com`), einschalten, „Test-Post senden“ (schickt nur eine kurze Testnachricht, keinen Rückblick).
+Ändern/Testen/Entfernen verlangt das Admin-Passwort.
 Die Adresse ist ein Geheimnis: Sie steht nur in D1 (`room_webhooks`) und geht nie an Clients zurück (nur „…abcd“).
 
-- Cron `15 7-23 * * 3` (wrangler.jsonc `triggers`): mittwochs nach dem Reset (07:00 UTC, wie die Checkliste) stündlich.
-  Jeder Raum bekommt die abgelaufene Woche **einmal** (`last_week`); spätere Läufe holen nur Fehlschläge nach.
-- Inhalt: Bosskämpfe, Boss-Kills, bester Kampf (höchste Gruppen-DPS der Mitglieder, besiegte zuerst), Top-3-DPS (bester
-  Kampfschnitt je Mitglied), Kills und Ø DPS je Boss gegen die Vorwoche, Link zum Dashboard. Nur Mitglieder, ohne
-  Feldbosse/ausgeblendete Bosse/Training. Wochen ohne Kämpfe werden nicht gepostet.
-- Fehler: 401/403/404 → Webhook „ungültig“, kein weiterer Versuch bis zur neuen Adresse. 429 → bei ≤ 5 s einmal warten
-  und neu senden, sonst nächster Lauf. 5xx/Netz → nächster Lauf. Test-Posts höchstens alle 30 s.
+**Der Rückblick geht nur als Bild raus** (Vorgabe Marlon, 18.10.2026). Der Worker schickt nie eine Text-Karte – weder
+ohne Secret noch nach einer Frist noch nach einem abgelehnten Bild. Das Bild rendert ein lokaler Agent
+(`tools/wochenbild`, Aufgabe mittwochs 09:30, nachgeholt sobald der PC an ist) und lädt es hoch; erst dann postet der Worker.
+
+- Inhalt (Bild + Karte darum): Bosskämpfe, Boss-Kills, bester Kampf (höchste Gruppen-DPS der Mitglieder, besiegte zuerst),
+  Top-DPS (bester Kampfschnitt je Mitglied), Kills und Ø DPS je Boss gegen die Vorwoche, Link zum Dashboard. Nur
+  Mitglieder, ohne Feldbosse/ausgeblendete Bosse/Training. Wochen ohne Kämpfe werden nicht gepostet.
+- Cron `15 7-23 * * 3` (wrangler.jsonc `triggers`): mittwochs nach dem Reset (07:00 UTC, wie die Checkliste). Er
+  **sendet nichts**, sondern berechnet je eingeschaltetem Raum die Auswertung der abgelaufenen Woche vor
+  (`room_webhooks.recap_json`) und markiert Wochen ohne Kämpfe als erledigt (`last_week`). Ohne Secret tut er nichts.
+- Offen bleibt ein Raum, bis sein Bild gepostet ist (`last_week` = Woche). Kein Ablauf am selben Tag: Der Agent kann
+  das Bild Tage später nachholen. Erst mit dem nächsten Reset ersetzt die neue Woche die alte (der Worker rechnet
+  immer mit der zuletzt abgelaufenen Woche); ein eine Woche alter Rückblick wird nicht mehr nachgeschoben.
+- Fehler beim Bild-Post: 401/403/404 → Webhook „ungültig“, Raum fällt aus `/pending`; mit neuer Adresse ist die Woche
+  wieder offen. 400 (Bild abgelehnt) und 5xx/Netz → Status „Fehler“, Woche bleibt offen, der Agent versucht es beim
+  nächsten Lauf erneut. 429 → bei ≤ 5 s einmal warten und neu senden, sonst 502 an den Agenten. Test-Posts höchstens alle 30 s.
 - Lokal testen: `wrangler dev`, dann `http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=*&time=<ms>`.
   `DISCORD_API_BASE` (nur Tests) leitet die Posts an einen lokalen Discord-Ersatz um – in Produktion nicht setzen.
 
@@ -45,17 +55,17 @@ Die Adresse ist ein Geheimnis: Sie steht nur in D1 (`room_webhooks`) und geht ni
 Das Bild entsteht nicht im Worker (resvg braucht 125–740 ms CPU, Free Plan erlaubt 10 ms), sondern lokal mit
 `tools/wochenbild` (satori + resvg). Ablauf und Agenten-Anleitung: `../tools/wochenbild/README.md`.
 
-- Secret `WEEKLY_RENDER_KEY` (≥ 16 Zeichen, zufällig) schaltet den Bild-Weg ein. Ohne Secret: `/api/weekly/*` = 404 und
-  der Cron sendet wie bisher sofort die Text-Karte.
+- Secret `WEEKLY_RENDER_KEY` (≥ 16 Zeichen, zufällig) schaltet den Bild-Weg ein. Ohne Secret: `/api/weekly/*` = 404,
+  der Cron tut nichts und es wird **nichts** gepostet (kein Text-Ersatz).
 - `GET /api/weekly/pending` (Bearer-Key): Räume mit aktivem Webhook, deren abgelaufene Woche noch nicht gepostet ist, samt
   Recap (Zahlen, alle Mitglieder mit Klassen-ID, Bosse mit Kills/Versuchen/Trend, bester/schnellster Kampf, KW). Nie URLs.
+  `replacedMs` = nächster Reset (ab dann gilt die nächste Woche). Räume ohne Kämpfe werden dabei als erledigt markiert.
 - `POST /api/weekly/:raum/image` (Bearer-Key, `Content-Type: image/png`, ≤ 1 MB, PNG-Signatur + IHDR geprüft, ≤ 4096 px):
-  postet per multipart an den Raum-Webhook (bisheriges Embed + `attachment://wochenbild.png`). 200 = gepostet, 502 =
-  Discord-Fehler (`outcome`: `rejected` → Text-Karte sofort, `retry`/`rate_limited` → erneut versuchen), 409 = nicht
-  (mehr) erwartet bzw. Versand läuft.
-- Mit Secret wartet der Cron bis **4 h nach dem Reset** (11:00 UTC = 12:00 MEZ / 13:00 MESZ) auf das Bild, danach Text.
-  Versand-Sperre `claim_ms` (Migration 0014) verhindert Bild + Text in derselben Woche. Die Auswertung der Woche wird
-  einmal berechnet und in `room_webhooks.recap_json` abgelegt (Cron, pending und Upload lesen sie von dort).
+  postet per multipart an den Raum-Webhook (Embed + `attachment://wochenbild.png`). 200 = gepostet (Woche erledigt),
+  502 = Discord-Fehler (`outcome`: `rejected`/`retry`/`rate_limited` → bleibt offen, später erneut; `invalid` → Webhook
+  im Dashboard neu hinterlegen), 409 = nicht (mehr) erwartet bzw. Versand läuft.
+- Versand-Sperre `claim_ms` (Migration 0014) verhindert Doppelposts bei gleichzeitigen Uploads. Die Auswertung der Woche
+  wird einmal berechnet und in `room_webhooks.recap_json` abgelegt (Cron, pending und Upload lesen sie von dort).
 
 ## Zugang / Sessions
 
@@ -84,7 +94,7 @@ cloud/
     room.ts                 Durable Object: WebSocket-Relay, Uploads (serialisiert), Rohdaten
     fights.ts / store.ts    FightRecord → Detail, Zusammenführung, D1-Schreiben
     stats.ts                D1-Abfragen: Übersicht, Mein Bereich, Vergleich, Kampfliste, Trends, Mitglieder
-    weekly.ts               Wochenrückblick: Webhook-Einstellungen, Auswertung aus D1, Cron-Versand an Discord
+    weekly.ts               Wochenrückblick: Webhook-Einstellungen, Auswertung aus D1, Wochenbild-Versand an Discord
     weekly-core.ts          dazu die reine Logik (Wochengrenzen, URL-Prüfung, Discord-Karte), ohne Imports
   public/
     login.html/.js/.css     einzige öffentliche Seite

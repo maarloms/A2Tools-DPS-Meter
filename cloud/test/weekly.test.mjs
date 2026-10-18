@@ -4,10 +4,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  bossDpsChange, buildPayload, buildPingPayload, classifyStatus, currentWeek, escapeMd, fmtPct, lastWeek, parseWebhookUrl,
+  bossDpsChange, buildPingPayload, classifyStatus, currentWeek, escapeMd, fmtPct, lastWeek, parseWebhookUrl,
   pctChange, retryAfterMs, webhookHint, weekLabel, weekStart, EMBED_COLOR, WEEK_MS,
-  IMAGE_DEADLINE_MS, IMAGE_NAME, bossTable, buildImagePayload, isoWeek, pendingView, pickFights, pngSize, resolveJobId, waitingForImage,
+  IMAGE_NAME, bossTable, buildImagePayload, isoWeek, pendingView, pickFights, pngSize, resolveJobId,
 } from "../src/weekly-core.ts";
+import * as core from "../src/weekly-core.ts";
 
 const utc = (s) => Date.parse(s);
 const TOKEN = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdEfGhIjKlMnOpQrStUvWxYz01";
@@ -150,7 +151,7 @@ const RECAP = {
 };
 
 test("Embed: Titel, Farbe, Felder, deutsch formatiert", () => {
-  const p = buildPayload(RECAP, { origin: "https://a2dps.example.workers.dev", now: utc("2026-10-28T07:15:00Z") });
+  const p = buildImagePayload(RECAP, { origin: "https://a2dps.example.workers.dev", now: utc("2026-10-28T07:15:00Z") });
   assert.deepEqual(p.allowed_mentions, { parse: [] });
   assert.equal(p.embeds.length, 1);
   const e = p.embeds[0];
@@ -175,7 +176,7 @@ test("Embed: Titel, Farbe, Felder, deutsch formatiert", () => {
 });
 
 test("Embed ohne Vorwoche und ohne Vergleich", () => {
-  const p = buildPayload({ ...RECAP, prevKills: 0, prevFights: 0, dpsChange: null, top: RECAP.top.slice(0, 1), best: null }, { origin: "https://x.dev" });
+  const p = buildImagePayload({ ...RECAP, prevKills: 0, prevFights: 0, dpsChange: null, top: RECAP.top.slice(0, 1), best: null }, { origin: "https://x.dev" });
   const f = Object.fromEntries(p.embeds[0].fields.map((x) => [x.name, x.value]));
   assert.equal(f["Kills gegen Vorwoche"], "neu (Vorwoche ohne Kill)");
   assert.equal(f["Ø DPS je Boss gegen Vorwoche"], "–");
@@ -183,14 +184,19 @@ test("Embed ohne Vorwoche und ohne Vergleich", () => {
   assert.ok("Top-1-DPS der Woche" in f);
 });
 
-test("Test-Post ist gekennzeichnet", () => {
-  const p = buildPayload(RECAP, { origin: "https://x.dev", test: true, now: utc("2026-10-24T10:00:00Z") });
-  assert.match(p.embeds[0].title, /^Test · Wochenrückblick/);
-  assert.match(p.embeds[0].description, /Test-Post/);
-  assert.equal(p.embeds[0].timestamp, "2026-10-24T10:00:00.000Z");
+test("Test-Post ist nur eine gekennzeichnete Testnachricht, kein Rückblick", () => {
   const ping = buildPingPayload("atreia-trio", "https://x.dev");
   assert.match(ping.embeds[0].title, /^Test · /);
   assert.deepEqual(ping.allowed_mentions, { parse: [] });
+  assert.ok(!ping.embeds[0].fields && !ping.embeds[0].image);
+  assert.match(ping.embeds[0].description, /als Bild/);
+});
+
+test("Kein Text-Rückblick: Karte nur zusammen mit dem Bild, keine Frist", () => {
+  // Vorgabe Marlon (18.10.2026): nie die Text-Karte schicken – die reine Karte und die Frist gibt es nicht mehr
+  assert.equal(core.buildPayload, undefined);
+  assert.equal(core.waitingForImage, undefined);
+  assert.equal(core.IMAGE_DEADLINE_MS, undefined);
 });
 
 test("Markdown in Namen wird entschärft", () => {
@@ -234,18 +240,6 @@ test("Kalenderwoche (ISO)", () => {
   assert.equal(isoWeek(utc("2027-01-06T07:00:00Z")), 1);
 });
 
-test("Cron wartet nur mit Bild-Weg und nur bis zur Frist auf das Bild", () => {
-  const w = lastWeek(utc("2026-10-28T07:15:00Z"));
-  const t = (h) => w.to + h * 3_600_000 + 15 * 60_000;
-  assert.equal(IMAGE_DEADLINE_MS, 4 * 3_600_000);
-  assert.equal(waitingForImage(t(0), w, true, null), true); // 07:15 UTC
-  assert.equal(waitingForImage(t(3), w, true, null), true); // 10:15 UTC
-  assert.equal(waitingForImage(t(4), w, true, null), false); // 11:15 UTC → Text
-  assert.equal(waitingForImage(t(0), w, false, null), false); // ohne Secret: sofort Text wie bisher
-  assert.equal(waitingForImage(t(0), w, true, w.key), false); // Bild abgelehnt → sofort Text
-  assert.equal(waitingForImage(t(0), w, true, "w2026-10-14"), true); // alte Woche zählt nicht
-});
-
 /** Kleinstes gültiges PNG-Gerüst (Signatur + IHDR) */
 function pngHead(w, h) {
   const b = new Uint8Array(33);
@@ -275,12 +269,12 @@ const RECAP_IMG = {
   fastest: { fightId: "a3", boss: "Ragnar", durationMs: 150_000 },
 };
 
-test("Bild-Payload: bisherige Karte + attachment://wochenbild.png", () => {
+test("Bild-Payload: Karte + attachment://wochenbild.png", () => {
   const p = buildImagePayload(RECAP_IMG, { origin: "https://a2dps.example.workers.dev", now: utc("2026-10-28T07:15:00Z") });
-  const text = buildPayload(RECAP_IMG, { origin: "https://a2dps.example.workers.dev", now: utc("2026-10-28T07:15:00Z") });
   assert.equal(IMAGE_NAME, "wochenbild.png");
+  assert.equal(p.embeds.length, 1);
   assert.deepEqual(p.embeds[0].image, { url: "attachment://wochenbild.png" });
-  assert.deepEqual({ ...p.embeds[0], image: undefined }, { ...text.embeds[0], image: undefined });
+  assert.match(p.embeds[0].title, /^Wochenrückblick atreia-trio · /);
   assert.deepEqual(p.attachments.map((a) => [a.id, a.filename]), [[0, "wochenbild.png"]]);
   assert.deepEqual(p.allowed_mentions, { parse: [] });
 });

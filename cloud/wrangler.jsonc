@@ -32,8 +32,8 @@
     }
   ],
 
-  // Wochenrückblick an Discord (src/weekly.ts): mittwochs nach dem Reset (07:00 UTC) stündlich,
-  // jeder Raum bekommt die abgelaufene Woche genau einmal; spätere Läufe holen nur Fehlschläge nach.
+  // Wochenrückblick (src/weekly.ts): mittwochs nach dem Reset (07:00 UTC) stündlich. Der Cron sendet nichts,
+  // er berechnet nur die Auswertung der abgelaufenen Woche vor; gepostet wird nur das Bild vom lokalen Agenten.
   "triggers": { "crons": ["15 7-23 * * 3"] },
 
   // Kopiert Event-Plan (events.json, schedule.js) und Patchnotes-Markdown (markdown.js) aus app/public/fork ins Dashboard.
@@ -53,7 +53,7 @@
   //   npx wrangler secret put SESSION_KEY   (zufällig, ≥ 32 Zeichen; signiert die Login-Cookies)
   //   npx wrangler secret put ROOMS
   //   Format: "raumcode:secret" – mehrere Raeume mit Komma trennen.
-  //   npx wrangler secret put WEEKLY_RENDER_KEY   (optional, Wochenbild aus tools/wochenbild; ohne: nur Text-Karte)
+  //   npx wrangler secret put WEEKLY_RENDER_KEY   (Wochenbild aus tools/wochenbild; ohne Secret wird kein Wochenrückblick gepostet)
   // Lokal: Datei .dev.vars (siehe .dev.vars.example).
 
   // Fehler/eigene Logs ja, aber KEINE Invocation-Logs: die enthalten Request-Header
