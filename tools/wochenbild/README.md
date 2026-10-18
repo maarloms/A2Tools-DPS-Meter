@@ -2,14 +2,27 @@
 
 Der Worker (`cloud/`) rendert keine Bilder (zu viel CPU für den Free Plan). Stattdessen läuft jeden Mittwoch nach
 dem Reset ein Claude-Agent lokal: Er holt die offenen Räume vom Worker, rendert je Raum ein PNG (satori + resvg)
-und lädt es hoch. Der Worker postet es dann an den Discord-Webhook des Raums: die bisherige Karte mit dem Bild darin.
-Kommt bis **11:00 UTC** (12:00 MEZ / 13:00 MESZ) kein Bild, schickt der Cron des Workers wie bisher die Text-Karte.
-Doppelt gepostet wird nie (Versand-Sperre im Worker).
+und lädt es hoch. Der Worker postet es dann an den Discord-Webhook des Raums: die Karte mit dem Bild darin.
+
+**Es gibt keine Text-Karte** (Vorgabe Marlon, 18.10.2026): Der Worker schickt den Rückblick nur als Bild – nie ohne
+Bild, auch nicht nach einer Frist oder nach einem abgelehnten Bild. Ist der PC um 09:30 aus, wird das Bild nachgeholt,
+sobald er an ist. Ein Raum bleibt im Worker offen (`/api/weekly/pending`), bis sein Bild gepostet ist; erst mit dem
+nächsten Reset (Mittwoch 07:00 UTC) ersetzt die neue Woche die alte. Doppelt gepostet wird nie (Versand-Sperre im Worker).
+
+## Geplante Aufgabe (Windows-Aufgabenplanung)
+
+- Trigger: **wöchentlich, Mittwoch 09:30** (Ortszeit; liegt in Sommer- wie Winterzeit nach dem Reset um 07:00 UTC).
+- Einstellung „Aufgabe so schnell wie möglich nach einem verpassten Start ausführen“ **an** → war der PC um 09:30 aus,
+  läuft die Aufgabe, sobald er an ist.
+- Wiederholung: **jede Stunde, Dauer 7 Tage** (bis zum nächsten Reset). Ein Lauf ohne offene Räume endet sofort mit
+  `Nichts zu tun.` (Exit 0) und kostet nur eine kleine Abfrage; so wird ein fehlgeschlagener Post (Discord gestört,
+  Bild abgelehnt) wiederholt, bis er durchgeht.
+- „Neue Instanz nicht starten“, falls ein Lauf noch läuft.
 
 ## Ablauf für den wöchentlichen Agenten
 
-1. **Zeitfenster:** Mittwoch zwischen 07:15 und 10:45 UTC (nach dem Reset um 07:00 UTC, vor der Frist).
-   Nach 11:00 UTC nichts mehr hochladen, dann geht ohnehin die Text-Karte raus.
+1. **Zeitfenster:** ab Mittwoch nach dem Reset (07:00 UTC) bis zum nächsten Reset. Es gibt keine Frist am selben Tag –
+   wird das Bild Tage später hochgeladen, wird es trotzdem gepostet.
 2. **Vorbereiten** (in diesem Ordner): `npm ci`. Die Umgebungsvariablen `WEEKLY_BASE_URL` (Worker-Adresse,
    `https://…`) und `WEEKLY_RENDER_KEY` müssen gesetzt sein (Windows-Benutzervariablen). Den Key **nie** ausgeben,
    in Befehle schreiben oder in Berichte übernehmen.
@@ -18,14 +31,16 @@ Doppelt gepostet wird nie (Versand-Sperre im Worker).
    Rahmen oder ist abgeschnitten? Meldet das Skript `Nichts zu tun.`, ist die Woche schon gepostet bzw. ohne Kämpfe → fertig.
 4. **Posten:** `node run.mjs` (Standard-Entwurf D „Sammelkarten“; anderer Entwurf: `--design a|b|c|e|f`).
    Die letzte Zeile `ERGEBNIS {...}` enthält je Raum `ok` und `result`.
-5. **Fehler:**
+5. **Fehler** (die Woche bleibt im Worker offen, nichts geht als Text raus):
    - Exit-Code **2** (Key falsch, Bild-Weg im Worker aus, URL falsch): nicht wiederholen, dem Leiter melden.
-   - `Discord hat das Bild abgelehnt`: nichts tun, der Worker schickt beim nächsten Cron-Lauf (zur Minute 15) die
-     Text-Karte. Dem Leiter melden.
+   - `Discord hat das Bild abgelehnt`: einmal mit `--design a` versuchen, sonst dem Leiter melden; der nächste
+     geplante Lauf versucht es erneut.
    - `Worker nicht erreichbar` oder `HTTP 502 retry`/`rate_limited` (das Skript hat schon zweimal neu versucht):
-     nach 15 Minuten `node run.mjs` noch einmal, solange es vor 10:45 UTC ist. Sonst liegen lassen (Text-Karte kommt).
+     liegen lassen, der nächste geplante Lauf (stündlich) versucht es erneut.
+   - `Webhook ungültig`: im Dashboard (Einstellungen) eine neue Webhook-Adresse hinterlegen lassen – danach ist die
+     Woche wieder offen und der nächste Lauf postet das Bild. Dem Leiter melden.
    - `Rendern fehlgeschlagen` oder `größer als 1 MB`: einmal mit `--design a` versuchen, sonst liegen lassen und melden.
-   - `übersprungen (… 409 …)`: schon gepostet (Bild oder Text) – kein Fehler.
+   - `übersprungen (… 409 …)`: schon gepostet oder Woche vorbei – kein Fehler.
 6. **Bericht:** die `ERGEBNIS`-Zeile und den Pfad zum PNG an den Leiter/aufs Board, keine Schlüssel und keine URLs.
 
 ## Befehle

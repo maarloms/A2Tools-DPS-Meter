@@ -58,8 +58,8 @@ async function loadRooms() {
   if (!/^https?:\/\//.test(base)) throw new ConfigError("WEEKLY_BASE_URL muss mit https:// beginnen");
   const r = await api("/api/weekly/pending");
   if (r.status !== 200 || !Array.isArray(r.json.rooms)) throw new Error(`pending: HTTP ${r.status} ${r.json.error ?? ""}`.trim());
-  const deadline = r.json.deadlineMs ? new Date(r.json.deadlineMs).toISOString().replace(".000Z", "Z") : "?";
-  return { rooms: r.json.rooms, source: `Worker (Woche ${r.json.week?.key ?? "?"}, Text-Karte ab ${deadline})` };
+  const until = r.json.replacedMs ? new Date(r.json.replacedMs).toISOString().replace(".000Z", "Z") : "?";
+  return { rooms: r.json.rooms, source: `Worker (Woche ${r.json.week?.key ?? "?"}, offen bis zum Reset ${until})` };
 }
 
 async function upload(room, png) {
@@ -73,7 +73,7 @@ async function upload(room, png) {
       await sleep(RETRY_WAIT_MS[attempt]);
       continue;
     }
-    if (r.status === 502 && outcome === "rejected") return { ok: false, result: `Discord hat das Bild abgelehnt (HTTP ${r.json.code}) – der Worker schickt beim nächsten Cron-Lauf die Text-Karte` };
+    if (r.status === 502 && outcome === "rejected") return { ok: false, result: `Discord hat das Bild abgelehnt (HTTP ${r.json.code}) – Woche bleibt offen, nächster Lauf versucht es erneut` };
     if (r.status === 502 && outcome === "invalid") return { ok: false, result: "Webhook ungültig – im Dashboard neu hinterlegen" };
     return { ok: false, result: `HTTP ${r.status} ${r.json.error ?? outcome ?? ""} ${r.json.message ?? ""}`.trim() };
   }

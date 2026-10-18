@@ -1,7 +1,7 @@
 // Lokaler End-to-End-Test: wrangler dev (frische D1, eigener Ordner) + Discord-Ersatz + test/seed.mjs + run.mjs.
 // Nie gegen Produktion. Ports: E2E_PORT (Standard 8791) und +1 für den Discord-Ersatz (nie 8765 – Cockpit).
 //   node e2e-local.mjs            mit WEEKLY_RENDER_KEY: Probelauf, Upload, zweiter Lauf "nichts zu tun", falscher Key
-//   E2E_NOKEY=1 node e2e-local.mjs  ohne Secret: /api/weekly/pending → 404
+//   E2E_NOKEY=1 node e2e-local.mjs  ohne Secret: /api/weekly/pending → 404, Cron postet nichts (keine Text-Karte)
 // Das empfangene Bild landet in <tmp>/wochenbild-e2e/discord-empfangen.png.
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -64,7 +64,17 @@ try {
   if (!withKey) {
     const r = await fetch(`${BASE}/api/weekly/pending`, { headers: { authorization: `Bearer ${KEY}` } });
     console.log(`ohne Secret: GET /api/weekly/pending → ${r.status}`);
-    code = r.status === 404 ? 0 : 1;
+    // Früher schickte der Cron ohne Secret sofort die Text-Karte – jetzt nie
+    const seed = spawnSync(process.execPath, ["test/seed.mjs"], { cwd: CLOUD, env: { ...process.env, BASE, ROOM, SECRET }, encoding: "utf8" });
+    console.log("seed:", seed.status);
+    await fetch(`${BASE}/api/rooms/${ROOM}/webhook`, { method: "PATCH", headers: { authorization: `Bearer ${SECRET}`, "x-a2-admin": ADMIN, "content-type": "application/json" },
+      body: JSON.stringify({ url: `https://discord.com/api/webhooks/123456789012345678/${"T".repeat(60)}`, enabled: true }) });
+    for (const dt of [0, 4, 24]) {
+      await fetch(`${BASE}/cdn-cgi/handler/scheduled?cron=${encodeURIComponent("15 7-23 * * 3")}&time=${Date.now() + dt * 3_600_000}`);
+    }
+    await sleep(500);
+    console.log(`ohne Secret: Cron → ${hits.length} Discord-Posts`);
+    code = r.status === 404 && hits.length === 0 ? 0 : 1;
   } else {
     const seed = spawnSync(process.execPath, ["test/seed.mjs"], { cwd: CLOUD, env: { ...process.env, BASE, ROOM, SECRET }, encoding: "utf8" });
     console.log("seed:", seed.status, (seed.stdout || "").trim().split("\n").slice(-2).join(" | "));
@@ -92,7 +102,7 @@ try {
     const r2 = await run([]);
     const bad = await runAsync([], { ...env, WEEKLY_RENDER_KEY: "falsch-falsch-falsch-falsch" });
     console.log(`falscher Key → exit ${bad.status}: ${(bad.stdout + bad.stderr).trim().split("\n").at(-1)}`);
-    // Cron jetzt (Sonntag) → Woche schon erledigt, kein Text
+    // Cron jetzt → sendet nie etwas (Woche ohnehin schon per Bild erledigt)
     await fetch(`${BASE}/cdn-cgi/handler/scheduled?cron=${encodeURIComponent("15 7-23 * * 3")}&time=${Date.now()}`);
     await sleep(500);
     const st = await (await fetch(`${BASE}/api/rooms/${ROOM}/webhook`, { headers: { authorization: `Bearer ${SECRET}` } })).json();
