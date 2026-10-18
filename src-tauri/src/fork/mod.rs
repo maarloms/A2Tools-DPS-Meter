@@ -212,9 +212,13 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 let manager = HotkeyManager::new();
                 let handle = app.clone();
                 // Only the timer key; Settings' keybind status is not about it.
-                manager.start(0, 0, 3, 0x54, 0, 0, || {}, move || {
-                    spawn_toggle(handle.clone());
-                }, || {}, |_, _| {});
+                // Ctrl+Alt+T (MOD_ALT | MOD_CONTROL, VK 'T').
+                manager.start(vec![crate::platform::hotkeys::Binding {
+                    name: "fork-timer",
+                    mods: 3,
+                    vk: 0x54,
+                    on_fire: Box::new(move || spawn_toggle(handle.clone())),
+                }], |_, _, _| {});
                 app.manage(manager);
                 if app.state::<AppState>().settings.get(VISIBLE).as_deref() == Some("true") {
                     spawn_toggle(app.clone());
