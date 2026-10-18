@@ -1,0 +1,25 @@
+{
+  "name": "a2dps-wochenbild",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Wochenrückblick als Bild: lokal rendern (satori + resvg) und über den Worker an Discord posten",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "render": "node render.mjs",
+    "run": "node run.mjs",
+    "dry-run": "node run.mjs --dry-run",
+    "samples": "node samples.mjs"
+  },
+  "dependencies": {
+    "@fontsource/anton": "^5.3.0",
+    "@fontsource/caveat": "^5.3.0",
+    "@fontsource/cinzel": "^5.3.0",
+    "@fontsource/im-fell-english": "^5.3.0",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/playfair-display": "^5.3.0",
+    "@fontsource/unifrakturmaguntia": "^5.3.0",
+    "@resvg/resvg-js": "^2.6.2",
+    "satori": "^0.62.0"
+  }
+}
