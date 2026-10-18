@@ -59,4 +59,60 @@ mod tests {
         let _ = s.flush();
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    /// Every report boss_report.rs sends (maps, kills, HP, the Abyss
+    /// artifacts' holders and cores, 2.0.72/73) goes out only when
+    /// `shareBossTimers` isn't "false" – and the fork seeds it "false". A new
+    /// path or POST upstream adds fails here, to be checked before a release.
+    #[test]
+    #[cfg(feature = "online")]
+    fn every_boss_timer_sender_is_behind_the_switch() {
+        let src = include_str!("../boss_report.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
+        let mut paths: Vec<&str> = code
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .flat_map(|l| l.match_indices("/api/").map(move |(i, _)| { let rest = &l[i..]; &rest[..rest.find('"').unwrap_or(rest.len())] }))
+            .collect();
+        paths.sort();
+        paths.dedup();
+        assert_eq!(paths, [
+            "/api/boss-timers/artifacts",
+            "/api/boss-timers/cores",
+            "/api/boss-timers/hp",
+            "/api/boss-timers/kill",
+            "/api/boss-timers/report",
+        ]);
+        // POSTs: HP + cores' HP, the orb killers, the kills, the maps, the
+        // artifacts. Each of their loops reads the switch first.
+        assert_eq!(code.matches(".http.post(").count(), 5);
+        assert_eq!(code.matches(".http.get(").count(), 0);
+        let gate_off = "state.settings.get(SETTING_KEY).as_deref() == Some(\"false\")";
+        let gate_on = "state.settings.get(SETTING_KEY).as_deref() != Some(\"false\")";
+        let body = |name: &str| {
+            let start = code.find(name).unwrap();
+            let end = code[start + 1..].find("
+fn ").or(code[start + 1..].find("
+pub fn ")).map_or(code.len(), |e| start + 1 + e);
+            &code[start..end]
+        };
+        // HP/cores' HP, kills and orb killers (spawn_events).
+        let events = body("fn spawn_events(");
+        assert!(events.contains(gate_off) && events.contains(gate_on));
+        assert!(events.find(gate_off).unwrap() < events.find("/api/boss-timers/hp").unwrap());
+        // The artifacts and the orb kills their holders settle.
+        let artifacts = body("async fn send_artifacts(");
+        assert!(artifacts.find(gate_off).unwrap() < artifacts.find("send_orb_killers(").unwrap());
+        // The maps.
+        let maps = body("pub fn spawn(app");
+        assert!(maps.find(gate_off).unwrap() < maps.find("/api/boss-timers/report").unwrap());
+        // send_orb_killers itself is called only from those two places.
+        assert_eq!(code.matches("send_orb_killers(&state, server, expired)").count(), 1);
+        assert_eq!(code.matches("send_orb_killers(").count(), 3);
+        // And the switch is the one the fork seeds off.
+        let (s, dir) = settings("senders");
+        seed_off_by_default(&s);
+        assert_eq!(s.get(crate::boss_report::SETTING_KEY).as_deref(), Some("false"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
