@@ -443,6 +443,9 @@ pub struct BossEvent {
 pub enum BossEventKind {
     /// Killed at this moment (unix ms).
     Killed { at_ms: i64 },
+    /// Seen up: its spawn came, as it spawned or came into view (unix ms).
+    /// Only for the Abyss's cores, whose maps say nothing of them.
+    Seen { at_ms: i64 },
 }
 
 /// Unsent boss events kept at most (the sender drains them every second).
@@ -521,6 +524,10 @@ struct Inner {
     /// Changes when the party's members change, or it ends (see
     /// `party_generation`).
     party_generation: u64,
+    /// Counted at each map load (`zone_generation`), and at each one that
+    /// enters or leaves an instance (`instance_generation`).
+    zone_generation: u64,
+    instance_generation: u64,
     /// When the party last ended (`end_party`), clock ms; `NEVER_MS` if it
     /// has not.
     party_ended_at_ms: i64,
@@ -606,6 +613,12 @@ struct Inner {
     /// and a count that moves with each, for `boss_maps_since`.
     boss_maps: Vec<crate::capture::boss_map::BossMap>,
     boss_map_seq: u64,
+    /// Who holds each Abyss artifact, as last told (`capture::abyss_artifacts`):
+    /// each war and artifact replaced by its newer word. When it was told,
+    /// and a count that moves with each, for `abyss_artifacts_since`.
+    abyss_artifacts: crate::capture::abyss_artifacts::ArtifactState,
+    abyss_artifacts_seen_ms: i64,
+    abyss_artifacts_seq: u64,
     /// Entities whose max HP came from their spawn record, so a percentage of
     /// it can be trusted (a peak seen later may be below the real max).
     spawn_hp_ids: HashSet<i32>,
@@ -659,6 +672,8 @@ struct Inner {
     /// reports from them carry it for a2tools.app to tell the two apart
     /// (`boss_report::with_host`).
     game_host: Option<std::net::Ipv4Addr>,
+    /// See `note_host_server`.
+    host_server: u16,
 
     /// Odyle energy, (basic, charged), as the game last sent it. See
     /// `StreamProcessor::parse_odyle_energy_packet`.
@@ -745,6 +760,8 @@ impl DataStorage {
                 nickname_storage: HashMap::new(),
                 names_generation: 0,
                 party_generation: 0,
+                zone_generation: 0,
+                instance_generation: 0,
                 party_ended_at_ms: NEVER_MS,
                 pending_nicknames: HashMap::new(),
             name_seen_ms: HashMap::new(),
@@ -775,6 +792,9 @@ impl DataStorage {
                 death_log: VecDeque::new(),
                 boss_maps: Vec::new(),
                 boss_map_seq: 0,
+                abyss_artifacts: crate::capture::abyss_artifacts::ArtifactState { wars: Vec::new(), artifacts: Vec::new() },
+                abyss_artifacts_seen_ms: 0,
+                abyss_artifacts_seq: 0,
                 spawn_hp_ids: HashSet::new(),
                 boss_hp_now: HashMap::new(),
                 boss_hp_sent: HashMap::new(),
@@ -790,6 +810,7 @@ impl DataStorage {
                 has_boss_in_segment: false,
                 current_target: 0,
                 game_host: None,
+                host_server: 0,
                 odyle_energy: None,
                 odyle_owner: None,
                 odyle_awaits_self_record: false,
@@ -1294,6 +1315,36 @@ impl DataStorage {
     /// is the fallback, by majority, since in a cross-server party each member
     /// keeps their own server but all share the region.
     pub fn fight_server_id(&self) -> u16 {
+        let own = self.own_server();
+        if own != 0 {
+            return own;
+        }
+        let inner = self.inner.read();
+        let local = inner.local_character_name.as_deref().map(str::trim);
+        if let Some(member) = local.and_then(|n| inner.party_members.get(n)) {
+            if member.server_id != 0 {
+                return member.server_id;
+            }
+        }
+        // A meter started mid-game: the server this game server's address
+        // was last seen to be (`note_host_server`), before a party's
+        // majority, which can be another server's.
+        if inner.host_server != 0 {
+            return inner.host_server;
+        }
+        let mut counts: HashMap<u16, usize> = HashMap::new();
+        for member in inner.party_members.values() {
+            if member.server_id != 0 {
+                *counts.entry(member.server_id).or_default() += 1;
+            }
+        }
+        counts.into_iter().max_by_key(|&(server, n)| (n, std::cmp::Reverse(server))).map_or(0, |(s, _)| s)
+    }
+
+    /// The local player's own server as the game stated it (a self or loot
+    /// record), 0 when it hasn't yet. Unlike `fight_server_id`, never a
+    /// guess from the party or the connection.
+    pub fn own_server(&self) -> u16 {
         let inner = self.inner.read();
         let local = inner.local_character_name.as_deref().map(str::trim);
         if let Some(&server) = local.and_then(|n| inner.player_servers.get(n)) {
@@ -1304,21 +1355,16 @@ impl DataStorage {
         // the name) and the next self record, the fight just ended was saved
         // with no local name, and the roster majority filed it under a party
         // member's server (1014 for a 2014 player, 2026-08-15).
-        if inner.self_server != 0 {
-            return inner.self_server;
+        inner.self_server
+    }
+
+    /// The server the game server's address was last seen to be (see
+    /// `boss_report::report_server`); 0 when not known.
+    pub fn note_host_server(&self, server: u16) {
+        let mut inner = self.inner.write();
+        if inner.host_server != server {
+            inner.host_server = server;
         }
-        if let Some(member) = local.and_then(|n| inner.party_members.get(n)) {
-            if member.server_id != 0 {
-                return member.server_id;
-            }
-        }
-        let mut counts: HashMap<u16, usize> = HashMap::new();
-        for member in inner.party_members.values() {
-            if member.server_id != 0 {
-                *counts.entry(member.server_id).or_default() += 1;
-            }
-        }
-        counts.into_iter().max_by_key(|&(server, n)| (n, std::cmp::Reverse(server))).map_or(0, |(s, _)| s)
     }
 
     /// Whether the game itself named the local player (the self record or the
@@ -1547,7 +1593,18 @@ impl DataStorage {
     pub fn append_mob(&self, mid: i32, code: i32) {
         if let Some(hook) = MOB_LIFE_HOOK.get() { hook(code, false); } // fork
         let mut inner = self.inner.write();
-        inner.mob_storage.insert(mid, code);
+        let before = inner.mob_storage.insert(mid, code);
+        // An Abyss core seen up, once per entity (online builds only, as kills).
+        #[cfg(feature = "online")]
+        if before != Some(code)
+            && crate::capture::abyss_cores::is_core(code)
+            && inner.current_dungeon_id <= 0
+            && !inner.dead_entity_ids.contains(&mid)
+        {
+            push_boss_event(&mut inner, BossEvent { npc: code, kind: BossEventKind::Seen { at_ms: now_ms() } });
+        }
+        #[cfg(not(feature = "online"))]
+        let _ = before;
         // A spawn names the NPC: the table says what it is from here on.
         inner.hp_floored_ids.remove(&mid);
         inner.hp_reset_dummy_ids.remove(&mid);
@@ -1630,7 +1687,7 @@ impl DataStorage {
             #[cfg(feature = "online")]
             if inner.current_dungeon_id <= 0 && !inner.dead_entity_ids.contains(&entity_id) {
                 if let Some(&code) = inner.mob_storage.get(&entity_id) {
-                    if crate::capture::field_bosses::is_field_boss(code) {
+                    if crate::capture::field_bosses::is_reported(code) {
                         push_boss_event(&mut inner, BossEvent { npc: code, kind: BossEventKind::Killed { at_ms: now_ms() } });
                     }
                 }
@@ -1696,6 +1753,33 @@ impl DataStorage {
     pub fn boss_maps_since(&self, seq: u64) -> Option<(u64, Vec<crate::capture::boss_map::BossMap>)> {
         let inner = self.inner.read();
         (inner.boss_map_seq != seq).then(|| (inner.boss_map_seq, inner.boss_maps.clone()))
+    }
+
+    /// Who holds the Abyss artifacts, as the game just said: each war and
+    /// artifact it names replaces what was known of it.
+    pub fn note_abyss_artifacts(&self, told: crate::capture::abyss_artifacts::ArtifactState) {
+        let mut inner = self.inner.write();
+        let known = &mut inner.abyss_artifacts;
+        for war in told.wars {
+            known.wars.retain(|w| w.event_id != war.event_id);
+            known.wars.push(war);
+        }
+        for artifact in told.artifacts {
+            known.artifacts.retain(|a| a.id != artifact.id);
+            known.artifacts.push(artifact);
+        }
+        known.wars.sort_by_key(|w| w.event_id);
+        known.artifacts.sort_by_key(|a| a.id);
+        inner.abyss_artifacts_seen_ms = now_ms();
+        inner.abyss_artifacts_seq += 1;
+    }
+
+    /// The artifact owners and when they were last told, if told since
+    /// `seq`, and the count to ask with next time.
+    pub fn abyss_artifacts_since(&self, seq: u64) -> Option<(u64, crate::capture::abyss_artifacts::ArtifactState, i64)> {
+        let inner = self.inner.read();
+        (inner.abyss_artifacts_seq != seq)
+            .then(|| (inner.abyss_artifacts_seq, inner.abyss_artifacts.clone(), inner.abyss_artifacts_seen_ms))
     }
 
     pub fn deaths_between(&self, from: i64, to: i64) -> Vec<(i32, i64, Option<i64>)> {
@@ -1918,7 +2002,11 @@ impl DataStorage {
         // A load hands out new entity ids: counts of the old ones would name
         // an entity that is gone.
         inner.loot_identity.scope_counts.clear();
-        inner.current_map_id = Some(map_id);
+        let from = inner.current_map_id.replace(map_id);
+        inner.zone_generation += 1;
+        if !(from.is_some_and(is_open_world_map) && is_open_world_map(map_id)) {
+            inner.instance_generation += 1;
+        }
         let dungeon = dungeon_of_map(inner.roster_dungeon_id, Some(map_id));
         if dungeon != inner.current_dungeon_id {
             tracing::debug!("Map {map_id}: dungeon {} -> {dungeon}", inner.current_dungeon_id);
@@ -2195,7 +2283,7 @@ impl DataStorage {
             && inner.spawn_hp_ids.contains(&id)
         {
             if let Some(&code) = inner.mob_storage.get(&id) {
-                if crate::capture::field_bosses::is_field_boss(code) {
+                if crate::capture::field_bosses::is_reported(code) {
                     let pct = ((hp as i64 * 100) / max as i64).clamp(0, 100) as u8;
                     let changed = match inner.boss_hp_now.get(&id) {
                         Some(&(_, before, at)) if before == pct => at,
@@ -2414,6 +2502,15 @@ impl DataStorage {
     /// party. Not with every roster; the game resends it on each map load.
     pub fn party_generation(&self) -> u64 {
         self.inner.read().party_generation
+    }
+
+    /// Counts of map loads: every one, and those entering or leaving an
+    /// instance (a dungeon, entered again with "go again" too; anything but
+    /// the open world to the open world). The meter clears the last fight
+    /// off the screen on one, as its setting says.
+    pub fn zone_generations(&self) -> (u64, u64) {
+        let inner = self.inner.read();
+        (inner.zone_generation, inner.instance_generation)
     }
 
     /// Changes whenever a name is bound, replaced or dropped, and with each
@@ -3216,6 +3313,22 @@ mod tests {
         assert_eq!(s.get_party_members().len(), 2, "the roster itself is kept, for combat power");
     }
 
+    /// A meter started mid-game: the fights go under the server learnt for
+    /// the connection, ahead of a party's majority; the game's own word
+    /// still wins once it comes (Harvest Manager Moshav, 2026-10-18).
+    #[test]
+    fn fights_take_the_connection_server_until_the_game_says() {
+        let s = DataStorage::new();
+        let on = |server: u16| PartyMember { server_id: server, ..member(1) };
+        s.set_party_roster(vec![("A".into(), on(2304)), ("B".into(), on(2304)), ("C".into(), on(1307))], true);
+        assert_eq!(s.fight_server_id(), 2304, "the party's majority, as before");
+        s.note_host_server(1304);
+        assert_eq!(s.fight_server_id(), 1304, "the connection's server over the majority");
+        assert_eq!(s.own_server(), 0, "never taken as the player's own");
+        s.note_self_server(1305);
+        assert_eq!(s.fight_server_id(), 1305, "the game's own word wins");
+    }
+
     /// Members leaving after the boss falls (Vakron, 2026-10-17) keep their
     /// combat power in the fight's later saves, but are no longer the party.
     #[test]
@@ -3329,6 +3442,22 @@ mod tests {
         assert_eq!(s.fight_server_id(), 1304, "what your own record says");
         s.note_player_server("C", 99);
         assert_eq!(s.fight_server_id(), 1304, "a value no server has is not taken");
+    }
+
+    #[test]
+    fn instances_entered_and_left_are_counted_apart_from_open_world_moves() {
+        let s = DataStorage::new();
+        let open = *OPEN_WORLD_MAPS.iter().next().unwrap();
+        s.note_map_load(open);
+        let (_, at_start) = s.zone_generations();
+        s.note_map_load(open);
+        assert_eq!(s.zone_generations().1, at_start, "a teleport in the open world");
+        s.note_map_load(610_001);
+        assert_eq!(s.zone_generations().1, at_start + 1, "into a dungeon");
+        s.note_map_load(610_001);
+        assert_eq!(s.zone_generations().1, at_start + 2, "go again: the same dungeon loaded again");
+        s.note_map_load(open);
+        assert_eq!(s.zone_generations(), (5, at_start + 3), "back to the open world");
     }
 
     #[test]

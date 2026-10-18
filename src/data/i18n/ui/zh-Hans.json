@@ -319,6 +319,14 @@
       "displayNamePlaceholder": "你的角色名"
     },
     "version": "版本",
+    "update": {
+      "check": "检查更新",
+      "checking": "正在检查…",
+      "current": "已是最新",
+      "installing": "正在更新…",
+      "available": "{version} 已发布",
+      "failed": "无法检查，请稍后再试。"
+    },
     "theme": {
       "label": "配色主题",
       "options": {
@@ -369,7 +377,9 @@
       "label": "条形不透明度"
     },
     "barPreview": "预览",
-    "meterSaturation": {"label": "条形颜色强度"},
+    "meterSaturation": {
+      "label": "条形颜色强度"
+    },
     "bossNameSize": {
       "label": "标题大小"
     },
@@ -407,8 +417,13 @@
       "reload": "重新加载数据",
       "toggle": "显示/隐藏窗口",
       "pressKeys": "请按下按键...",
-      "needModifiers": "需要2个以上修饰键",
-      "lock": "锁定/解锁悬浮窗"
+      "tooManyKeys": "最多 3 个键",
+      "plugins": "找回插件窗口",
+      "notSet": "未设置",
+      "restoreDefaults": "恢复默认",
+      "hint": "点击一个快捷键，然后按下 1 到 3 个键。按 Esc 取消。",
+      "lock": "锁定/解锁悬浮窗",
+      "openDesktop": "桌面快捷键"
     },
     "defaultMeterMode": {
       "label": "启动时的目标模式"
@@ -491,7 +506,8 @@
       "saveRawPackets": "记录原始游戏流量以便提交错误报告。调试日志会随之开启。",
       "globalHotkeys": "下面的按键在游戏处于前台时也能使用。关闭后，这些按键会释放给其他程序。在 Linux 上由桌面注册这些按键，桌面可能会请你批准。",
       "pluginDevMode": "从这台电脑上的文件夹加载插件，用于开发和测试。这些插件未经审核，请只加载你信任的插件。",
-      "showMeter": "关闭：只显示插件。统计仍在后台记录战斗并上传。可在此处、用显示/隐藏快捷键，或插件窗口上的统计按钮重新显示。"
+      "showMeter": "关闭：只显示插件。统计仍在后台记录战斗并上传。可在此处、用显示/隐藏快捷键，或插件窗口上的统计按钮重新显示。",
+      "clearOnZone": "切换区域后，何时从统计中清除上一场战斗。所有战斗都会保留在历史记录中。"
     },
     "globalHotkeys": "使用快捷键",
     "hotkeyConsent": {
@@ -503,6 +519,8 @@
     },
     "keybindTaken": "其他程序已在使用这些按键。请换用其他按键。",
     "keybindShared": "另一个操作使用了这些按键。请换用其他按键。",
+    "keybindUnset": "桌面尚未为此分配按键。请在“桌面快捷键”中设置。",
+    "keybindAssigned": "桌面使用的是 {key}。可在“桌面快捷键”中更改。",
     "plugins": {
       "title": "插件",
       "devMode": "插件开发者模式",
@@ -548,6 +566,14 @@
       "enabled": "启用",
       "enabledTip": "开启：随计量器启动。关闭：保持安装，但不运行。",
       "showMeter": "显示 DPS 统计"
+    },
+    "clearOnZone": {
+      "label": "清空统计",
+      "options": {
+        "instance": "进出副本时",
+        "any": "每次切换区域时",
+        "never": "从不（保留上一场战斗）"
+      }
     }
   },
   "support": {

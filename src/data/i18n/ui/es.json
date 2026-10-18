@@ -314,6 +314,14 @@
       "displayNamePlaceholder": "Nombre de tu personaje"
     },
     "version": "Versión",
+    "update": {
+      "check": "Buscar actualizaciones",
+      "checking": "Comprobando…",
+      "current": "Al día",
+      "installing": "Actualizando…",
+      "available": "Ya salió la {version}",
+      "failed": "No se pudo comprobar. Inténtalo más tarde."
+    },
     "theme": {
       "label": "Tema de colores",
       "options": {
@@ -364,7 +372,9 @@
       "label": "Opacidad de las barras"
     },
     "barPreview": "Vista previa",
-    "meterSaturation": {"label": "Intensidad del color"},
+    "meterSaturation": {
+      "label": "Intensidad del color"
+    },
     "bossNameSize": {
       "label": "Tamaño del título"
     },
@@ -402,8 +412,13 @@
       "reload": "Recargar datos",
       "toggle": "Mostrar/ocultar ventana",
       "pressKeys": "Pulsa las teclas...",
-      "needModifiers": "Se necesitan 2+ modificadores",
-      "lock": "Bloquear/desbloquear superposición"
+      "tooManyKeys": "Máximo 3 teclas",
+      "plugins": "Recuperar ventanas de plugins",
+      "notSet": "Sin asignar",
+      "restoreDefaults": "Restaurar predeterminados",
+      "hint": "Haz clic en un atajo y pulsa de 1 a 3 teclas. Esc cancela.",
+      "lock": "Bloquear/desbloquear superposición",
+      "openDesktop": "Atajos del escritorio"
     },
     "defaultMeterMode": {
       "label": "Modo de objetivo al iniciar"
@@ -484,7 +499,8 @@
       "saveRawPackets": "Graba el tráfico bruto del juego para informes de errores. El registro de depuración se activa con él.",
       "globalHotkeys": "Las teclas de abajo funcionan en cualquier momento, incluso con el juego en primer plano. Desactivado, quedan libres para otros programas. En Linux las registra el escritorio, que puede pedirte que las apruebes.",
       "pluginDevMode": "Carga complementos desde carpetas de este equipo, para crearlos y probarlos. No están revisados, así que carga solo los que sean de confianza.",
-      "showMeter": "Desactivado: solo se ven tus plugins. El medidor sigue registrando combates y subiéndolos en segundo plano. Vuelve a mostrarlo aquí, con el atajo de mostrar/ocultar o con el botón del medidor en una ventana de plugin."
+      "showMeter": "Desactivado: solo se ven tus plugins. El medidor sigue registrando combates y subiéndolos en segundo plano. Vuelve a mostrarlo aquí, con el atajo de mostrar/ocultar o con el botón del medidor en una ventana de plugin.",
+      "clearOnZone": "Cuándo desaparece el último combate del medidor tras un cambio de zona. Todos los combates quedan en el Historial igualmente."
     },
     "globalHotkeys": "Usar atajos de teclado",
     "hotkeyConsent": {
@@ -496,6 +512,8 @@
     },
     "keybindTaken": "Otro programa ya usa estas teclas. Elige otras.",
     "keybindShared": "Otra acción usa estas teclas. Elige otras.",
+    "keybindUnset": "Tu escritorio aún no ha asignado una tecla a esto. Asígnala en Atajos del escritorio.",
+    "keybindAssigned": "Tu escritorio usa {key}. Cámbialo en Atajos del escritorio.",
     "plugins": {
       "title": "Complementos",
       "devMode": "Modo de desarrollador de complementos",
@@ -541,6 +559,14 @@
       "enabled": "Activado",
       "enabledTip": "Activado: se inicia con el medidor. Desactivado: sigue instalado, pero no se ejecuta.",
       "showMeter": "Mostrar el medidor de DPS"
+    },
+    "clearOnZone": {
+      "label": "Vaciar el medidor",
+      "options": {
+        "instance": "Al entrar o salir de una mazmorra",
+        "any": "En cualquier cambio de zona",
+        "never": "Nunca (mantener el último combate)"
+      }
     }
   },
   "support": {

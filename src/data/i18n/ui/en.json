@@ -324,6 +324,14 @@
       "displayNamePlaceholder": "Your character name"
     },
     "version": "Version",
+    "update": {
+      "check": "Check for updates",
+      "checking": "Checking…",
+      "current": "Up to date",
+      "installing": "Updating…",
+      "available": "{version} is out",
+      "failed": "Couldn't check. Try again later."
+    },
     "theme": {
       "label": "Colour theme",
       "options": {
@@ -374,7 +382,9 @@
       "label": "Bar opacity"
     },
     "barPreview": "Preview",
-    "meterSaturation": {"label": "Bar colour strength"},
+    "meterSaturation": {
+      "label": "Bar colour strength"
+    },
     "bossNameSize": {
       "label": "Title size"
     },
@@ -412,8 +422,13 @@
       "reload": "Reload data",
       "toggle": "Show/Hide window",
       "pressKeys": "Press keys...",
-      "needModifiers": "Need 2+ modifiers",
-      "lock": "Lock/unlock overlay"
+      "tooManyKeys": "Up to 3 keys",
+      "plugins": "Bring back plugin windows",
+      "notSet": "Not set",
+      "restoreDefaults": "Restore defaults",
+      "hint": "Click a keybind, then press 1 to 3 keys. Esc cancels.",
+      "lock": "Lock/unlock overlay",
+      "openDesktop": "Desktop shortcuts"
     },
     "defaultMeterMode": {
       "label": "Starting target mode"
@@ -496,7 +511,8 @@
       "saveRawPackets": "Records raw game traffic for bug reports. Debug logging turns on with it.",
       "globalHotkeys": "The keys below work anywhere, even while the game is in front. Off, they are released for other programs. On Linux your desktop registers them and may ask you to approve them.",
       "pluginDevMode": "Loads plugins from folders on this computer, for building and testing them. They are not reviewed, so only load plugins you trust.",
-      "showMeter": "Off: only your plugins show. The meter keeps reading combat and uploading in the background. Bring it back here, with the show/hide hotkey, or with the meter button on a plugin window."
+      "showMeter": "Off: only your plugins show. The meter keeps reading combat and uploading in the background. Bring it back here, with the show/hide hotkey, or with the meter button on a plugin window.",
+      "clearOnZone": "When the last fight leaves the meter after the zone changes. Every fight stays in History either way."
     },
     "globalHotkeys": "Use keybinds",
     "hotkeyConsent": {
@@ -508,6 +524,8 @@
     },
     "keybindTaken": "Another program already uses these keys. Pick different keys.",
     "keybindShared": "Another action uses these keys. Pick different keys.",
+    "keybindUnset": "Your desktop hasn't given this a key yet. Set it in Desktop shortcuts.",
+    "keybindAssigned": "Your desktop uses {key}. Change it in Desktop shortcuts.",
     "plugins": {
       "title": "Plugins",
       "devMode": "Plugin developer mode",
@@ -553,6 +571,14 @@
       "enabled": "Enabled",
       "enabledTip": "On: starts with the meter. Off: stays installed but doesn't run.",
       "showMeter": "Show the DPS meter"
+    },
+    "clearOnZone": {
+      "label": "Clear the meter",
+      "options": {
+        "instance": "Entering or leaving a dungeon",
+        "any": "Any zone change",
+        "never": "Never (keep the last fight)"
+      }
     }
   },
   "support": {

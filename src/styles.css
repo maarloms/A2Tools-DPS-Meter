@@ -1433,8 +1433,60 @@ body.mainPlayerDpsBold :is(.meter, .barPreviewPanel) .item .content .dps > p {
    notes (core.js). */
 /* The tab list is the nav's own children, for the layout. */
 .settingsPanel .settingsTabs { display: contents; }
-.settingsPanel .settingsNav .settingsVersionLink {
+/* The version, and beside it a check for updates and what it found. */
+.settingsPanel .settingsNav .settingsVersionRow {
   margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  column-gap: 2px;
+}
+.settingsPanel .settingsNav .settingsUpdateBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin-bottom: -1px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+}
+.settingsPanel .settingsNav .settingsUpdateBtn:hover,
+.settingsPanel .settingsNav .settingsUpdateBtn:focus-visible {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+.settingsPanel .settingsNav .settingsUpdateBtn[hidden],
+.settingsPanel .settingsNav .settingsUpdateStatus[hidden] {
+  display: none;
+}
+.settingsPanel .settingsNav .settingsUpdateBtn svg {
+  width: 14px;
+  height: 14px;
+}
+.settingsPanel .settingsNav .settingsUpdateBtn.isChecking svg {
+  animation: settingsUpdateSpin 0.9s linear infinite;
+}
+@keyframes settingsUpdateSpin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settingsPanel .settingsNav .settingsUpdateBtn.isChecking svg {
+    animation: none;
+  }
+}
+.settingsPanel .settingsNav .settingsUpdateStatus {
+  flex-basis: 100%;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.6);
+}
+.settingsPanel .settingsNav .settingsVersionLink {
   align-self: flex-start;
   padding: 8px 10px 2px;
   font-variant-numeric: tabular-nums;
@@ -1447,8 +1499,15 @@ body.mainPlayerDpsBold :is(.meter, .barPreviewPanel) .item .content .dps > p {
   color: #fff;
 }
 @media (max-width: 560px) {
-  .settingsPanel .settingsNav .settingsVersionLink {
+  .settingsPanel .settingsNav .settingsVersionRow {
     margin: 0 0 0 auto;
+    align-items: center;
+  }
+  .settingsPanel .settingsNav .settingsUpdateStatus {
+    display: none;
+  }
+  .settingsPanel .settingsNav .settingsVersionLink {
+    margin: 0;
     align-self: center;
     padding: 0 6px;
   }
@@ -6890,20 +6949,43 @@ html.settingsWindow .meter {
 /* WebKitGTK asks fontconfig about every missing family in a stack, again in
    each new window process; the Windows/macOS names cost ~0.5s of first layout
    on Linux, where they never resolve. Same rendering, without those names. */
+/* Linux has neither Bahnschrift nor (usually) Pretendard, and the system
+   sans-serif is static: the weight and width the HUD sets did nothing, so the
+   title and numbers came out light and wide. Saira (a narrow face with
+   width and weight axes, standing in for Bahnschrift) and Pretendard ship
+   with the meter for Linux; both under the SIL Open Font License (fonts/).
+   Files the page loads, so no fontconfig lookups either. */
+@font-face {
+  font-family: "A2 Saira";
+  src: url("./fonts/Saira.woff2") format("woff2");
+  font-weight: 100 900;
+  font-stretch: 50% 125%;
+  font-display: block;
+}
+@font-face {
+  font-family: "A2 Pretendard";
+  src: url("./fonts/PretendardVariable.woff2") format("woff2");
+  font-weight: 45 920;
+  font-display: block;
+}
 html.linux {
   --cjk-font-stack: "Noto Sans SC", "Noto Sans TC", sans-serif;
-  --hud-tech: sans-serif;
-  --hud-ident: "Pretendard", sans-serif;
+  --hud-tech: "A2 Saira", sans-serif;
+  --hud-ident: "A2 Pretendard", sans-serif;
+}
+/* Saira's regular is lighter than Bahnschrift's: the numbers a step up. */
+html.linux .list .item .dps > p {
+  font-variation-settings: "wght" 500, "wdth" 87.5;
 }
 html.linux, html.linux body {
-  font-family: "Pretendard", Arial, sans-serif;
+  font-family: "A2 Pretendard", sans-serif;
 }
 html.linux:lang(ko), html.linux:lang(ko) body {
-  font-family: "Pretendard", sans-serif;
+  font-family: "A2 Pretendard", sans-serif;
 }
 html.linux:lang(zh-CN), html.linux:lang(zh-CN) body,
 html.linux:lang(zh-Hans), html.linux:lang(zh-Hans) body {
-  font-family: "Pretendard", sans-serif;
+  font-family: "A2 Pretendard", sans-serif;
 }
 html.linux:lang(zh-TW), html.linux:lang(zh-TW) body,
 html.linux:lang(zh-Hant), html.linux:lang(zh-Hant) body {
@@ -7753,6 +7835,12 @@ html.a2-offline .historyUploadBtn {
   color: #ffb4b4;
 }
 
+/* A keybind with no keys yet (the plugin windows key has no default). */
+.settingsPanel .keybindBtn.isUnset .keybindText {
+  opacity: 0.6;
+  font-style: italic;
+}
+
 /* Plugins: hidden rows stay hidden (rows set their own display). */
 .settingsPanel .pluginDevRow[hidden],
 .settingsPanel .pluginList[hidden] {
@@ -7828,6 +7916,18 @@ html.a2-offline .historyUploadBtn {
   font-size: 12px;
   line-height: 1.35;
   color: #ff9a9a;
+}
+/* The desktop has no key for it yet (KDE/GNOME set it in their settings). */
+.settingsPanel .keybindBtn.isUnsetByDesktop,
+.settingsPanel .keybindBtn.isUnsetByDesktop:hover {
+  border-color: #f2b94f;
+  box-shadow: inset 0 0 0 1px #f2b94f;
+}
+.settingsPanel .keybindHint.isNote {
+  color: #f6d38f;
+}
+.settingsPanel .keybindDesktopBtn[hidden] {
+  display: none;
 }
 .settingsPanel .keybindHint[hidden] {
   display: none;

@@ -57,6 +57,31 @@ pub fn no_focus_rule_entries() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
+/// The third rule's group: plugins' icons (widgets) never take focus. Each
+/// one an alert opened took it from the game until it closed, and handing it
+/// back after still left the game a moment without it (KDE Plasma 6 on
+/// Wayland, 2026-10-19). Clicks still reach them.
+pub const ICONS_GROUP: &str = "a2tools-dps-meter-icons";
+
+/// What plugins' icons are titled with: `"<plugin> · <name>"`
+/// (plugins::widgets). No other window of the meter's has it.
+pub const ICON_TITLE_MARK: &str = " · ";
+
+/// The icons' rule: the meter's windows whose title contains
+/// `ICON_TITLE_MARK` (`titlematch` 2), `acceptfocus` false, forced.
+pub fn icons_rule_entries() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("Description", "A2Tools DPS Meter plugin icons keep focus on the game (added by the meter)"),
+        ("wmclass", WINDOW_CLASS),
+        ("wmclassmatch", "1"),
+        ("wmclasscomplete", "false"),
+        ("title", ICON_TITLE_MARK),
+        ("titlematch", "2"),
+        ("acceptfocus", "false"),
+        ("acceptfocusrule", "2"),
+    ]
+}
+
 /// The `[General]` entries that list the rules, with the meter's added.
 ///
 /// KWin 6 orders rules by `Order` and still reads the legacy `rules`/`count`
@@ -86,6 +111,26 @@ pub fn general_entries_for(group: &str, order: &str, legacy_rules: &str) -> Vec<
         ("count", legacy.len().to_string()),
     ]
 }
+
+/// Plasma 6's `Order` with the meter's rule on its end; nothing else.
+///
+/// Plasma 6 must never be given the Plasma 5 list (`rules`): when KWin 6
+/// finds one it deletes every rule *not* in it, as strays, and drops the
+/// key (rulebooksettings.cpp, the migration in `usrRead`). The meter wrote
+/// that list from what was left of it (nothing, once KWin had dropped it)
+/// plus the rule it was adding, so each rule it added wiped the others, the
+/// player's own included (KDE Plasma 6.8, 2026-10-19).
+pub fn plasma6_order(group: &str, order: &str) -> String {
+    let mut list: Vec<&str> = order.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+    if !list.contains(&group) {
+        list.push(group);
+    }
+    list.join(",")
+}
+
+/// The Plasma 5 keys a Plasma 6 `kwinrulesrc` must not keep (see
+/// `plasma6_order`).
+pub const PLASMA5_KEYS: [&str; 2] = ["rules", "count"];
 
 /// Whether the session is KDE Plasma (`XDG_CURRENT_DESKTOP` is `KDE`).
 pub fn is_kde(current_desktop: &str) -> bool {
@@ -153,6 +198,28 @@ mod tests {
         let e = general_entries_for(NO_FOCUS_GROUP, &listed, &listed);
         assert_eq!(get(&e, "Order"), format!("{listed},{NO_FOCUS_GROUP}"));
         assert_eq!(get(&e, "count"), "3");
+    }
+
+    /// Icons only, by the mark in their title, and never focused.
+    #[test]
+    fn the_icons_rule_matches_titles_with_the_mark() {
+        let rule = icons_rule_entries();
+        let value = |k: &str| rule.iter().find(|(key, _)| *key == k).map(|(_, v)| *v);
+        assert_eq!(value("title"), Some(" · "));
+        assert_eq!(value("titlematch"), Some("2"));
+        assert_eq!((value("acceptfocus"), value("acceptfocusrule")), (Some("false"), Some("2")));
+        assert_eq!(value("wmclass"), Some(WINDOW_CLASS));
+    }
+
+    /// Plasma 6: the meter's rule joins the end of Order, once, and the
+    /// player's own stay in front.
+    #[test]
+    fn plasma6_order_adds_the_rule_once_after_the_players() {
+        assert_eq!(plasma6_order(ICONS_GROUP, ""), ICONS_GROUP);
+        assert_eq!(plasma6_order(ICONS_GROUP, "steam, mine"), format!("steam,mine,{ICONS_GROUP}"));
+        let listed = format!("steam,{ICONS_GROUP}");
+        assert_eq!(plasma6_order(ICONS_GROUP, &listed), listed);
+        assert_eq!(PLASMA5_KEYS, ["rules", "count"]);
     }
 
     #[test]

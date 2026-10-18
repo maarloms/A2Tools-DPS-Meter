@@ -319,6 +319,14 @@
       "displayNamePlaceholder": "你的角色名稱"
     },
     "version": "版本",
+    "update": {
+      "check": "檢查更新",
+      "checking": "正在檢查…",
+      "current": "已是最新",
+      "installing": "正在更新…",
+      "available": "{version} 已發布",
+      "failed": "無法檢查，請稍後再試。"
+    },
     "theme": {
       "label": "配色主題",
       "options": {
@@ -369,7 +377,9 @@
       "label": "條形不透明度"
     },
     "barPreview": "預覽",
-    "meterSaturation": {"label": "條形顏色強度"},
+    "meterSaturation": {
+      "label": "條形顏色強度"
+    },
     "bossNameSize": {
       "label": "標題大小"
     },
@@ -407,8 +417,13 @@
       "reload": "重新載入數據",
       "toggle": "顯示/隱藏視窗",
       "pressKeys": "請按下按鍵...",
-      "needModifiers": "需要2個以上修飾鍵",
-      "lock": "鎖定/解鎖懸浮視窗"
+      "tooManyKeys": "最多 3 個鍵",
+      "plugins": "找回外掛視窗",
+      "notSet": "未設定",
+      "restoreDefaults": "恢復預設",
+      "hint": "點擊一個快捷鍵，然後按下 1 到 3 個鍵。按 Esc 取消。",
+      "lock": "鎖定/解鎖懸浮視窗",
+      "openDesktop": "桌面快捷鍵"
     },
     "defaultMeterMode": {
       "label": "啟動時的目標模式"
@@ -491,7 +506,8 @@
       "saveRawPackets": "記錄原始遊戲流量以便回報錯誤。除錯記錄會隨之開啟。",
       "globalHotkeys": "下面的按鍵在遊戲位於前景時也能使用。關閉後，這些按鍵會釋放給其他程式。在 Linux 上由桌面註冊這些按鍵，桌面可能會請你核准。",
       "pluginDevMode": "從這台電腦上的資料夾載入外掛程式，用於開發和測試。這些外掛程式未經審核，請只載入你信任的外掛程式。",
-      "showMeter": "關閉：只顯示外掛。統計仍在背景記錄戰鬥並上傳。可在此處、用顯示/隱藏快速鍵，或外掛視窗上的統計按鈕重新顯示。"
+      "showMeter": "關閉：只顯示外掛。統計仍在背景記錄戰鬥並上傳。可在此處、用顯示/隱藏快速鍵，或外掛視窗上的統計按鈕重新顯示。",
+      "clearOnZone": "切換區域後，何時從統計中清除上一場戰鬥。所有戰鬥都會保留在歷史紀錄中。"
     },
     "globalHotkeys": "使用快捷鍵",
     "hotkeyConsent": {
@@ -503,6 +519,8 @@
     },
     "keybindTaken": "其他程式已在使用這些按鍵。請換用其他按鍵。",
     "keybindShared": "另一個操作使用了這些按鍵。請換用其他按鍵。",
+    "keybindUnset": "桌面尚未為此指派按鍵。請在「桌面快捷鍵」中設定。",
+    "keybindAssigned": "桌面使用的是 {key}。可在「桌面快捷鍵」中變更。",
     "plugins": {
       "title": "外掛程式",
       "devMode": "外掛程式開發者模式",
@@ -548,6 +566,14 @@
       "enabled": "啟用",
       "enabledTip": "開啟：隨計量器啟動。關閉：保持安裝，但不執行。",
       "showMeter": "顯示 DPS 統計"
+    },
+    "clearOnZone": {
+      "label": "清空統計",
+      "options": {
+        "instance": "進出副本時",
+        "any": "每次切換區域時",
+        "never": "從不（保留上一場戰鬥）"
+      }
     }
   },
   "support": {

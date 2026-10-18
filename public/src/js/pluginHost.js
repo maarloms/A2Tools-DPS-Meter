@@ -29,7 +29,7 @@
   const deliver = (event, data, extra = {}) => {
     if (event.startsWith("decoded:") && !allowed(`decoder:${event.slice(8)}`)) return;
     if (event === "character" && !allowed("events:character")) return;
-    if ((event === "bossMap" || event === "bossLive") && !allowed("feed:boss-timers")) return;
+    if ((event === "bossMap" || event === "bossLive" || event === "abyss") && !allowed("feed:boss-timers")) return;
     const msg = { event, data, ...extra };
     if (ready) send(msg);
     else queue.push(msg);
@@ -64,6 +64,12 @@
     bossTimers: ([server]) => {
       if (!allowed("feed:boss-timers")) throw new Error('the plugin lacks the "feed:boss-timers" permission');
       return invoke("plugin_boss_timers", { server: Number(server) });
+    },
+    // A server's Abyss siege: the artifacts' holders and the Dimensional
+    // Cores (meter 2.0.72).
+    abyssSiege: ([server]) => {
+      if (!allowed("feed:boss-timers")) throw new Error('the plugin lacks the "feed:boss-timers" permission');
+      return invoke("plugin_abyss_siege", { server: Number(server) });
     },
     // Follow some of a server's field bosses: each change comes at once as a
     // "bossLive" event (meter 2.0.68). An empty list stops following.
@@ -110,6 +116,14 @@
     "widgets.locked": () => {
       if (!allowed("widgets")) throw new Error('the plugin lacks the "widgets" permission');
       return invoke("plugin_widgets_locked");
+    },
+    "widgets.where": ([name]) => {
+      if (!allowed("widgets")) throw new Error('the plugin lacks the "widgets" permission');
+      return invoke("plugin_widget_where", { name: String(name) });
+    },
+    "widgets.place": ([name, at]) => {
+      if (!allowed("widgets")) throw new Error('the plugin lacks the "widgets" permission');
+      return invoke("plugin_widget_place", { name: String(name), x: Math.round(Number(at?.x)), y: Math.round(Number(at?.y)) });
     },
     notify: ([text]) => {
       if (!allowed("notify")) throw new Error('the plugin lacks the "notify" permission');
@@ -216,7 +230,7 @@
     if (payload.plugin !== undefined && payload.plugin !== id) return;
     // Sent to this plugin's widgets, not to its window.
     if (payload.event === "widget" || payload.event === "locked") return;
-    if (payload.event === "widget-message" && !allowed("widgets")) return;
+    if ((payload.event === "widget-message" || payload.event === "widget-moved") && !allowed("widgets")) return;
     if (typeof payload.seq !== "number") deliver(payload.event, payload.data);
     else if (early) early.push(payload);
     else deliverLogged(payload);

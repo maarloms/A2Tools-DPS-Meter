@@ -5,7 +5,10 @@
 
 use std::process::Command;
 
-use crate::platform::kwin_rules::{general_entries_for, is_kde, no_focus_rule_entries, rule_entries, GROUP, NO_FOCUS_GROUP};
+use crate::platform::kwin_rules::{
+    general_entries_for, icons_rule_entries, is_kde, no_focus_rule_entries, plasma6_order, rule_entries, GROUP, ICONS_GROUP,
+    NO_FOCUS_GROUP, PLASMA5_KEYS,
+};
 
 fn tool(names: &[&'static str]) -> Option<&'static str> {
     names.iter().copied().find(|name| {
@@ -19,6 +22,10 @@ fn read(reader: &str, group: &str, key: &str) -> String {
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default()
+}
+
+fn delete(writer: &str, group: &str, key: &str) {
+    let _ = Command::new(writer).args(["--file", "kwinrulesrc", "--group", group, "--key", key, "--delete"]).status();
 }
 
 fn write(writer: &str, group: &str, key: &str, value: &str) -> Result<(), String> {
@@ -59,6 +66,57 @@ pub fn click_without_focus(done: bool) -> Result<bool, String> {
     add_rule(NO_FOCUS_GROUP, &no_focus_rule_entries(), done, "clicking the overlay keeps the game focused")
 }
 
+/// Make sure plugins' icons never take the focus from the game.
+pub fn icons_without_focus(done: bool) -> Result<bool, String> {
+    add_rule(ICONS_GROUP, &icons_rule_entries(), done, "plugin icons keep the game focused")
+}
+
+/// The meter's rules, each with its group, entries and what it does.
+fn rules() -> [(&'static str, Vec<(&'static str, &'static str)>, &'static str); 3] {
+    [
+        (GROUP, rule_entries(), "the meter stays above fullscreen games"),
+        (NO_FOCUS_GROUP, no_focus_rule_entries(), "clicking the overlay keeps the game focused"),
+        (ICONS_GROUP, icons_rule_entries(), "plugin icons keep the game focused"),
+    ]
+}
+
+/// Keep the meter's rules in `kwinrulesrc` while it runs: KWin rewrites the
+/// file from what it holds, and rules it did not write itself went missing
+/// mid-session (KDE Plasma 6, 2026-10-19), taking the focus fixes with them.
+/// When the file changes (its time, looked at every 15 s), any rule gone is
+/// put back and KWin told; each time is logged, to tell what removes them.
+pub fn keep_rules() {
+    if !is_kde(&std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default()) {
+        return;
+    }
+    let file = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))
+        .map(|dir| dir.join("kwinrulesrc"));
+    let Some(file) = file else { return };
+    let changed = |f: &std::path::Path| std::fs::metadata(f).and_then(|m| m.modified()).ok();
+    std::thread::spawn(move || {
+        let mut seen = changed(&file);
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(15));
+            let now = changed(&file);
+            if now == seen {
+                continue;
+            }
+            let text = std::fs::read_to_string(&file).unwrap_or_default();
+            for (group, entries, what) in rules() {
+                if !text.contains(&format!("[{group}]")) {
+                    tracing::info!("KWin rule gone from kwinrulesrc; putting it back: {what}");
+                    if let Err(e) = add_rule(group, &entries, false, what) {
+                        tracing::warn!("Could not put the KWin rule back: {e}");
+                    }
+                }
+            }
+            seen = changed(&file);
+        }
+    });
+}
+
 fn add_rule(group: &str, entries: &[(&str, &str)], done: bool, what: &str) -> Result<bool, String> {
     if done || !is_kde(&std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default()) {
         return Ok(done);
@@ -68,6 +126,16 @@ fn add_rule(group: &str, entries: &[(&str, &str)], done: bool, what: &str) -> Re
     else {
         return Err("kwriteconfig is not installed".into());
     };
+    // Plasma 6 (kwriteconfig6): Order only, and never the Plasma 5 list,
+    // which makes KWin delete every rule not in it (see plasma6_order). One
+    // the meter wrote before is taken out first.
+    let plasma6 = writer == "kwriteconfig6";
+    if plasma6 && !read(reader, "General", "rules").is_empty() {
+        for key in PLASMA5_KEYS {
+            delete(writer, "General", key);
+        }
+        tracing::info!("KWin: Plasma 5 rule list removed from kwinrulesrc (Plasma 6 deleted the rules not in it)");
+    }
     if !read(reader, group, "wmclass").is_empty() {
         return Ok(true);
     }
@@ -75,9 +143,13 @@ fn add_rule(group: &str, entries: &[(&str, &str)], done: bool, what: &str) -> Re
         write(writer, group, key, value)?;
     }
     let order = read(reader, "General", "Order");
-    let legacy = read(reader, "General", "rules");
-    for (key, value) in general_entries_for(group, &order, &legacy) {
-        write(writer, "General", key, &value)?;
+    if plasma6 {
+        write(writer, "General", "Order", &plasma6_order(group, &order))?;
+    } else {
+        let legacy = read(reader, "General", "rules");
+        for (key, value) in general_entries_for(group, &order, &legacy) {
+            write(writer, "General", key, &value)?;
+        }
     }
     reconfigure();
     tracing::info!("KWin rule added: {what}");

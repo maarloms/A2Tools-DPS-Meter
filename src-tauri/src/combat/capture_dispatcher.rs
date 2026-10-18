@@ -176,6 +176,12 @@ impl CaptureDispatcher {
         let mut elsewhere: HashMap<String, (u32, i64)> = HashMap::new();
         // The game server's address, as last told to DataStorage.
         let mut last_game_host: Option<std::net::Ipv4Addr> = None;
+        // Wall clock minus capture clock. Npcap sets its clock from the
+        // system's once, when the driver loads, and the two drift apart over
+        // days; a fight is over 10 s after its last hit by the wall clock.
+        // Measured when the queue is empty, so the packet is fresh and no
+        // backlog is counted in.
+        let mut capture_clock_offset: Option<i64> = None;
 
         while let Some(cap) = receiver.recv().await {
             if self.suspended.load(Ordering::SeqCst) {
@@ -387,7 +393,21 @@ impl CaptureDispatcher {
             // Real combat produces a flood of signatures too, so the rate gate covers
             // both idle and combat while staying robust. Spawns/names are still parsed
             // into the store pre-lock, so mobs seen before the first fight stay identified.
+            // Hits are timed when they were captured, not when they are parsed:
+            // a parser held up for a minute (a save waited on, a busy machine)
+            // then read the whole queue at once, and a two-minute boss fight
+            // came out two seconds long, at 700k DPS. Set and cleared around
+            // the parse, with no await between, so nothing else on this thread
+            // reads a capture time as "now".
+            let captured_at = cap.capture_time_ms().map(|at| {
+                if capture_clock_offset.is_none() || receiver.is_empty() {
+                    capture_clock_offset = Some(now - at);
+                }
+                at + capture_clock_offset.unwrap_or(0)
+            });
+            processor.set_override_timestamp(captured_at);
             let parsed = assembler.process_chunk(&cap.data, processor);
+            processor.set_override_timestamp(None);
 
             let signature_locked =
                 unlocked && sig_hits.get(&key).map(|(c, _)| *c).unwrap_or(0) >= SIGNATURE_LOCK_THRESHOLD;

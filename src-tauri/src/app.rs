@@ -62,6 +62,10 @@ pub struct AppState {
     /// Order fight snapshots and their writes together. Settings never take
     /// this lock; the calculator guard is released before disk work.
     pub fight_save: Mutex<()>,
+    /// Fights taken before a reset, with their names, until HISTORY saves
+    /// them (see `save_fights_before_reset`). Whoever saves next under
+    /// `fight_save` takes them: quitting does not leave them behind.
+    pub queued_fight_saves: Mutex<Vec<(Vec<FightRecord>, share::SliceNames)>>,
     pub settings: Settings,
     pub skill_lookup: Arc<SkillLookup>,
     pub npc_lookup: Arc<NpcLookup>,
@@ -487,11 +491,11 @@ fn auto_upload(app: tauri::AppHandle, record: FightRecord) {
 /// and verified later (training dummies are not logs), and auto-upload the
 /// finished ones when that is on.
 #[cfg_attr(not(feature = "online"), allow(unused_variables))]
-fn save_fight_records(app: &tauri::AppHandle, state: &AppState, records: Vec<FightRecord>) {
+fn save_fight_records(app: &tauri::AppHandle, state: &AppState, records: Vec<FightRecord>, names: &share::SliceNames) {
     for record in &records {
         let _ = state.fight_history.save_fight(record);
         if !record.is_train {
-            if let Err(e) = share::save_slice(&state.app_data_dir, record, &state.data_storage) {
+            if let Err(e) = share::save_slice(&state.app_data_dir, record, names) {
                 // A fight that began before the meter did is normal; anything
                 // else is why an upload will later say no packets were saved.
                 if e.starts_with("no packets in memory") {
@@ -517,21 +521,61 @@ fn save_fight_records(app: &tauri::AppHandle, state: &AppState, records: Vec<Fig
     }
 }
 
-/// Save every fight on the meter now, before its combat data is cleared: a
-/// zone change, the end of a party, the reset button, the reload hotkey or
-/// quitting. Each cleared it unsaved, and leaving an instance right after a
-/// kill lost everything since the last 30-second save (issue #19).
+/// Save every fight on the meter, before its combat data is cleared: a zone
+/// change, the end of a party, the reset button or the reload hotkey. Each
+/// cleared it unsaved, and leaving an instance right after a kill lost
+/// everything since the last 30-second save (issue #19).
+///
+/// The records are taken now; writing them, and cutting each fight's slice,
+/// is queued behind any save already running. A zone change and the end of a
+/// party call this from the parser's thread, and waiting there for the disk
+/// stopped the parser: packets were lost and the meter froze for minutes.
 fn save_fights_before_reset(app: &tauri::AppHandle) {
+    let Some(fights) = fights_before_reset(app) else { return };
+    let Some(state) = app.try_state::<AppState>() else { return };
+    state.queued_fight_saves.lock().push(fights);
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let job = handle.clone();
+        if let Err(error) = crate::blocking::HISTORY.run(move || save_queued_fights(&job)).await {
+            tracing::warn!("Saving fights before a reset failed: {error}");
+        }
+    });
+}
+
+/// Save the fights `save_fights_before_reset` queued, if nobody has yet.
+fn save_queued_fights(app: &tauri::AppHandle) {
     let Some(state) = app.try_state::<AppState>() else { return };
     let _saving = state.fight_save.lock();
+    let queued = std::mem::take(&mut *state.queued_fight_saves.lock());
+    for (records, names) in queued {
+        save_fight_records(app, &state, records, &names);
+    }
+}
+
+/// Save every fight on the meter before quitting, and wait for it: the
+/// fights still queued from a reset first, which a save running on HISTORY
+/// could hold up past the exit.
+fn save_fights_before_quit(app: &tauri::AppHandle) {
+    save_queued_fights(app);
+    let Some((records, names)) = fights_before_reset(app) else { return };
+    let Some(state) = app.try_state::<AppState>() else { return };
+    let _saving = state.fight_save.lock();
+    save_fight_records(app, &state, records, &names);
+}
+
+/// The fights on the meter, as records, with the names their slices need.
+fn fights_before_reset(app: &tauri::AppHandle) -> Option<(Vec<FightRecord>, share::SliceNames)> {
+    let state = app.try_state::<AppState>()?;
     if state.data_storage.damage_generation() <= 0 {
-        return;
+        return None;
     }
     let records = state.dps_calculator.lock().snapshot_boss_fights_force();
-    if !records.is_empty() {
-        tracing::info!("Saving {} fight(s) before combat data is cleared", records.len());
+    if records.is_empty() {
+        return None;
     }
-    save_fight_records(app, &state, records);
+    tracing::info!("Saving {} fight(s) before combat data is cleared", records.len());
+    Some((records, share::SliceNames::of(&state.data_storage)))
 }
 
 #[cfg(feature = "online")]
@@ -779,7 +823,15 @@ struct Hotkeys {
 }
 
 /// The keybind settings: changing one registers the keys again.
-const HOTKEY_KEYS: [&str; 3] = ["dpsMeter.hotkey", "dpsMeter.toggleWindowHotkey", "dpsMeter.lockHotkey"];
+const HOTKEY_KEYS: [&str; 4] =
+    ["dpsMeter.hotkey", "dpsMeter.toggleWindowHotkey", "dpsMeter.lockHotkey", "dpsMeter.pluginWindowsHotkey"];
+
+/// Open the desktop's own shortcut settings, where the keys are set on
+/// Linux (KDE keeps its own; see platform::hotkeys).
+#[tauri::command]
+fn open_desktop_shortcuts(hotkeys: tauri::State<'_, Hotkeys>) -> Result<(), String> {
+    hotkeys.manager.open_desktop_settings()
+}
 
 /// What each key's registration came to, for Settings to show.
 #[tauri::command]
@@ -822,81 +874,95 @@ fn restart_global_hotkeys(app: &tauri::AppHandle) {
     apply_global_hotkeys(app);
 }
 
+/// The keybind settings and their defaults, as Settings shows them: the
+/// plugin windows key has none (`""`), so it is off until one is set.
+pub const HOTKEY_DEFAULTS: [(&str, &str); 4] = [
+    ("dpsMeter.hotkey", "Ctrl+Alt+R"),
+    ("dpsMeter.toggleWindowHotkey", "Ctrl+Alt+Up"),
+    ("dpsMeter.lockHotkey", "Ctrl+Alt+L"),
+    ("dpsMeter.pluginWindowsHotkey", ""),
+];
+
+/// A keybind setting's key: what is saved, else (unset or unreadable) its
+/// default. A key of 0 is off.
+fn hotkey_of(settings: &Settings, key: &str) -> (u32, u32) {
+    let default = HOTKEY_DEFAULTS.iter().find(|(k, _)| *k == key).map(|(_, d)| *d).unwrap_or("");
+    let label = settings.get(key).unwrap_or_else(|| default.to_string());
+    platform::hotkeys::parse_hotkey_label(&label)
+        .or_else(|| platform::hotkeys::parse_hotkey_label(default))
+        .unwrap_or((0, 0))
+}
+
 /// Register the hotkeys from saved settings (or defaults).
 fn start_hotkeys(app: &tauri::AppHandle, settings: &Settings) {
-    let hotkey_handle = app.clone();
+    use platform::hotkeys::Binding;
     let Some(hotkeys) = app.try_state::<Hotkeys>() else { return };
     let status_handle = app.clone();
+    let binding = |name: &'static str, key: &str, on_fire: Box<dyn Fn() + Send>| {
+        let (mods, vk) = hotkey_of(settings, key);
+        Binding { name, mods, vk, on_fire }
+    };
 
-    let reload_label = settings
-        .get("dpsMeter.hotkey").unwrap_or_default();
-    let toggle_label = settings
-        .get("dpsMeter.toggleWindowHotkey").unwrap_or_default();
-    let lock_label = settings
-        .get("dpsMeter.lockHotkey").unwrap_or_default();
-
-    let (reload_mods, reload_vk) = platform::hotkeys::parse_hotkey_label(&reload_label)
-        .unwrap_or((0x0002 | 0x0001, 0x52)); // Default: Ctrl+Alt+R
-    let (toggle_mods, toggle_vk) = platform::hotkeys::parse_hotkey_label(&toggle_label)
-        .unwrap_or((0x0002 | 0x0001, 0x26)); // Default: Ctrl+Alt+Up
-    let (lock_mods, lock_vk) = platform::hotkeys::parse_hotkey_label(&lock_label)
-        .unwrap_or((0x0002 | 0x0001, 0x4C)); // Default: Ctrl+Alt+L
+    let h = app.clone();
+    let reload = binding("reload", "dpsMeter.hotkey", Box::new(move || {
+        tracing::info!("Hotkey: reload triggered");
+        save_fights_before_reset(&h);
+        if let Some(state) = h.try_state::<AppState>() {
+            state.dps_calculator.lock().restart_target_selection(true);
+            state.data_storage.forget_guessed_nicknames();
+        }
+        // Notify frontend to clear UI
+        let _ = h.emit("combat-reset", ());
+        let _ = h.emit("dps-update", &entity::dps_data::DpsData::new());
+    }));
+    let h = app.clone();
+    let toggle = binding("toggle", "dpsMeter.toggleWindowHotkey", Box::new(move || {
+        // Show or hide the meter, and remember it (as Settings →
+        // Plugins → Show the DPS meter does). Hidden by auto-hide
+        // only, it is shown, as before, and nothing changes.
+        if meter_wanted(&h)
+            && let Some(window) = h.get_webview_window("main")
+            && (!window.is_visible().unwrap_or(true) || platform::window::is_hidden_in_place(&window))
+        {
+            crate::fork::reopen_meter(); // fork
+            show_meter_again(&h, &window);
+            return;
+        }
+        let shown = !meter_wanted(&h);
+        if shown { crate::fork::reopen_meter(); } // fork
+        set_meter_wanted(&h, shown);
+    }));
+    let h = app.clone();
+    let lock = binding("lock", "dpsMeter.lockHotkey", Box::new(move || {
+        // Toggle the click-through lock, and tell the page so
+        // its button and saved setting follow.
+        let locked = h
+            .try_state::<AppState>()
+            .is_some_and(|s| s.overlay_lock.locked.load(std::sync::atomic::Ordering::SeqCst));
+        if platform::window::cursor_position().is_none() && !locked {
+            return; // the lock is not offered here
+        }
+        apply_overlay_lock(&h, !locked);
+        let _ = h.emit("overlay-lock-changed", !locked);
+    }));
+    let h = app.clone();
+    let plugins = binding("plugins", "dpsMeter.pluginWindowsHotkey", Box::new(move || {
+        tracing::info!("Hotkey: bringing back the plugin windows");
+        let app = h.clone();
+        // Window calls belong on the main thread.
+        let _ = h.run_on_main_thread(move || crate::plugins::bring_back_windows(&app));
+    }));
 
     hotkeys.manager.start(
-        reload_mods, reload_vk,
-        toggle_mods, toggle_vk,
-        lock_mods, lock_vk,
-        {
-            let h = hotkey_handle.clone();
-            move || {
-                tracing::info!("Hotkey: reload triggered");
-                save_fights_before_reset(&h);
-                if let Some(state) = h.try_state::<AppState>() {
-                    state.dps_calculator.lock().restart_target_selection(true);
-                    state.data_storage.forget_guessed_nicknames();
-                }
-                // Notify frontend to clear UI
-                let _ = h.emit("combat-reset", ());
-                let _ = h.emit("dps-update", &entity::dps_data::DpsData::new());
-            }
-        },
-        {
-            let h = hotkey_handle.clone();
-            move || {
-                // Show or hide the meter, and remember it (as Settings →
-                // Plugins → Show the DPS meter does). Hidden by auto-hide
-                // only, it is shown, as before, and nothing changes.
-                if meter_wanted(&h)
-                    && let Some(window) = h.get_webview_window("main")
-                    && (!window.is_visible().unwrap_or(true) || platform::window::is_hidden_in_place(&window))
-                {
-                    crate::fork::reopen_meter(); // fork
-                    show_meter_again(&h, &window);
-                    return;
-                }
-                let shown = !meter_wanted(&h);
-                if shown { crate::fork::reopen_meter(); } // fork
-                set_meter_wanted(&h, shown);
-            }
-        },
-        {
-            let h = hotkey_handle;
-            move || {
-                // Toggle the click-through lock, and tell the page so
-                // its button and saved setting follow.
-                let locked = h
-                    .try_state::<AppState>()
-                    .is_some_and(|s| s.overlay_lock.locked.load(std::sync::atomic::Ordering::SeqCst));
-                if platform::window::cursor_position().is_none() && !locked {
-                    return; // the lock is not offered here
-                }
-                apply_overlay_lock(&h, !locked);
-                let _ = h.emit("overlay-lock-changed", !locked);
-            }
-        },
-        move |key, ok| {
+        vec![reload, toggle, lock, plugins],
+        move |key, state, assigned| {
             set_hotkey_status(&status_handle, |s| {
-                s.insert(key.to_string(), if ok { "ok" } else { "taken" }.to_string());
+                s.insert(key.to_string(), state.to_string());
+                // The key the desktop gave it, where the desktop decides.
+                match assigned {
+                    Some(a) => s.insert(format!("{key}.assigned"), a),
+                    None => s.remove(&format!("{key}.assigned")),
+                };
             });
         },
     );
@@ -1146,7 +1212,7 @@ fn set_manual_device(state: tauri::State<'_, AppState>, device: String) {
 
 #[tauri::command]
 pub(crate) fn quit_app(app: tauri::AppHandle) {
-    save_fights_before_reset(&app);
+    save_fights_before_quit(&app);
     flush_settings_before_exit(&app);
     app.exit(0);
 }
@@ -1912,6 +1978,33 @@ const DETAILS_USER_PLACED_KEY: &str = "window.details.userPlaced";
 /// opened to be read and closed, and keying geometry by fight id would grow
 /// settings without bound.
 const TOOL_WINDOWS: [&str; 3] = ["details", "settings", "history"];
+
+/// Settings, History and Details are on top of the overlay (always on top
+/// itself), or they could not be reached over it while the game is in front.
+/// But only while the meter or the game is: on top of a browser the player
+/// switched to, Settings stayed in the way (2026-10-18). Focused, a tool
+/// window is on top; when it loses the front to another program, it goes
+/// back to an ordinary window until it is clicked again. Asked a moment
+/// after the focus moves, when the new front window is known.
+fn keep_on_top_while_ours(app: &tauri::AppHandle, label: &str, focused: bool) {
+    let Some(window) = app.get_webview_window(label) else { return };
+    if focused {
+        let _ = window.set_always_on_top(true);
+        return;
+    }
+    let app = app.clone();
+    let label = label.to_string();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let Some(window) = handle.get_webview_window(&label) else { return };
+            if !window.is_focused().unwrap_or(false) && !platform::window::front_is_ours_or_game() {
+                let _ = window.set_always_on_top(false);
+            }
+        });
+    });
+}
 
 /// Remember where tool window `label` is and its size. Called on every move
 /// and resize, and every 5 s as before: with only the timer, a window moved
@@ -2952,6 +3045,7 @@ pub fn run() {
             .on_event(|app, event| {
                 // Flush before normal exit or restart, with Exit as a final safeguard.
                 if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+                    save_queued_fights(app);
                     flush_settings_before_exit(app);
                 }
             })
@@ -2981,6 +3075,11 @@ pub fn run() {
                 && TOOL_WINDOWS.contains(&window.label())
             {
                 save_tool_window_geometry(window.app_handle(), window.label());
+            }
+            if let tauri::WindowEvent::Focused(focused) = event
+                && (TOOL_WINDOWS.contains(&window.label()) || window.label().starts_with("details-"))
+            {
+                keep_on_top_while_ours(window.app_handle(), window.label(), *focused);
             }
             if matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_))
                 && window.label().starts_with("details-")
@@ -3116,6 +3215,7 @@ pub fn run() {
                 port_detector: port_detector.clone(),
                 fight_history: FightHistoryManager::new(app_data_dir.clone()),
                 fight_save: Mutex::new(()),
+                queued_fight_saves: Mutex::new(Vec::new()),
                 settings,
                 skill_lookup: skill_lookup.clone(),
                 npc_lookup: npc_lookup.clone(),
@@ -3147,7 +3247,6 @@ pub fn run() {
             {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
-                    let state = handle.state::<AppState>();
                     // For "Hide when AION2 isn't focused": KWin says which
                     // window is active (platform::linux::focus).
                     // On Wayland, KWin keeps the windows where they were
@@ -3161,21 +3260,24 @@ pub fn run() {
                     if let Err(e) = platform::window_detector::watch_focus(move || auto_hide_now(&focus_app)) {
                         tracing::warn!("Cannot follow the active window: {e}");
                     }
-                    if let Err(e) = platform::window_rules::keep_above_fullscreen(false) {
-                        tracing::warn!("Could not add the KWin rule: {e}");
-                    }
-                    // The overlay takes no focus, so a click on it leaves the
-                    // game focused (#71). Its own key, so installs that
-                    // already have the first rule get this one too.
-                    const NO_FOCUS_KEY: &str = "dpsMeter.kwinNoFocusRuleAdded";
-                    let done = state.settings.get(NO_FOCUS_KEY).as_deref() == Some("true");
-                    match platform::window_rules::click_without_focus(done) {
-                        Ok(true) if !done => {
-                            state.settings.set(NO_FOCUS_KEY, "true");
+                    // Each rule checked at every start and put back when
+                    // missing: KWin can drop rules it did not write itself,
+                    // and a rule added once and never again left the overlay
+                    // taking the focus (a CachyOS player, 2026-10-19). The
+                    // overlay takes no focus, so a click on it leaves the game
+                    // focused (#71); nor do plugins' icons.
+                    let rules: [(&str, fn(bool) -> Result<bool, String>); 3] = [
+                        ("above", platform::window_rules::keep_above_fullscreen),
+                        ("no-focus", platform::window_rules::click_without_focus),
+                        ("icons", platform::window_rules::icons_without_focus),
+                    ];
+                    for (name, ensure) in rules {
+                        if let Err(e) = ensure(false) {
+                            tracing::warn!("Could not add the KWin {name} rule: {e}");
                         }
-                        Ok(_) => {}
-                        Err(e) => tracing::warn!("Could not add the KWin no-focus rule: {e}"),
                     }
+                    // And put back while the meter runs, if KWin drops them.
+                    platform::window_rules::keep_rules();
                 });
             }
             {
@@ -3474,7 +3576,8 @@ pub fn run() {
                                 .map(|mut calc| calc.snapshot_boss_fights());
                             if let Some(records) = records {
                                 // The calculator guard is gone before any disk I/O.
-                                save_fight_records(&handle, &state, records);
+                                let names = share::SliceNames::of(&state.data_storage);
+                                save_fight_records(&handle, &state, records, &names);
                             }
                         }
                         // Automatic uploads that failed and are due again,
@@ -3593,6 +3696,7 @@ pub fn run() {
             crate::fork::dummy::fork_dummy_status,
             get_app_version,
             get_hotkey_status,
+            open_desktop_shortcuts,
             crate::plugins::plugin_list,
             crate::plugins::plugin_set_dev_mode,
             crate::plugins::plugin_add_folder,
@@ -3618,10 +3722,13 @@ pub fn run() {
             crate::plugins::widgets::plugin_widget_drag,
             crate::plugins::boss_live::plugin_boss_follow,
             crate::plugins::widgets::plugin_widget_area,
+            crate::plugins::widgets::plugin_widget_where,
+            crate::plugins::widgets::plugin_widget_place,
             set_meter_shown,
             meter_shown,
             crate::plugins::plugin_storage_get,
             crate::plugins::plugin_boss_timers,
+            crate::plugins::plugin_abyss_siege,
             crate::plugins::plugin_storage_set,
             get_dps_snapshot,
             get_skill_details,

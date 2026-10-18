@@ -94,6 +94,12 @@ fn apply_lock(window: &tauri::WebviewWindow, locked: bool) {
     }
 }
 
+/// The window in front when each widget was made, until its page loads.
+fn fronts() -> &'static Mutex<HashMap<String, Option<isize>>> {
+    static FRONTS: std::sync::OnceLock<Mutex<HashMap<String, Option<isize>>>> = std::sync::OnceLock::new();
+    FRONTS.get_or_init(Mutex::default)
+}
+
 fn saved_place(app: &tauri::AppHandle, id: &str, name: &str) -> Option<(i32, i32)> {
     let value = app.try_state::<AppState>()?.settings.get(&place_key(id, name))?;
     let (x, y) = value.split_once(',')?;
@@ -149,11 +155,18 @@ pub async fn plugin_widget_open(
         .skip_taskbar(true)
         .resizable(false)
         .focused(false)
+        // Never takes focus, from the start: clicks and drags still reach it.
+        // Focusable, tao turns a GTK window's focus back on after its first
+        // draw, and KWin gave a new icon the front at its alert (Hirai,
+        // CachyOS KDE, 2.0.71); on Windows it is WS_EX_NOACTIVATE from
+        // creation, before WebView2 can take the front.
+        .focusable(false)
         .build()
         .map_err(|e| e.to_string())?;
     // Never in front of the game: an alert icon appearing must not tab the
     // player out of it.
     crate::platform::window::never_activate(&widget, front);
+    fronts().lock().unwrap_or_else(|p| p.into_inner()).insert(widget.label().to_string(), front);
     // Where it was left; a widget never moved goes beside the plugin's others
     // rather than wherever the window manager puts a new window (the middle
     // of the screen).
@@ -164,11 +177,60 @@ pub async fn plugin_widget_open(
             let size = w.outer_size().ok()?;
             Some((at.x, at.y, size.width as i32, size.height as i32))
         }))
-    });
+    }).or_else(|| beside_left(&app, &id));
     if let Some((x, y)) = place {
         let _ = widget.set_position(tauri::PhysicalPosition::new(x, y));
     }
     Ok(())
+}
+
+/// With none of the plugin's widgets open, a new one goes beside where its
+/// widgets were last left, not mid-screen (Hirai, 2026-10-19: an alert's
+/// icon in the middle of the game).
+fn beside_left(app: &tauri::AppHandle, id: &str) -> Option<(i32, i32)> {
+    let state = app.try_state::<AppState>()?;
+    let prefix = format!("dpsMeter.pluginWidget.{id}.");
+    let places: Vec<(i32, i32)> = state.settings.get_all().into_iter().filter_map(|(key, value)| {
+        key.strip_prefix(&prefix)?;
+        let (x, y) = value.split_once(',')?;
+        Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+    }).collect();
+    let screens: Vec<(i32, i32, u32, u32)> = app
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| {
+            let a = m.work_area();
+            (a.position.x, a.position.y, a.size.width, a.size.height)
+        })
+        .collect();
+    beside_cluster(&places, &screens)
+}
+
+/// The width of an icon left somewhere is not kept; an Event Timers icon is
+/// about this wide.
+const ICON_WIDTH: i32 = 96;
+
+/// Beside the busiest spot among `places`: the place with the most others
+/// near it, so one icon left far off (a test icon on another screen) does
+/// not draw the next one there (2.0.72: the anchor opened on the second
+/// monitor). On that place's screen: to its right, or its left when the
+/// right runs off the screen.
+fn beside_cluster(places: &[(i32, i32)], screens: &[(i32, i32, u32, u32)]) -> Option<(i32, i32)> {
+    const NEAR: i64 = 400;
+    let near = |a: &(i32, i32), b: &(i32, i32)| {
+        let (dx, dy) = ((a.0 - b.0) as i64, (a.1 - b.1) as i64);
+        dx * dx + dy * dy <= NEAR * NEAR
+    };
+    let &(x, y) = places.iter().max_by_key(|p| (places.iter().filter(|q| near(p, q)).count(), std::cmp::Reverse(p.0)))?;
+    let screen = screens.iter().find(|&&(sx, sy, w, h)| {
+        x >= sx && x < sx + w as i32 && y >= sy && y < sy + h as i32
+    });
+    let right = x + ICON_WIDTH + 6;
+    match screen {
+        Some(&(sx, _, w, _)) if right + ICON_WIDTH > sx + w as i32 => Some(((x - ICON_WIDTH - 6).max(sx), y)),
+        _ => Some((right, y)),
+    }
 }
 
 /// Just right of the rightmost of these places, on its row, with a gap.
@@ -182,6 +244,7 @@ pub fn beside(places: impl Iterator<Item = (i32, i32, i32, i32)>) -> Option<(i32
 pub fn place_beside_others(app: &tauri::AppHandle, label: &str, place_of: impl Fn(&str) -> Option<(i32, i32, i32, i32)>) -> Option<(i32, i32)> {
     let (id, _) = parse_label(label)?;
     beside(open_widgets(app, &id).iter().filter(|w| w.label() != label).filter_map(|w| place_of(w.label())))
+        .or_else(|| beside_left(app, &id))
 }
 
 /// The part of the calling widget that takes the mouse while unlocked (CSS
@@ -196,6 +259,53 @@ pub fn plugin_widget_area(app: tauri::AppHandle, window: tauri::WebviewWindow, x
     areas().lock().unwrap_or_else(|p| p.into_inner()).insert(window.label().to_string(), (x, y, width, height, scale));
     apply_lock(&window, is_locked(&app, &id));
     Ok(())
+}
+
+/// Where widget `name` of the calling plugin is: `{ x, y, width, height }`
+/// in physical screen pixels, and the work area of the screen it is on
+/// (`screen`, the same), or null when it is not open.
+#[tauri::command]
+pub fn plugin_widget_where(app: tauri::AppHandle, window: tauri::WebviewWindow, name: String) -> Result<Value, String> {
+    let id = window_plugin(&window)?;
+    require(&app, &id, "widgets")?;
+    let Some(widget) = app.get_webview_window(&label(&id, &name)) else { return Ok(Value::Null) };
+    let at = widget.outer_position().map_err(|e| e.to_string())?;
+    let size = widget.outer_size().map_err(|e| e.to_string())?;
+    let screen = widget.current_monitor().ok().flatten().map(|m| {
+        let area = m.work_area();
+        serde_json::json!({ "x": area.position.x, "y": area.position.y,
+                            "width": area.size.width, "height": area.size.height })
+    });
+    Ok(serde_json::json!({ "x": at.x, "y": at.y, "width": size.width, "height": size.height, "screen": screen }))
+}
+
+/// Move widget `name` of the calling plugin to `x, y` (physical screen
+/// pixels, its top left), as a plugin that lays its widgets out does.
+/// Locked or not: the lock is the player's hand off them, not the plugin's.
+/// A widget not open yet opens there: the place is kept for it, where the
+/// window manager reads it too (KDE on Wayland places a new window itself,
+/// and lets no app move one after: an icon placed only once open stayed
+/// mid-screen there, Hirai 2026-10-19).
+#[tauri::command]
+pub fn plugin_widget_place(app: tauri::AppHandle, window: tauri::WebviewWindow, name: String, x: i32, y: i32) -> Result<(), String> {
+    let id = window_plugin(&window)?;
+    require(&app, &id, "widgets")?;
+    if !valid_name(&name) {
+        return Err("a widget name is 1 to 32 lowercase letters, digits and '-'".into());
+    }
+    let far = 1_000_000;
+    if !(-far..far).contains(&x) || !(-far..far).contains(&y) {
+        return Err("not a place on a screen".into());
+    }
+    let widget_label = label(&id, &name);
+    if let Some(state) = app.try_state::<AppState>() {
+        state.settings.set(&place_key(&id, &name), &format!("{x},{y}"));
+        state.settings.set(&format!("window.{widget_label}.placed"), &format!("{x},{y},0,0"));
+    }
+    match app.get_webview_window(&widget_label) {
+        Some(widget) => widget.set_position(tauri::PhysicalPosition::new(x, y)).map_err(|e| e.to_string()),
+        None => Ok(()),
+    }
 }
 
 /// Close widget `name` of the calling plugin.
@@ -252,6 +362,9 @@ pub fn plugin_widgets_locked(app: tauri::AppHandle, window: tauri::WebviewWindow
 #[tauri::command]
 pub fn plugin_widget_hello(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<Value, String> {
     let (id, name) = widget_of(&window)?;
+    // Its page has loaded: if that took the front from the game, give it back.
+    let before = fronts().lock().unwrap_or_else(|p| p.into_inner()).remove(window.label()).flatten();
+    crate::platform::window::give_front_back(&window, before);
     let locked = is_locked(&app, &id);
     apply_lock(&window, locked);
     let language = app.try_state::<AppState>().and_then(|s| s.settings.get("dpsMeter.language")).unwrap_or_else(|| "en".into());
@@ -298,7 +411,9 @@ pub fn close_all(app: &tauri::AppHandle, id: &str) {
     }
 }
 
-/// A widget moved: remember where, once it has stopped moving.
+/// A widget moved: remember where, once it has stopped moving, and tell its
+/// plugin ("widget-moved", `{ name, x, y }`), which may lay its widgets out
+/// around it.
 pub fn note_moved(app: &tauri::AppHandle, label: &str, at: tauri::PhysicalPosition<i32>) {
     static LATEST: std::sync::OnceLock<Mutex<HashMap<String, (i32, i32)>>> = std::sync::OnceLock::new();
     let Some((id, name)) = parse_label(label) else { return };
@@ -315,6 +430,8 @@ pub fn note_moved(app: &tauri::AppHandle, label: &str, at: tauri::PhysicalPositi
         if let Some(state) = app.try_state::<AppState>() {
             state.settings.set(&key, &format!("{x},{y}"));
         }
+        let event = serde_json::json!({ "plugin": id, "event": "widget-moved", "data": { "name": name, "x": x, "y": y } });
+        let _ = app.emit_to(format!("plugin-{id}"), "plugin-event", event);
     });
 }
 
@@ -330,6 +447,20 @@ mod tests {
         assert_eq!(parse_label("plugin-event-timers"), None);
         assert_eq!(parse_label("pw_Bad_name"), None);
         assert!(!valid_name("has_underscore") && !valid_name("") && valid_name("boss-101006"));
+    }
+
+    #[test]
+    fn a_new_widget_goes_beside_the_busiest_spot_on_its_screen() {
+        // This PC on 2.0.72: icons around (2000, 250) on the main screen, a
+        // test icon at (2680, 122) just over on the second one.
+        let screens = [(2560, 0, 1920, 1080), (0, 0, 2560, 1440)];
+        let places = [(2090, 250), (1956, 187), (1994, 225), (2232, 250), (2088, 370), (1971, 291),
+            (2112, 122), (2001, 315), (2075, 228), (2680, 122), (17, 394), (43, 491)];
+        let (x, y) = beside_cluster(&places, &screens).unwrap();
+        assert!(x < 2560 && (1900..2400).contains(&x) && (100..400).contains(&y), "{x},{y}");
+        // At a screen's right edge it goes to the left instead.
+        assert_eq!(beside_cluster(&[(2500, 100)], &screens), Some((2398, 100)));
+        assert_eq!(beside_cluster(&[], &screens), None);
     }
 
     #[test]

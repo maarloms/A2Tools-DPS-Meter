@@ -760,7 +760,26 @@
     getCurrentLockHotKey() {
       return this.getSetting("dpsMeter.lockHotkey") || "Ctrl+Alt+L";
     },
-    // Each key's registration: { reload|toggle|lock: "ok" | "taken" }.
+    // No default: "" until one is set.
+    getCurrentPluginWindowsHotKey() {
+      return this.getSetting("dpsMeter.pluginWindowsHotkey") || "";
+    },
+    setPluginWindowsHotkey(mods, vk) {
+      this.setSetting("dpsMeter.pluginWindowsHotkey", this._buildHotkeyLabel(mods, vk));
+    },
+    // Every keybind back to its default (app.rs, HOTKEY_DEFAULTS).
+    // Linux: the desktop's own shortcut settings (KDE, GNOME, or the portal's).
+    openDesktopShortcuts() {
+      return invoke("open_desktop_shortcuts");
+    },
+    restoreDefaultHotkeys() {
+      this.setSetting("dpsMeter.hotkey", "Ctrl+Alt+R");
+      this.setSetting("dpsMeter.toggleWindowHotkey", "Ctrl+Alt+Up");
+      this.setSetting("dpsMeter.lockHotkey", "Ctrl+Alt+L");
+      this.setSetting("dpsMeter.pluginWindowsHotkey", "");
+    },
+    // Each key's registration: { <key>: "ok" | "taken" | "unset", and on
+    // Linux "<key>.assigned": the key the desktop gave it }.
     getHotkeyStatus() {
       return invoke("get_hotkey_status").catch(() => ({}));
     },
@@ -795,6 +814,7 @@
       if (mods & 0x02) parts.push("Ctrl");
       if (mods & 0x01) parts.push("Alt");
       if (mods & 0x04) parts.push("Shift");
+      if (mods & 0x08) parts.push("Win");
       // Map common VK codes to names
       const vkNames = {
         0x08: "Backspace", 0x09: "Tab", 0x0D: "Enter", 0x1B: "Esc",

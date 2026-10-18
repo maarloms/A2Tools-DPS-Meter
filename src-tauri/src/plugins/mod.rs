@@ -235,6 +235,20 @@ impl Default for PluginHost {
     }
 }
 
+/// The Abyss artifacts' holders as the game told this player, as
+/// a2.on("abyss") hands them on: the shape of the site's file (times in unix
+/// seconds, owners by name).
+fn abyss_event(state: &crate::capture::abyss_artifacts::ArtifactState, seen_ms: i64) -> Value {
+    let secs = |ms: i64| (ms > 0).then_some(ms / 1000);
+    let wars: Vec<_> = state.wars.iter()
+        .map(|w| serde_json::json!({ "event": w.event_id, "since": secs(w.since_ms), "until": secs(w.until_ms) }))
+        .collect();
+    let artifacts: Vec<_> = state.artifacts.iter()
+        .map(|a| serde_json::json!({ "id": a.id, "event": a.event_id(), "owner": a.owner.name() }))
+        .collect();
+    serde_json::json!({ "observedAt": seen_ms / 1000, "wars": wars, "artifacts": artifacts })
+}
+
 /// A map the player opened, as a2.on("bossMap") hands it on: the feed's
 /// shape (times in unix seconds), each boss stamped with when it was read.
 fn boss_map_event(map: &crate::capture::boss_map::BossMap) -> Value {
@@ -382,6 +396,7 @@ impl PluginHost {
                 let mut game = crate::platform::window_detector::find_aion2_window();
                 let mut game_checked = Instant::now();
                 let mut map_seq = 0u64;
+                let mut abyss_seq = 0u64;
                 loop {
                     // Woken by each queued event; the timeout lets settling
                     // events go once their wait is over.
@@ -411,6 +426,15 @@ impl PluginHost {
                             map_seq = next;
                             if let Some(map) = maps.iter().filter(|m| m.header == 0).max_by_key(|m| m.seen_ms) {
                                 host.tell_permitted(&app, "feed:boss-timers", "bossMap", boss_map_event(map));
+                            }
+                        }
+                        // Who holds the Abyss artifacts, as the game just
+                        // told this player: at once, as the feed's "wars"
+                        // and "artifacts" have it.
+                        if let Some((next, artifacts, seen_ms)) = state.data_storage.abyss_artifacts_since(abyss_seq) {
+                            abyss_seq = next;
+                            if !artifacts.artifacts.is_empty() {
+                                host.tell_permitted(&app, "feed:boss-timers", "abyss", abyss_event(&artifacts, seen_ms));
                             }
                         }
                     }
@@ -1283,6 +1307,39 @@ pub fn restore_windows(app: &tauri::AppHandle) {
     }
 }
 
+/// Bring back every open plugin window and widget (the "plugin windows"
+/// hotkey): minimized, off every screen, or buried under other windows. One
+/// its plugin has hidden stays hidden: it shows itself when it has something
+/// to say. Shown on top without taking focus from the game.
+pub fn bring_back_windows(app: &tauri::AppHandle) {
+    for (label, window) in app.webview_windows() {
+        if !(label.starts_with("plugin-") || widgets::parse_label(&label).is_some()) {
+            continue;
+        }
+        if !window.is_visible().unwrap_or(false) || crate::platform::window::is_hidden_in_place(&window) {
+            continue;
+        }
+        let _ = window.unminimize();
+        let screens: Vec<_> = window
+            .available_monitors()
+            .unwrap_or_default()
+            .iter()
+            .map(|monitor| {
+                let area = monitor.work_area();
+                (area.position.x, area.position.y, area.size.width, area.size.height)
+            })
+            .collect();
+        if let (Ok(at), Ok(size)) = (window.outer_position(), window.outer_size()) {
+            if !within_reach(at.x, at.y, size.width, &screens) {
+                if let Some(&(x, y, _, _)) = screens.first() {
+                    let _ = window.set_position(tauri::PhysicalPosition::new(x + 40, y + 40));
+                }
+            }
+        }
+        crate::platform::window::show_on_top_without_focus(&window);
+    }
+}
+
 /// A plugin shows or hides its own window (`window` permission), for one that
 /// watches in the background and appears only when it has something to say.
 /// Shown on top without taking focus from the game.
@@ -1424,32 +1481,58 @@ pub async fn plugin_boss_timers(app: tauri::AppHandle, window: tauri::WebviewWin
     boss_timers(&app, server).await
 }
 
+/// A server's Abyss siege as players' meters see it (a2tools.app,
+/// `boss_report.rs`): who holds each artifact and each Dimensional Core's
+/// state and HP, the published file as it is, or None when the server has
+/// none yet. For plugins with `feed:boss-timers`. Meter 2.0.72 on.
+#[tauri::command]
+pub async fn plugin_abyss_siege(app: tauri::AppHandle, window: tauri::WebviewWindow, server: u32) -> Result<Option<Value>, String> {
+    let id = window_plugin(&window)?;
+    require(&app, &id, "feed:boss-timers")?;
+    if !(1000..10000).contains(&server) {
+        return Err("not a server id".into());
+    }
+    feed_file(&app, "abyss-artifacts", server).await
+}
+
 #[cfg(feature = "online")]
 async fn boss_timers(app: &tauri::AppHandle, server: u32) -> Result<Option<Value>, String> {
-    static CACHE: std::sync::OnceLock<Mutex<HashMap<u32, (Instant, Option<Value>)>>> = std::sync::OnceLock::new();
+    feed_file(app, "boss-timers", server).await
+}
+
+#[cfg(not(feature = "online"))]
+async fn boss_timers(_app: &tauri::AppHandle, _server: u32) -> Result<Option<Value>, String> {
+    Err("this meter is built without network features".into())
+}
+
+/// One server's file of a feed on the CDN (`feeds/<feed>/<server>.json`).
+#[cfg(feature = "online")]
+async fn feed_file(app: &tauri::AppHandle, feed: &'static str, server: u32) -> Result<Option<Value>, String> {
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<(&'static str, u32), (Instant, Option<Value>)>>> = std::sync::OnceLock::new();
     let cache = CACHE.get_or_init(Mutex::default);
+    let key = (feed, server);
     // As long as the CDN keeps the file (max-age 2): a plugin following a
     // boss that is being fought reads it every few seconds, for its HP as it
     // falls and its kill (Event Timers' pinned bosses).
-    if let Some((at, value)) = cache.lock().unwrap_or_else(|p| p.into_inner()).get(&server) {
+    if let Some((at, value)) = cache.lock().unwrap_or_else(|p| p.into_inner()).get(&key) {
         if at.elapsed() < Duration::from_secs(2) {
             return Ok(value.clone());
         }
     }
     let state = app.try_state::<AppState>().ok_or("no app state")?;
-    let url = format!("https://cdn.a2tools.app/feeds/boss-timers/{server}.json");
+    let url = format!("https://cdn.a2tools.app/feeds/{feed}/{server}.json");
     let res = state.http.get(&url).timeout(Duration::from_secs(15)).send().await.map_err(|e| e.to_string())?;
     let value = match res.status() {
         s if s == reqwest::StatusCode::NOT_FOUND => None,
         s if s.is_success() => Some(serde_json::from_str(&res.text().await.map_err(|e| e.to_string())?).map_err(|e| e.to_string())?),
         s => return Err(format!("the feed answered {s}")),
     };
-    cache.lock().unwrap_or_else(|p| p.into_inner()).insert(server, (Instant::now(), value.clone()));
+    cache.lock().unwrap_or_else(|p| p.into_inner()).insert(key, (Instant::now(), value.clone()));
     Ok(value)
 }
 
 #[cfg(not(feature = "online"))]
-async fn boss_timers(_app: &tauri::AppHandle, _server: u32) -> Result<Option<Value>, String> {
+async fn feed_file(_app: &tauri::AppHandle, _feed: &'static str, _server: u32) -> Result<Option<Value>, String> {
     Err("this meter is built without network features".into())
 }
 
@@ -1540,6 +1623,7 @@ pub fn serve(app: &tauri::AppHandle, path: &str) -> tauri::http::Response<Vec<u8
     if !cfg!(windows) && file.extension().is_some_and(|e| e == "html") {
         if let Ok(html) = std::fs::read_to_string(&file) {
             let (page, hashes) = inline_page(&html, &root, file.parent().unwrap_or(&root));
+            let page = with_meter_fonts(&page);
             let policy = inlined_policy(id, &hashes);
             return tauri::http::Response::builder()
                 .status(200)
@@ -1677,6 +1761,41 @@ fn base64(data: &[u8]) -> String {
 
 /// The policy for an inlined page: only its own inlined scripts run (by
 /// hash), its inlined styles apply, and nothing loads from anywhere.
+/// The meter's Linux fonts, under the names plugins ask for: Linux has
+/// neither Segoe UI, Pretendard nor Bahnschrift, so plugin text fell back to
+/// the system face while the meter itself shipped Saira and Pretendard. A
+/// plugin page cannot load the meter's files (see `serve`), so they come in
+/// the page itself, as `data:` URLs its policy allows. Latin only, as each
+/// page carries them: other scripts use the system's fonts as before.
+fn meter_fonts_style() -> &'static str {
+    static STYLE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    STYLE.get_or_init(|| {
+        let pretendard = base64(include_bytes!("fonts/PretendardLatin.woff2"));
+        let saira = base64(include_bytes!("fonts/Saira.woff2"));
+        let face = |family: &str, data: &str, extra: &str| {
+            format!("@font-face{{font-family:\"{family}\";src:url(data:font/woff2;base64,{data}) format(\"woff2\");{extra}}}")
+        };
+        let text = "font-weight:45 920;unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+2074,U+20AC,U+2122,U+2190-2199,U+2212,U+2215;";
+        let narrow = "font-weight:100 900;font-stretch:50% 125%;";
+        format!(
+            "<style>{}{}{}</style>",
+            face("Pretendard", &pretendard, text),
+            face("Segoe UI", &pretendard, text),
+            face("Bahnschrift", &saira, narrow),
+        )
+    })
+}
+
+/// A plugin page with the meter's fonts at the start of its head.
+fn with_meter_fonts(page: &str) -> String {
+    let at = page
+        .to_ascii_lowercase()
+        .find("<head")
+        .and_then(|i| page[i..].find('>').map(|j| i + j + 1))
+        .unwrap_or(0);
+    format!("{}{}{}", &page[..at], meter_fonts_style(), &page[at..])
+}
+
 fn inlined_policy(id: &str, hashes: &[String]) -> String {
     let scripts: String = hashes.iter().map(|h| format!(" 'sha256-{h}'")).collect();
     let own = if valid_id(id) { format!("a2plugin://localhost/{id}/") } else { "'none'".into() };
@@ -1707,7 +1826,7 @@ fn percent_decode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{base64, content_policy, inline_page, inlined_policy, prompt_texts, should_start, take_ready};
+    use super::{base64, content_policy, inline_page, inlined_policy, with_meter_fonts, prompt_texts, should_start, take_ready};
     use super::{update_prompt, updates_to_offer, within_reach, Pending, PluginAvailable, PluginInfo, LANGUAGES, SETTLE};
     use std::collections::{HashMap, HashSet};
     use std::time::{Duration, Instant};
@@ -1720,6 +1839,21 @@ mod tests {
             to: to.into(),
             new_permissions: new_permissions.iter().map(|p| p.to_string()).collect(),
         }
+    }
+
+    /// Linux plugin pages get the meter's fonts, inside their head, under
+    /// the names plugins use.
+    #[test]
+    fn plugin_pages_carry_the_meter_fonts_in_their_head() {
+        let page = with_meter_fonts("<!doctype html><html><head><title>x</title></head><body></body></html>");
+        let head = page.find("<head>").unwrap() + "<head>".len();
+        assert!(page[head..].starts_with("<style>@font-face{font-family:\"Pretendard\""), "{}", &page[..200]);
+        for family in ["Segoe UI", "Bahnschrift"] {
+            assert!(page.contains(&format!("font-family:\"{family}\"")), "{family}");
+        }
+        assert!(page.ends_with("<title>x</title></head><body></body></html>"));
+        // No head: at the start.
+        assert!(with_meter_fonts("<p>hi</p>").starts_with("<style>"));
     }
 
     #[test]

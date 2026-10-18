@@ -69,12 +69,41 @@ pub fn front_window() -> Option<isize> {
     (!hwnd.0.is_null()).then_some(hwnd.0 as isize)
 }
 
+/// Whether the window in front is the meter's own (any of its windows) or
+/// the game's: what a tool window stays on top for (`keep_on_top_while_ours`).
+pub fn front_is_ours_or_game() -> bool {
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.0.is_null() {
+        return true;
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    pid == unsafe { GetCurrentProcessId() } || crate::platform::window_detector::is_aion2_foreground()
+}
+
+/// If `window` has the front, give it back to `before` (the window in front
+/// when it was made): a widget's page has just loaded, which is when WebView2
+/// can take it.
+pub fn give_front_back(window: &tauri::WebviewWindow, before: Option<isize>) {
+    let (Some(hwnd), Some(before)) = (hwnd_of(window), before) else { return };
+    unsafe {
+        if GetForegroundWindow() == hwnd && before != hwnd.0 as isize {
+            let back = SetForegroundWindow(HWND(before as *mut _)).as_bool();
+            tracing::info!("A widget's page took the front as it loaded; given back: {back}");
+        }
+    }
+}
+
 /// A small window that must never take the front from the game (a plugin's
 /// alert icon): it still gets clicks and drags, but is never activated
 /// (`WS_EX_NOACTIVATE`). Built with focus off, it still took the front as
 /// its page was created (WebView2), and an alert icon appearing tabbed a
-/// player out of the game (2026-10-18). For a few seconds after it is built,
-/// if it has the front anyway, the front goes back to `before`.
+/// player out of the game (2026-10-18). For ten seconds after it is built,
+/// if it has the front anyway, the front goes back to `before`: three were
+/// too few on a busy PC, where WebView2 takes longer to start (Hirai, still
+/// tabbed out on 2.0.71, borderless). Its page loading checks once more
+/// (`give_front_back`).
 pub fn never_activate(window: &tauri::WebviewWindow, before: Option<isize>) {
     let Some(hwnd) = hwnd_of(window) else { return };
     unsafe {
@@ -87,7 +116,7 @@ pub fn never_activate(window: &tauri::WebviewWindow, before: Option<isize>) {
         return;
     }
     std::thread::spawn(move || {
-        for _ in 0..30 {
+        for _ in 0..100 {
             std::thread::sleep(std::time::Duration::from_millis(100));
             unsafe {
                 if GetForegroundWindow().0 as isize == own {

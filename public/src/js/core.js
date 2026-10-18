@@ -6,6 +6,8 @@ const SETTING_CHOICES = {
   trainSelectionMode: { allowed: ["all", "highestDamage"], fallback: "all" },
   // The figure beside each player's name, in the meter and in Details.
   partyStat: { allowed: ["combatPower", "gearScore", "both", "off"], fallback: "combatPower" },
+  // When the last fight leaves the screen after the zone changes.
+  clearOnZone: { allowed: ["instance", "any", "never"], fallback: "instance" },
   // The number after the level in the Discord activity (presence.rs).
   discordStat: { allowed: ["combatPower", "gearScore", "off"], fallback: "off" },
   // A pattern over the meter's bars: a supporter's perk (applyBarTexture).
@@ -75,6 +77,7 @@ class DpsApp {
       updateRateMs: "dpsMeter.updateRateMs",
       trainSelectionMode: "dpsMeter.trainSelectionMode",
       partyStat: "dpsMeter.partyStat",
+      clearOnZone: "dpsMeter.clearOnZone",
       barTexture: "dpsMeter.barTexture",
       barTextureOffset: "dpsMeter.barTextureOffset",
       meterFillOpacity: "dpsMeter.meterFillOpacity",
@@ -1259,6 +1262,8 @@ class DpsApp {
       dungeonId,
       targetMobCode,
       partyGeneration,
+      zoneGeneration,
+      instanceGeneration,
     } = this.buildRowsFromPayload(raw);
     // Boss mode with no boss engaged: say what it is waiting for. The rows of
     // the last fight can still be on screen (the meter keeps them), so this
@@ -1357,6 +1362,28 @@ class DpsApp {
     }
     if (partyChanged && isOutOfCombat) {
       this.lastSnapshot = rows;
+    }
+    // The zone changed as "Clear the meter" says (entering or leaving a
+    // dungeon by default, "go again" too): the last fight leaves the screen
+    // once the backend has cleared it (its next empty update), rather than
+    // staying up until the next fight. Kept on teleports inside a dungeon,
+    // and always with "Never". Waits 20 s at most: a teleport mid-fight
+    // clears nothing.
+    const clearOn = this.safeGetSetting(this.storageKeys.clearOnZone) || SETTING_CHOICES.clearOnZone.fallback;
+    const zoneMark = clearOn === "any" ? `any:${zoneGeneration}` : clearOn === "never" ? "never" : `instance:${instanceGeneration}`;
+    if (this._zoneMark != null && zoneMark !== this._zoneMark && clearOn !== "never"
+        && zoneMark.split(":")[0] === this._zoneMark.split(":")[0]) {
+      this._zoneClearUntil = Date.now() + 20_000;
+    }
+    this._zoneMark = zoneMark;
+    if (this._zoneClearUntil > Date.now() && rows.length === 0) {
+      this._zoneClearUntil = 0;
+      this.lastSnapshot = null;
+      this._barsTargetLabel = null;
+      this._lastRenderedListSignature = "";
+      this._lastRenderedRowsSummary = null;
+      this.meterUI?.onResetMeterUi?.();
+      return;
     }
     // 빈값은 ui 안덮어씀
     let rowsToRender = rows;
@@ -1502,6 +1529,8 @@ class DpsApp {
     const targetIsBoss = payload?.targetIsBoss === true;
     const targetMobCode = Math.trunc(Number(payload?.targetMobCode)) || 0;
     const partyGeneration = Math.trunc(Number(payload?.partyGeneration)) || 0;
+    const zoneGeneration = Math.trunc(Number(payload?.zoneGeneration)) || 0;
+    const instanceGeneration = Math.trunc(Number(payload?.instanceGeneration)) || 0;
 
     return {
       rows,
@@ -1517,6 +1546,8 @@ class DpsApp {
       dungeonId,
       targetMobCode,
       partyGeneration,
+      zoneGeneration,
+      instanceGeneration,
     };
   }
 
@@ -2564,6 +2595,8 @@ class DpsApp {
     this.barTextureHint = document.querySelector(".barTextureHint");
     this.textureOffsetCheckbox = document.querySelector(".textureOffsetCheckbox");
     this.partyStatDropdownMenu = document.querySelector(".partyStatDropdownMenu");
+    this.clearOnZoneDropdownBtn = document.querySelector(".clearOnZoneDropdownBtn");
+    this.clearOnZoneDropdownMenu = document.querySelector(".clearOnZoneDropdownMenu");
     this.discordStatDropdownBtn = document.querySelector(".discordStatDropdownBtn");
     this.discordStatDropdownMenu = document.querySelector(".discordStatDropdownMenu");
     this.trainSelectionModeDropdownMenu = document.querySelector(".trainSelectionModeDropdownMenu");
@@ -2784,6 +2817,7 @@ class DpsApp {
     this.settingsSelections.partyStat = this.partyStat;
     this.syncPreviewPartyStat();
     this.settingsSelections.discordStat = pickSettingChoice("discordStat", this.safeGetSetting(this.storageKeys.discordStat));
+    this.settingsSelections.clearOnZone = pickSettingChoice("clearOnZone", this.safeGetSetting(this.storageKeys.clearOnZone));
     this.barTexture = pickSettingChoice("barTexture", this.safeGetSetting(this.storageKeys.barTexture));
     this.settingsSelections.barTexture = this.barTexture;
     this.applyBarTexture(this.barTexture);
@@ -3326,6 +3360,32 @@ class DpsApp {
     });
 
     // This version's release notes; the list when the version isn't known.
+    // Check for updates now: one found is offered (and installed: on Linux
+    // through the package manager, after which the meter starts again).
+    const updateBtn = document.querySelector(".settingsUpdateBtn");
+    const updateStatus = document.querySelector(".settingsUpdateStatus");
+    Promise.resolve(window.a2BuildReady).then((build) => {
+      if (updateBtn && build?.online !== false && window.ReleaseChecker?.checkNow) updateBtn.hidden = false;
+    });
+    updateBtn?.addEventListener("click", async () => {
+      if (updateBtn.classList.contains("isChecking")) return;
+      const t = (key, fallback) => this.i18n?.t?.(key, fallback) ?? fallback;
+      const say = (text) => {
+        if (!updateStatus) return;
+        updateStatus.textContent = text;
+        updateStatus.hidden = !text;
+      };
+      updateBtn.classList.add("isChecking");
+      say(t("settings.update.checking", "Checking…"));
+      const found = await window.ReleaseChecker.checkNow();
+      updateBtn.classList.remove("isChecking");
+      const latest = String(found?.latest || "").replace(/^v/i, "");
+      if (found?.state === "current") say(t("settings.update.current", "Up to date"));
+      else if (found?.state === "installing") say(t("settings.update.installing", "Updating…"));
+      else if (found?.state === "update") say(t("settings.update.available", "{version} is out").replace("{version}", latest));
+      else say(t("settings.update.failed", "Couldn't check. Try again later."));
+    });
+
     this.settingsVersionLink?.addEventListener("click", () => {
       const releases = "https://github.com/maarloms/A2Tools-DPS-Meter/releases"; // fork: upstream taengu
       const version = /^v\d+\.\d+\.\d+$/.exec(this.settingsVersionValue?.textContent?.trim() || "")?.[0];
@@ -3766,6 +3826,22 @@ class DpsApp {
         this.settingsSelections.partyStat = value;
         this.applyPartyStat(value);
         this.safeSetSetting(this.storageKeys.partyStat, value);
+      }
+    );
+
+    setupDropdown(
+      this.clearOnZoneDropdownBtn,
+      this.clearOnZoneDropdownMenu,
+      [
+        { value: "instance", label: this.i18n?.t("settings.clearOnZone.options.instance", "Entering or leaving a dungeon") },
+        { value: "any", label: this.i18n?.t("settings.clearOnZone.options.any", "Any zone change") },
+        { value: "never", label: this.i18n?.t("settings.clearOnZone.options.never", "Never (keep the last fight)") },
+      ],
+      this.settingsSelections.clearOnZone,
+      (value) => {
+        if (!value) return;
+        this.settingsSelections.clearOnZone = value;
+        this.safeSetSetting(this.storageKeys.clearOnZone, value);
       }
     );
 
@@ -4305,6 +4381,8 @@ class DpsApp {
     const reloadBtn = document.querySelector(".reloadKeybindBtn");
     const toggleBtn = document.querySelector(".toggleKeybindBtn");
     const lockKeyBtn = document.querySelector(".lockKeybindBtn");
+    const pluginsKeyBtn = document.querySelector(".pluginsKeybindBtn");
+    const notSet = () => this.i18n?.t?.("settings.keybind.notSet", "Not set") ?? "Not set";
 
     this.refreshKeybindLabels = () => {
       const reloadLabel = window.javaBridge?.getCurrentHotKey?.() || "";
@@ -4319,6 +4397,11 @@ class DpsApp {
         lockKeyBtn.querySelector(".keybindText").textContent =
           window.javaBridge?.getCurrentLockHotKey?.() || "Ctrl+Alt+L";
       }
+      if (pluginsKeyBtn) {
+        const label = window.javaBridge?.getCurrentPluginWindowsHotKey?.() || "";
+        pluginsKeyBtn.querySelector(".keybindText").textContent = label || notSet();
+        pluginsKeyBtn.classList.toggle("isUnset", !label);
+      }
     };
     this.refreshKeybindLabels();
 
@@ -4329,13 +4412,21 @@ class DpsApp {
     let lastHotkeyStatus = {};
     this.applyHotkeyStatus = (status) => {
       lastHotkeyStatus = status && typeof status === "object" ? status : {};
-      const rows = [[reloadBtn, "reload"], [toggleBtn, "toggle"], [lockKeyBtn, "lock"]]
-        .filter(([btn]) => btn && btn.closest?.(".settingsRowKeybind")?.style?.display !== "none");
+      const rows = [[reloadBtn, "reload"], [toggleBtn, "toggle"], [lockKeyBtn, "lock"], [pluginsKeyBtn, "plugins"]]
+        .filter(([btn]) => btn && btn.closest?.(".settingsRowKeybind")?.style?.display !== "none")
+        .filter(([btn]) => !btn.classList?.contains?.("isUnset"));
       const labelOf = (btn) => (btn.querySelector?.(".keybindText")?.textContent || "").trim().toLowerCase();
       for (const [btn, key] of rows) {
         const shared = rows.some(([other]) => other !== btn && labelOf(other) === labelOf(btn));
         const taken = lastHotkeyStatus[key] === "taken";
+        const unset = !shared && lastHotkeyStatus[key] === "unset";
+        // The key the desktop gave it, when that differs from ours (KDE
+        // keeps the one it stored first).
+        const assigned = String(lastHotkeyStatus[`${key}.assigned`] || "").trim();
+        const squash = (s) => s.toLowerCase().replace(/\s+/g, "");
+        const otherKey = !shared && !taken && assigned && squash(assigned) !== squash(labelOf(btn));
         btn.classList?.toggle?.("isTaken", shared || taken);
+        btn.classList?.toggle?.("isUnsetByDesktop", unset);
         let reason = "";
         if (shared) {
           reason = this.i18n?.t?.("settings.keybindShared", "Another action uses these keys. Pick different keys.")
@@ -4343,6 +4434,12 @@ class DpsApp {
         } else if (taken) {
           reason = this.i18n?.t?.("settings.keybindTaken", "Another program already uses these keys. Pick different keys.")
             ?? "Another program already uses these keys. Pick different keys.";
+        } else if (unset) {
+          reason = this.i18n?.t?.("settings.keybindUnset", "Your desktop hasn't given this a key yet. Set it in Desktop shortcuts.")
+            ?? "Your desktop hasn't given this a key yet. Set it in Desktop shortcuts.";
+        } else if (otherKey) {
+          reason = (this.i18n?.t?.("settings.keybindAssigned", "Your desktop uses {key}. Change it in Desktop shortcuts.")
+            ?? "Your desktop uses {key}. Change it in Desktop shortcuts.").replace("{key}", assigned);
         }
         const info = btn.closest?.(".settingsRowKeybind")?.querySelector?.(".settingsInfo");
         let hint = info?.querySelector?.(".keybindHint");
@@ -4355,9 +4452,16 @@ class DpsApp {
         if (hint) {
           hint.textContent = reason;
           hint.hidden = !reason;
+          hint.classList?.toggle?.("isNote", unset || otherKey);
         }
         if (reason) btn.title = reason;
         else btn.removeAttribute?.("title");
+      }
+      // Where the desktop decides the keys (Linux), a way to its settings.
+      const desktopBtn = document.querySelector?.(".keybindDesktopBtn");
+      if (desktopBtn) {
+        desktopBtn.hidden = !Object.entries(lastHotkeyStatus)
+          .some(([k, v]) => v === "unset" || (k.endsWith(".assigned") && v));
       }
     };
     const refreshLabels = this.refreshKeybindLabels;
@@ -4402,6 +4506,15 @@ class DpsApp {
     reloadBtn?.addEventListener("click", () => handleKeybindClick(reloadBtn, "reload"));
     toggleBtn?.addEventListener("click", () => handleKeybindClick(toggleBtn, "toggle"));
     lockKeyBtn?.addEventListener("click", () => handleKeybindClick(lockKeyBtn, "lock"));
+    pluginsKeyBtn?.addEventListener("click", () => handleKeybindClick(pluginsKeyBtn, "plugins"));
+    document.querySelector(".keybindDesktopBtn")?.addEventListener("click", () => {
+      Promise.resolve(window.javaBridge?.openDesktopShortcuts?.()).catch(() => {});
+    });
+    document.querySelector(".keybindDefaultsBtn")?.addEventListener("click", () => {
+      stopRecording();
+      window.javaBridge?.restoreDefaultHotkeys?.();
+      this.refreshKeybindLabels();
+    });
 
     document.addEventListener("keydown", (event) => {
       if (!activeRecording) return;
@@ -4436,9 +4549,10 @@ class DpsApp {
         ((mods & MOD_SHIFT) ? 1 : 0) +
         ((mods & MOD_WIN) ? 1 : 0);
 
-      if (modCount < 1) {
+      // 1 to 3 keys: a key alone (F9), or with one or two modifiers.
+      if (modCount > 2) {
         activeRecording.btn.querySelector(".keybindText").textContent =
-          this.i18n?.t?.("settings.keybind.needModifiers", "Need 1+ modifier") ?? "Need 1+ modifier";
+          this.i18n?.t?.("settings.keybind.tooManyKeys", "Up to 3 keys") ?? "Up to 3 keys";
         setTimeout(() => {
           if (activeRecording) {
             activeRecording.btn.querySelector(".keybindText").textContent =
@@ -4463,7 +4577,10 @@ class DpsApp {
       } else if (type === "lock") {
         window.javaBridge?.setLockHotkey?.(mods, vk);
         if (lockKeyBtn) lockKeyBtn.querySelector(".keybindText").textContent = label;
+      } else if (type === "plugins") {
+        window.javaBridge?.setPluginWindowsHotkey?.(mods, vk);
       }
+      this.refreshKeybindLabels();
     }, true);
 
     document.addEventListener("click", (event) => {
