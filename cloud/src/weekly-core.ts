@@ -192,6 +192,29 @@ export function bossTable(fights: WeekFight[], perBoss: { boss: string; cur: num
   return [...by.values()].sort((a, b) => b.tries - a.tries || b.kills - a.kills || a.boss.localeCompare(b.boss));
 }
 
+// Klassen wie im Dashboard (public/js/core.js): die App liefert IDs 11–19 (FightRecord.jobId) oder nur den
+// koreanischen Namen (jobId 0) – fürs Bild immer die ID.
+const JOB_KEYS: [number, string, string, string][] = [
+  [11, "검성", "GLADIATOR", "GLADIATOR"],
+  [12, "수호성", "TEMPLAR", "TEMPLER"],
+  [13, "살성", "ASSASSIN", "ASSASSINE"],
+  [14, "궁성", "RANGER", "WALDLÄUFER"],
+  [15, "마도성", "SORCERER", "MAGIER"],
+  [16, "정령성", "ELEMENTALIST", "BESCHWÖRER"],
+  [17, "치유성", "CLERIC", "KLERIKER"],
+  [18, "호법성", "CHANTER", "KANTOR"],
+  [19, "권성", "FIGHTER", "FAUSTKÄMPFER"],
+];
+
+/** Klassen-ID 11–19 aus ID oder Name, 0 = unbekannt */
+export function resolveJobId(id: unknown, name: unknown): number {
+  const n = Number(id);
+  if (JOB_KEYS.some((k) => k[0] === n)) return n;
+  const key = String(name ?? "").trim();
+  const up = key.toUpperCase();
+  return JOB_KEYS.find((k) => k[1] === key || k[2] === up || k[3] === up || String(k[0]) === key)?.[0] ?? 0;
+}
+
 /** ISO-Kalenderwoche eines Zeitpunkts (UTC) – fürs Bild ("KW 42", Woche beginnt mittwochs) */
 export function isoWeek(ms: number): number {
   const d = new Date(ms);

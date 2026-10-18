@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import {
   bossDpsChange, buildPayload, buildPingPayload, classifyStatus, currentWeek, escapeMd, fmtPct, lastWeek, parseWebhookUrl,
   pctChange, retryAfterMs, webhookHint, weekLabel, weekStart, EMBED_COLOR, WEEK_MS,
-  IMAGE_DEADLINE_MS, IMAGE_NAME, bossTable, buildImagePayload, isoWeek, pendingView, pickFights, pngSize, waitingForImage,
+  IMAGE_DEADLINE_MS, IMAGE_NAME, bossTable, buildImagePayload, isoWeek, pendingView, pickFights, pngSize, resolveJobId, waitingForImage,
 } from "../src/weekly-core.ts";
 
 const utc = (s) => Date.parse(s);
@@ -292,4 +292,13 @@ test("Recap für den Render-Agenten: Klassen, KW, keine URLs", () => {
   assert.equal(v.players[0].job, 13);
   assert.equal(v.bosses[0].tries, 3);
   assert.ok(!JSON.stringify(v).includes("http"));
+});
+
+test("Klassen-ID aus ID oder Namen (App schickt teils nur den koreanischen Namen)", () => {
+  assert.equal(resolveJobId(13, ""), 13);
+  assert.equal(resolveJobId(0, "검성"), 11);
+  assert.equal(resolveJobId(0, "CLERIC"), 17);
+  assert.equal(resolveJobId(null, "Faustkämpfer"), 19);
+  assert.equal(resolveJobId(0, "Unknown"), 0);
+  assert.equal(resolveJobId(42, ""), 0);
 });

@@ -24,7 +24,7 @@ import { ROOM_CODE_RE } from "./protocol";
 import {
   CLAIM_MS, IMAGE_DEADLINE_MS, IMAGE_NAME, MAX_IMAGE_BYTES, MAX_IMAGE_SIDE, MAX_RETRY_WAIT_MS, Recap, SendOutcome,
   TEST_MIN_INTERVAL_MS, Week, WeekFight, bossDpsChange, bossTable, buildImagePayload, buildPayload, buildPingPayload,
-  classifyStatus, currentWeek, lastWeek, parseWebhookUrl, pendingView, pickFights, pngSize, retryAfterMs, waitingForImage,
+  classifyStatus, currentWeek, lastWeek, parseWebhookUrl, pendingView, pickFights, pngSize, resolveJobId, retryAfterMs, waitingForImage,
   webhookHint, WEEK_MS,
 } from "./weekly-core";
 
@@ -168,14 +168,14 @@ export async function buildRecap(db: D1Database, env: Env, room: string, week: W
   const players = (
     await db
       .prepare(
-        `SELECT lc, job, dps, boss FROM (SELECT ps.player_lc AS lc, ps.job_id AS job, ps.dps AS dps, ps.boss AS boss,
+        `SELECT lc, jobId, job, dps, boss FROM (SELECT ps.player_lc AS lc, ps.job_id AS jobId, ps.job AS job, ps.dps AS dps, ps.boss AS boss,
            ROW_NUMBER() OVER (PARTITION BY ps.player_lc ORDER BY ps.dps DESC) AS rn
          FROM player_stats ps WHERE ps.room = ?1 AND ps.start_ms >= ?2 AND ps.start_ms < ?3 AND ps.is_train = 0 AND ${REL_PS} AND ${IS_MEMBER})
          WHERE rn = 1 ORDER BY dps DESC`,
       )
       .bind(room, week.from, to, ml)
-      .all<{ lc: string; job: number; dps: number; boss: string }>()
-  ).results.map((p) => ({ name: names.get(p.lc) ?? p.lc, job: Number(p.job) || 0, dps: p.dps, boss: p.boss }));
+      .all<{ lc: string; jobId: number; job: string; dps: number; boss: string }>()
+  ).results.map((p) => ({ name: names.get(p.lc) ?? p.lc, job: resolveJobId(p.jobId, p.job), dps: p.dps, boss: p.boss }));
 
   const perBoss = (
     await db
@@ -262,18 +262,25 @@ const jsonBody = (payload: unknown): Body => {
   return { make: () => text, headers: { "content-type": "application/json" } };
 };
 
-/** multipart/form-data: payload_json + files[0] (Content-Type setzt fetch samt boundary selbst) */
+/**
+ * multipart/form-data: payload_json + files[0], als fertiger Puffer (feste Content-Length, bei 429 ohne
+ * Neuaufbau wiederverwendbar; eine Kopie von ≤ 1 MB kostet kaum CPU).
+ */
 const imageBody = (payload: unknown, png: Uint8Array): Body => {
-  const text = JSON.stringify(payload);
-  return {
-    make: () => {
-      const fd = new FormData();
-      fd.append("payload_json", text);
-      fd.append("files[0]", new File([png], IMAGE_NAME, { type: "image/png" }));
-      return fd;
-    },
-    headers: {},
-  };
+  const boundary = `a2dps${crypto.randomUUID().replace(/-/g, "")}`;
+  const enc = new TextEncoder();
+  const CRLF = "\r\n";
+  const head = enc.encode(
+    `--${boundary}${CRLF}Content-Disposition: form-data; name="payload_json"${CRLF}Content-Type: application/json${CRLF}${CRLF}` +
+      `${JSON.stringify(payload)}${CRLF}` +
+      `--${boundary}${CRLF}Content-Disposition: form-data; name="files[0]"; filename="${IMAGE_NAME}"${CRLF}Content-Type: image/png${CRLF}${CRLF}`,
+  );
+  const tail = enc.encode(`${CRLF}--${boundary}--${CRLF}`);
+  const buf = new Uint8Array(head.length + png.length + tail.length);
+  buf.set(head, 0);
+  buf.set(png, head.length);
+  buf.set(tail, head.length + png.length);
+  return { make: () => buf, headers: { "content-type": `multipart/form-data; boundary=${boundary}` } };
 };
 
 /**
@@ -291,7 +298,9 @@ async function send(env: Env, hook: string, body: Body, allowWait: boolean): Pro
         body: body.make(),
         signal: AbortSignal.timeout(15_000),
       });
-    } catch {
+    } catch (e) {
+      // Ohne URL loggen (enthält den Webhook-Token)
+      console.error(`Discord nicht erreichbar: ${String((e as Error)?.message ?? e).replace(/https?:\/\/\S+/g, "<url>").slice(0, 200)}`);
       return { outcome: "retry", code: 0 };
     }
     const outcome = classifyStatus(resp.status);
@@ -462,7 +471,7 @@ export async function handleWeeklyApi(req: Request, env: Env, url: URL): Promise
 
   const ct = (req.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
   if (ct !== "image/png") {
-    await req.body?.cancel();
+    await readLimited(req, MAX_IMAGE_BYTES); // kleinen Body lesen statt abbrechen: Verbindung bleibt nutzbar
     return apiJson({ error: "bad_type", message: "Content-Type: image/png erwartet" }, 415);
   }
   if (Number(req.headers.get("content-length") || "0") > MAX_IMAGE_BYTES) {
