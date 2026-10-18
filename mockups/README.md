@@ -7,6 +7,9 @@ Nur Entwürfe, nicht im Worker eingebaut. Beispieldaten mit Fantasienamen (`data
 | `wochenbild-a.png` | Gilden-Trophäe: Podium in Nachtblau/Gold (Cinzel, wie Dashboard-Theme „Atreia Gold“) | 1200×675 |
 | `wochenbild-b.png` | Esports-Scoreboard: Schwarz/Neon, MVP-Karte + Rangliste #2–#6, Kennzahlen-Kacheln | 1200×630 |
 | `wochenbild-c.png` | Infografik: alle Mitglieder als Balken in Klassenfarben, Klassen-Ring, Bosse mit Trend, 3 Highlights | 1200×760 |
+| `wochenbild-d.png` | Sammelkarten: Top 3 als Trading-Cards (Holo-Gold/Silber/Bronze, Seltenheit, Sterne), Gruppenwerte als Leiste | 1200×675 |
+| `wochenbild-e.png` | Kriegschronik: Pergament, Fraktur-Titel, Wochenbericht als Fließtext, Strichlisten je Boss, Wachssiegel mit KW | 1200×760 |
+| `wochenbild-f.png` | Magazin-Cover „Gildenblatt“: MVP als Titelgeschichte, Schlagzeilen (Bilanz, Boss der Woche, Rekord), Störer, Strichcode | 1200×675 |
 
 `vorschau/*-400.png` = dieselben Bilder in 400 px Breite (ungefähr so groß zeigt Discord ein Embed-Bild).
 
@@ -22,8 +25,12 @@ node measure-wasm.mjs    # Zeitmessung mit satori/standalone + @resvg/resvg-wasm
 Element-Bäume ohne JSX (`lib.mjs` → `h(style, ...kinder)`), Fonts aus `@fontsource` (WOFF, Satori kann kein WOFF2),
 Klassensymbole aus `../src/assets/*.png` als data-URI.
 
+D–F (18.10.2026) nehmen zusätzlich `@fontsource/im-fell-english`, `caveat`, `unifrakturmaguntia`, `anton`, `playfair-display`.
+Spielerbild über `avatar()` in `lib.mjs`: heute Klassensymbol, später `p.portrait` (data-URI) an derselben Stelle.
+
 Satori-Stolperfallen: jedes `div` mit mehreren Kindern braucht `display:flex` (macht `h()`), Padding wird
-zur Breite addiert (Innenmaß angeben), Glow (`box-shadow`/`text-shadow`) kostet in resvg viel CPU (Entwurf B).
+zur Breite addiert (Innenmaß angeben), absolut positionierte Bilder liegen ÜBER Text im Fluss (Hintergründe
+daher als `backgroundImage: url(data:svg)` → `svgUrl()`), gedrehte Elemente (`transform`) überdecken Nachbarn, Glow (`box-shadow`/`text-shadow`) kostet in resvg viel CPU (Entwurf B).
 
 ## Daten (gegenüber heute keine zusätzlichen D1-Reads)
 

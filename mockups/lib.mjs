@@ -16,6 +16,10 @@ export const img = (src, w, hgt, style = {}) => ({ type: "img", props: { src, wi
 export const svg = (w, hgt, body, style = {}) =>
   img(`data:image/svg+xml;base64,${Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hgt}" viewBox="0 0 ${w} ${hgt}">${body}</svg>`).toString("base64")}`, w, hgt, style);
 
+/** SVG als CSS-Hintergrund (url(...)) – liegt sicher unter dem Inhalt, anders als absolute Bilder */
+export const svgUrl = (w, hgt, body) =>
+  `url(data:image/svg+xml;base64,${Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hgt}" viewBox="0 0 ${w} ${hgt}">${body}</svg>`).toString("base64")})`;
+
 const iconCache = new Map();
 /** Klassensymbol als data-URI (40×42 PNG aus der App) */
 export function jobIcon(id) {
@@ -24,6 +28,16 @@ export function jobIcon(id) {
     iconCache.set(id, `data:image/png;base64,${buf.toString("base64")}`);
   }
   return iconCache.get(id);
+}
+
+/**
+ * Bild eines Spielers: später ein hochgeladenes Portrait (p.portrait = data-URI), bis dahin das
+ * Klassensymbol mittig. Rahmen/Hintergrund liefert der Entwurf, hier nur der Inhalt.
+ */
+export function avatar(p, w, hgt, iconScale = 0.55) {
+  if (p.portrait) return img(p.portrait, w, hgt, { objectFit: "cover" });
+  const iw = Math.round(Math.min(w, hgt) * iconScale);
+  return h({ width: w, height: hgt, alignItems: "center", justifyContent: "center" }, img(jobIcon(p.job), iw, Math.round(iw * 1.05)));
 }
 
 export function fonts() {
@@ -39,5 +53,16 @@ export function fonts() {
     f("Inter", "inter", "inter-latin-900-normal.woff", 900),
     f("Inter", "inter", "inter-latin-800-italic.woff", 800, "italic"),
     f("Inter", "inter", "inter-latin-900-italic.woff", 900, "italic"),
+    // Entwürfe D–F
+    f("Fell", "im-fell-english", "im-fell-english-latin-400-normal.woff", 400),
+    f("Fell", "im-fell-english", "im-fell-english-latin-400-italic.woff", 400, "italic"),
+    f("Caveat", "caveat", "caveat-latin-600-normal.woff", 600),
+    f("Caveat", "caveat", "caveat-latin-700-normal.woff", 700),
+    f("Fraktur", "unifrakturmaguntia", "unifrakturmaguntia-latin-400-normal.woff", 400),
+    f("Anton", "anton", "anton-latin-400-normal.woff", 400),
+    f("Playfair", "playfair-display", "playfair-display-latin-700-normal.woff", 700),
+    f("Playfair", "playfair-display", "playfair-display-latin-900-normal.woff", 900),
+    f("Playfair", "playfair-display", "playfair-display-latin-700-italic.woff", 700, "italic"),
+    f("Playfair", "playfair-display", "playfair-display-latin-900-italic.woff", 900, "italic"),
   ];
 }
