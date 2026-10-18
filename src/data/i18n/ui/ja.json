@@ -174,6 +174,20 @@
       }
     },
     "fightTimeline": "戦闘タイムライン",
+    "replay": {
+      "label": "リプレイ",
+      "title": "リプレイ",
+      "play": "リプレイを再生",
+      "pause": "一時停止",
+      "speed": "再生速度",
+      "position": "リプレイの位置",
+      "positionText": "{at} / {total}",
+      "exit": "リプレイを終了（戦闘全体を表示）",
+      "wholeFightNote": "被ダメージ、最小 / 最大、バフ持続率は戦闘全体の値です。",
+      "moreSkills": "他 {n} 件、一時停止で表示",
+      "noHealTiming": "この戦闘の回復には時刻がありません（旧バージョンで保存）。戦闘全体の値を表示します。",
+      "unavailable": "この戦闘はヒット時刻なしで保存されたため、リプレイできません"
+    },
     "casts": "詠唱",
     "resize": "ドラッグでサイズ変更",
     "healTimingNote": "この戦闘には回復のタイミングがありません（古いバージョンで記録）。",
@@ -566,7 +580,8 @@
   "meter": {
     "identifyingPlayer": "#{id}",
     "a2toolsUser": "A2Toolsを使用中",
-    "dpsSuffix": "/s"
+    "dpsSuffix": "/s",
+    "others": "その他"
   },
   "skills": {
     "fallback": "スキル {code}",

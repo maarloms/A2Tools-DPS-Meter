@@ -145,6 +145,27 @@ fn set_meter_wanted(app: &tauri::AppHandle, shown: bool) {
     let _ = app.emit("meter-shown", shown);
 }
 
+/// Whether something would be left to open the meter or a plugin with, with
+/// `except` (a window about to go) gone: the meter, another plugin window,
+/// or an unlocked widget (double-clicked, it opens its plugin's window).
+pub(crate) fn way_back_without(app: &tauri::AppHandle, except: &str) -> bool {
+    meter_wanted(app)
+        || app.webview_windows().into_iter().any(|(label, w)| {
+            label != except && label.starts_with("plugin-")
+                && w.is_visible().unwrap_or(false) && !platform::window::is_hidden_in_place(&w)
+        })
+        || crate::plugins::widgets::any_unlocked_widget_shown(app)
+}
+
+/// The meter hidden and nothing left on screen to open anything with (a
+/// tester hid both, 2026-10-17): the meter comes back. `except` is a window
+/// about to go.
+pub(crate) fn keep_something_on_screen(app: &tauri::AppHandle, except: &str) {
+    if !way_back_without(app, except) {
+        set_meter_wanted(app, true);
+    }
+}
+
 #[tauri::command]
 fn set_meter_shown(app: tauri::AppHandle, shown: bool) {
     set_meter_wanted(&app, shown);
@@ -178,6 +199,21 @@ fn window_titled(app: &tauri::AppHandle, title: &str) -> Option<String> {
         .into_iter()
         .find(|(_, window)| window.title().ok().as_deref() == Some(title))
         .map(|(label, _)| label)
+        .or_else(|| titles().lock().unwrap_or_else(|p| p.into_inner()).get(title).cloned())
+}
+
+/// Each window's title and label, noted before the window is built: KWin
+/// asks where a window goes the moment it appears, which can be before the
+/// app has the new window in its list, and a window it could not name
+/// opened in the middle of the screen (widgets moved before, a tester on
+/// KDE Wayland, 2026-10-17).
+fn titles() -> &'static std::sync::Mutex<HashMap<String, String>> {
+    static TITLES: std::sync::OnceLock<std::sync::Mutex<HashMap<String, String>>> = std::sync::OnceLock::new();
+    TITLES.get_or_init(Default::default)
+}
+
+pub(crate) fn note_window_title(title: &str, label: &str) {
+    titles().lock().unwrap_or_else(|p| p.into_inner()).insert(title.to_string(), label.to_string());
 }
 
 /// Where the window manager says a window was left, by its label (#76).
@@ -1123,13 +1159,19 @@ fn flush_settings_before_exit(app: &tauri::AppHandle) {
     }
 }
 
+/// A skill icon from the disk cache. `async`, like `write_cached_icon`: as
+/// sync commands they ran on the main thread, a hundred or so of each when a
+/// fight opened, and every window stopped moving and painting for seconds
+/// (2026-10-18).
 #[tauri::command]
-fn read_cached_icon(state: tauri::State<'_, AppState>, key: String) -> Option<String> {
+async fn read_cached_icon(app: tauri::AppHandle, key: String) -> Result<Option<String>, String> {
     if !crate::history::fight_history::is_plain_name(&key) {
-        return None;
+        return Ok(None);
     }
-    let path = state.app_data_dir.join("icon_cache").join(&key);
-    std::fs::read_to_string(&path).ok()
+    crate::blocking::ICONS.run(move || {
+        let path = app.state::<AppState>().app_data_dir.join("icon_cache").join(&key);
+        std::fs::read_to_string(&path).ok()
+    }).await
 }
 
 #[tauri::command]
@@ -1194,15 +1236,21 @@ fn log_from_ui(message: String) {
     tracing::warn!("UI: {message}");
 }
 
+/// Keep a downloaded skill icon (base64) for next time. Off the main thread;
+/// see `read_cached_icon`. An icon already kept is not written again.
 #[tauri::command]
-fn write_cached_icon(state: tauri::State<'_, AppState>, key: String, data: String) {
+async fn write_cached_icon(app: tauri::AppHandle, key: String, data: String) -> Result<(), String> {
     if !crate::history::fight_history::is_plain_name(&key) {
-        return;
+        return Ok(());
     }
-    let cache_dir = state.app_data_dir.join("icon_cache");
-    let _ = std::fs::create_dir_all(&cache_dir);
-    let path = cache_dir.join(&key);
-    let _ = std::fs::write(&path, &data);
+    crate::blocking::ICONS.run(move || {
+        let cache_dir = app.state::<AppState>().app_data_dir.join("icon_cache");
+        let path = cache_dir.join(&key);
+        if !path.exists() {
+            let _ = std::fs::create_dir_all(&cache_dir);
+            let _ = std::fs::write(&path, &data);
+        }
+    }).await
 }
 
 
@@ -1859,6 +1907,68 @@ fn details_geometry_is_user_placed(app: &tauri::AppHandle) -> bool {
 
 const DETAILS_USER_PLACED_KEY: &str = "window.details.userPlaced";
 
+/// The windows that float apart from the overlay and reopen where they were
+/// left. Per-fight windows (details-*) are deliberately absent: they are
+/// opened to be read and closed, and keying geometry by fight id would grow
+/// settings without bound.
+const TOOL_WINDOWS: [&str; 3] = ["details", "settings", "history"];
+
+/// Remember where tool window `label` is and its size. Called on every move
+/// and resize, and every 5 s as before: with only the timer, a window moved
+/// and closed within 5 s reopened where it had been (Battle History,
+/// 2026-10-18).
+fn save_tool_window_geometry(handle: &tauri::AppHandle, label: &str) {
+    save_window_geometry(handle, label, label);
+}
+
+/// The settings key the fight windows (`details-<fight id>`) share: one
+/// place and size for all of them, where the last one was left, rather than
+/// one per fight, which never reopened anywhere but the middle (2026-10-18).
+const FIGHT_WINDOW_KEY: &str = "fight";
+
+/// Remember window `label` as `key` (see `save_tool_window_geometry`).
+fn save_window_geometry(handle: &tauri::AppHandle, label: &str, key: &str) {
+    let Some(state) = handle.try_state::<AppState>() else { return };
+    // While Details is pinned to a monitor its rect comes from the setting,
+    // not from the user. Saving it poisons the windowed geometry: turn the
+    // setting off and Details would reopen full-size on that same screen.
+    if label == "details" && details_monitor_setting(handle).is_some() {
+        return;
+    }
+    let Some(w) = handle.get_webview_window(label) else { return };
+    if !w.is_visible().unwrap_or(false) || w.is_minimized().unwrap_or(false) {
+        return;
+    }
+    if let Ok(pos) = w.outer_position() {
+        if pos.x > -10000 && pos.y > -10000 {
+            state.settings.set(&format!("window.{}.x", key), &pos.x.to_string());
+            state.settings.set(&format!("window.{}.y", key), &pos.y.to_string());
+        }
+    }
+    // Inner, not outer: restore applies it with set_size, which sets the
+    // inner size. Saving the outer size grew every tool window by its border
+    // (16x9 px here) on each reopen.
+    if let Ok(size) = w.inner_size() {
+        if size.width > 100 && size.height > 100 {
+            state.settings.set(&format!("window.{}.w", key), &size.width.to_string());
+            state.settings.set(&format!("window.{}.h", key), &size.height.to_string());
+        }
+    }
+    // Details is unpinned here, but the window may still be sitting on the
+    // fill rect from before the setting was switched off. A rect that
+    // swallows a whole screen is not a placement anyone chose by dragging, so
+    // it never earns the marker.
+    if label == "details" {
+        let filling = match (w.outer_position(), w.outer_size()) {
+            (Ok(pos), Ok(size)) => rect_covers_a_monitor(handle, pos, size),
+            _ => true,
+        };
+        if !filling {
+            state.settings.set(DETAILS_USER_PLACED_KEY, "true");
+        }
+    }
+}
+
 /// Whether a window rect swallows a whole monitor — the shape of a
 /// monitor-filling placement rather than somewhere the user dragged a window.
 fn rect_covers_a_monitor(
@@ -1894,6 +2004,54 @@ fn center_on_overlay_monitor(app: &tauri::AppHandle, window: &tauri::WebviewWind
         }
     }
     let _ = window.center();
+}
+
+/// Where a tool window should be born, in logical units for its builder: the
+/// spot `label`'s window was left at, and its size unless `keep_size` is
+/// false; else (or with no `label`) centred on the overlay's screen at `size`.
+/// Built at the default spot and moved after `build()` returned, it showed
+/// there first and then jumped: on Windows `build()` waits for WebView2, so
+/// the jump was plain to see (Settings, 2026-10-18). `restore_window_geometry` still runs after, to set
+/// the physical pixels exactly; the window is already there.
+fn birth_place(app: &tauri::AppHandle, label: Option<&str>, size: (f64, f64), keep_size: bool) -> (f64, f64, f64, f64) {
+    let saved = |k: &str| {
+        let label = label?;
+        app.try_state::<AppState>()
+            .and_then(|s| s.settings.get(&format!("window.{}.{}", label, k)))
+            .and_then(|v| v.trim().parse::<i32>().ok())
+    };
+    let monitors = app.available_monitors().unwrap_or_default();
+    if let (Some(x), Some(y)) = (saved("x"), saved("y")) {
+        let screen = monitors.iter().find(|m| {
+            let p = *m.position();
+            let s = *m.size();
+            x >= p.x - 64 && x < p.x + s.width as i32 && y >= p.y - 64 && y < p.y + s.height as i32
+        });
+        if let Some(m) = screen {
+            let scale = m.scale_factor();
+            let (mut w, mut h) = size;
+            if keep_size {
+                if let (Some(sw), Some(sh)) = (saved("w"), saved("h")) {
+                    if sw > 200 && sh > 150 {
+                        (w, h) = (sw as f64 / scale, sh as f64 / scale);
+                    }
+                }
+            }
+            return (x as f64 / scale, y as f64 / scale, w, h);
+        }
+    }
+    let monitor = app
+        .get_webview_window("main")
+        .and_then(|main| main.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+    match monitor {
+        Some(m) => {
+            let scale = m.scale_factor();
+            let (p, s) = (m.position().to_logical::<f64>(scale), m.size().to_logical::<f64>(scale));
+            (p.x + ((s.width - size.0) / 2.0).max(0.0), p.y + ((s.height - size.1) / 2.0).max(0.0), size.0, size.1)
+        }
+        None => (100.0, 100.0, size.0, size.1),
+    }
 }
 
 /// Restore a tool window's remembered geometry. Returns true if anything was
@@ -2000,6 +2158,7 @@ window.__A2_VIEW__ = 'settings';
 
 fn build_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
     platform::window_startup::begin_settings_load();
+    let (x, y, _, _) = birth_place(app, Some("settings"), (760.0, 820.0), false);
     let window = tauri::WebviewWindowBuilder::new(
         app,
         "settings",
@@ -2016,6 +2175,7 @@ fn build_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
     .always_on_top(true)
     .resizable(true)
     .skip_taskbar(false)
+    .position(x, y)
     .inner_size(760.0, 820.0)
     .min_inner_size(520.0, 420.0)
     // Built visible on Windows, with the app's background colour to cover the
@@ -2245,8 +2405,12 @@ async fn request_details_view(
 /// to be read and closed, and persisting geometry per fight id would accumulate
 /// settings without bound.
 fn open_fight_window(app: &tauri::AppHandle, label: &str) -> Result<(), String> {
+    // Where the last fight window was left, at its size; cascaded only past
+    // fight windows already open. Born there, not moved after `build()`: it
+    // showed at the default spot first (see birth_place).
     let step = app.webview_windows().keys().filter(|l| l.starts_with("details-")).count() as f64;
     let offset = (step % 6.0) * 34.0;
+    let (x, y, w, h) = birth_place(app, Some(FIGHT_WINDOW_KEY), (1180.0, 760.0), true);
 
     let window = tauri::WebviewWindowBuilder::new(
         app,
@@ -2260,29 +2424,20 @@ fn open_fight_window(app: &tauri::AppHandle, label: &str) -> Result<(), String> 
     .always_on_top(true)
     .resizable(true)
     .skip_taskbar(false)
-    .inner_size(1180.0, 760.0)
+    .position(x + offset, y + offset)
+    .inner_size(w, h)
     .min_inner_size(520.0, 360.0)
     .background_color(tauri::window::Color(10, 14, 22, 255))
     .build()
     .map_err(|e| e.to_string())?;
-    platform::window::set_size(&window, tauri::Size::Logical(tauri::LogicalSize { width: 1180.0, height: 760.0 }));
-
-    center_on_overlay_monitor(app, &window);
-    if offset > 0.0 {
-        if let Ok(pos) = window.outer_position() {
-            let shift = offset as i32;
-            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                x: pos.x + shift,
-                y: pos.y + shift,
-            }));
-        }
-    }
+    platform::window::set_size(&window, tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }));
     Ok(())
 }
 
 /// The History window. Persistent by design — it is the browser you pick fights
 /// from, and it stays put while those fights open in windows of their own.
 fn open_history_window_inner(app: &tauri::AppHandle) -> Result<(), String> {
+    let (x, y, w, h) = birth_place(app, Some("history"), (1100.0, 720.0), true);
     let window = tauri::WebviewWindowBuilder::new(
         app,
         "history",
@@ -2295,12 +2450,13 @@ fn open_history_window_inner(app: &tauri::AppHandle) -> Result<(), String> {
     .always_on_top(true)
     .resizable(true)
     .skip_taskbar(false)
-    .inner_size(1100.0, 720.0)
+    .position(x, y)
+    .inner_size(w, h)
     .min_inner_size(480.0, 360.0)
     .background_color(tauri::window::Color(10, 14, 22, 255))
     .build()
     .map_err(|e| e.to_string())?;
-    platform::window::set_size(&window, tauri::Size::Logical(tauri::LogicalSize { width: 1100.0, height: 720.0 }));
+    platform::window::set_size(&window, tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }));
 
     if !restore_window_geometry(app, &window, "history") {
         center_on_overlay_monitor(app, &window);
@@ -2320,6 +2476,8 @@ fn close_tool_window(window: tauri::Window) {
 /// give them a window they can move, not black out a display over the game.
 /// A remembered position still wins — this is only the first-run geometry.
 fn open_details_windowed(app: &tauri::AppHandle) -> Result<(), String> {
+    let placed = details_geometry_is_user_placed(app).then_some("details");
+    let (x, y, w, h) = birth_place(app, placed, (1180.0, 760.0), true);
     let window = tauri::WebviewWindowBuilder::new(
         app,
         "details",
@@ -2332,14 +2490,15 @@ fn open_details_windowed(app: &tauri::AppHandle) -> Result<(), String> {
     .always_on_top(true)
     .resizable(true)
     .skip_taskbar(false)
-    .inner_size(1180.0, 760.0)
+    .position(x, y)
+    .inner_size(w, h)
     .min_inner_size(520.0, 360.0)
     // Visible, with the app background painted behind the load — same reason as
     // the monitor-filling path: a hidden WebView2 window may never load at all.
     .background_color(tauri::window::Color(10, 14, 22, 255))
     .build()
     .map_err(|e| e.to_string())?;
-    platform::window::set_size(&window, tauri::Size::Logical(tauri::LogicalSize { width: 1180.0, height: 760.0 }));
+    platform::window::set_size(&window, tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }));
 
     // A remembered position still wins, but only one the user actually chose.
     if !details_geometry_is_user_placed(app)
@@ -2781,6 +2940,13 @@ pub fn run() {
             platform::window_startup::loads_hidden(),
             platform::window_startup::reuses_settings(),
         ))
+        // One meter at a time: a second start shows this one instead. Two
+        // ran side by side (a tester), each with its plugins, and every alert
+        // came twice. First, as the plugin asks.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tracing::info!("A second start: showing this meter instead");
+            set_meter_wanted(app, true);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri::plugin::Builder::<_, ()>::new("settings-persistence")
             .on_event(|app, event| {
@@ -2810,6 +2976,16 @@ pub fn run() {
                 && window.label().starts_with("plugin-")
             {
                 crate::plugins::note_resized(window.app_handle(), window, *size);
+            }
+            if matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_))
+                && TOOL_WINDOWS.contains(&window.label())
+            {
+                save_tool_window_geometry(window.app_handle(), window.label());
+            }
+            if matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_))
+                && window.label().starts_with("details-")
+            {
+                save_window_geometry(window.app_handle(), window.label(), FIGHT_WINDOW_KEY);
             }
             // Plugin widgets (#77) open where they were left, and close with
             // their plugin's window.
@@ -3059,16 +3235,15 @@ pub fn run() {
                     platform::window_startup::arm_main_fallback(window);
                 } else {
                     // Plugins only: the meter stays hidden, unless no plugin
-                    // has started by then (all turned off or removed).
+                    // window is on screen by then.
                     platform::window::hide_in_place(&window);
                     let handle = app.handle().clone();
                     tauri::async_runtime::spawn(async move {
                         tokio::time::sleep(std::time::Duration::from_secs(8)).await;
-                        let plugins = handle.webview_windows().into_keys().any(|l| l.starts_with("plugin-"));
-                        if !plugins && !meter_wanted(&handle) {
-                            let h = handle.clone();
-                            let _ = handle.run_on_main_thread(move || set_meter_wanted(&h, true));
-                        }
+                        // No plugin window on screen by then (none started,
+                        // or all hidden): the meter comes back.
+                        let h = handle.clone();
+                        let _ = handle.run_on_main_thread(move || keep_something_on_screen(&h, ""));
                     });
                 }
             }
@@ -3275,53 +3450,8 @@ pub fn run() {
                             // (details-*) are deliberately absent: they are
                             // opened to be read and closed, and keying geometry
                             // by fight id would grow settings without bound.
-                            for label in ["details", "settings", "history"] {
-                                // While Details is pinned to a monitor its rect
-                                // comes from the setting, not from the user.
-                                // Saving it poisons the windowed geometry: turn
-                                // the setting off and Details would reopen
-                                // full-size on that same screen.
-                                if label == "details"
-                                    && details_monitor_setting(&handle).is_some()
-                                {
-                                    continue;
-                                }
-                                if let Some(w) = handle.get_webview_window(label) {
-                                    if !w.is_visible().unwrap_or(false) {
-                                        continue;
-                                    }
-                                    if let Ok(pos) = w.outer_position() {
-                                        if pos.x > -10000 && pos.y > -10000 {
-                                            state.settings.set(&format!("window.{}.x", label), &pos.x.to_string());
-                                            state.settings.set(&format!("window.{}.y", label), &pos.y.to_string());
-                                        }
-                                    }
-                                    // Inner, not outer: restore applies it with
-                                    // set_size, which sets the inner size. Saving
-                                    // the outer size grew every tool window by its
-                                    // border (16x9 px here) on each reopen.
-                                    if let Ok(size) = w.inner_size() {
-                                        if size.width > 100 && size.height > 100 {
-                                            state.settings.set(&format!("window.{}.w", label), &size.width.to_string());
-                                            state.settings.set(&format!("window.{}.h", label), &size.height.to_string());
-                                        }
-                                    }
-                                    // Details is unpinned here, but the window
-                                    // may still be sitting on the fill rect from
-                                    // before the setting was switched off. A rect
-                                    // that swallows a whole screen is not a
-                                    // placement anyone chose by dragging, so it
-                                    // never earns the marker.
-                                    if label == "details" {
-                                        let filling = match (w.outer_position(), w.outer_size()) {
-                                            (Ok(pos), Ok(size)) => rect_covers_a_monitor(&handle, pos, size),
-                                            _ => true,
-                                        };
-                                        if !filling {
-                                            state.settings.set(DETAILS_USER_PLACED_KEY, "true");
-                                        }
-                                    }
-                                }
+                            for label in TOOL_WINDOWS {
+                                save_tool_window_geometry(&handle, label);
                             }
                         }
 

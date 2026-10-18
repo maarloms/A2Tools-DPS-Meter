@@ -1093,6 +1093,12 @@ html:not(.hoverStale) .list .item:hover { background: rgba(255, 255, 255, 0.075)
   font-style: italic;
   color: var(--hud-sub);
 }
+/* Everyone not in your party on an open-world boss, from its lost HP. */
+.meter .item.isOthers .content .name {
+  font-style: italic;
+  color: var(--hud-sub);
+}
+.meter .item.isOthers { cursor: default; }
 body.mainPlayerNamesBold :is(.meter, .barPreviewPanel) .item .content .name,
 body.mainPlayerNamesBold :is(.meter, .barPreviewPanel) .item .content .name.isCjk {
   font-weight: 750;
@@ -2743,6 +2749,13 @@ body.mainPlayerNamesBold .settingsPanel .themeDropdownMenu .settingsDropdownItem
     /* Once, when the name turns gold (a supporter joins the meter), then it
        holds with the shine past the end of the name. */
     animation: a2toolsGoldSweep 2.4s ease-out 1 both;
+  }
+  /* Still gold in Details. Each frame of the sweep repainted the page around
+     the name, ~150 ms of every 250 for its 2.4 s, and a fight's window would
+     not move until it ended (2026-10-18). A layer of its own made it worse. */
+  .detailsPanel .detailsPartyBarName.isSupporter {
+    animation: none;
+    background-position: 0% 50%, 0 0;
   }
 }
 
@@ -7229,6 +7242,338 @@ html.a2-offline .historyUploadBtn {
   transform: translateX(-100%);
 }
 
+/* Fight replay (fightReplay.js): under the axis, the controls in the gutter
+   and the scrubber over the lanes, so its thumb sits on the chart's moment. */
+.detailsPanel .fightReplayBar {
+  flex: none;
+  display: grid;
+  grid-template-columns: var(--ftl-gutter) minmax(0, 1fr) calc(var(--ftl-right) + var(--ftl-sb, 0px));
+  align-items: center;
+  min-height: 34px;
+  border-top: 1px solid var(--hud-hairline);
+  /* A little larger than the timeline's labels: it is read while playing. */
+  font-size: 1.15em;
+}
+/* Under the title row: the timeline's columns, so the slider still lines up
+   with the chart. */
+.detailsPanel .fightReplayBar.isTop {
+  --ftl-gutter: var(--details-sidebar-w);
+  --ftl-right: 52px;
+  border-top: none;
+  border-bottom: 1px solid var(--hud-hairline);
+}
+.detailsPanel .fightReplayBar[hidden] {
+  display: none;
+}
+.detailsPanel .fightReplayControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 8px 3px 12px;
+}
+/* Replay buttons: the secondary style (exit). Play / pause, the main
+   action, is filled below. No transition on shadow or brightness: they
+   change only on hover and press, never while a replay plays. */
+.detailsPanel .fightReplayBtn {
+  appearance: none;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+.detailsPanel .fightReplayBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--hud-num, #fff);
+}
+.detailsPanel .fightReplayBtn:active {
+  transform: translateY(1px);
+}
+.detailsPanel .fightReplayBtn:focus-visible,
+.detailsPanel .fightReplaySpeed:focus-visible,
+.detailsPanel .fightReplayScrub:focus-visible {
+  outline: 2px solid var(--isUser-fill);
+  outline-offset: 2px;
+}
+.detailsPanel .fightReplayBtn:disabled {
+  opacity: 0.4;
+  box-shadow: none;
+  cursor: default;
+  transform: none;
+}
+.detailsPanel .fightReplayBtn svg {
+  width: 15px;
+  height: 15px;
+}
+/* Play / pause: the main action, a labelled pill in the accent. Wide
+   enough for either word, so the clock and speed do not shift between
+   them. */
+.detailsPanel .fightReplayPlay {
+  width: auto;
+  min-width: 122px;
+  height: 30px;
+  gap: 7px;
+  padding: 0 14px 0 11px;
+  border-radius: 999px;
+  color: #fff;
+  border: 1px solid color-mix(in srgb, var(--isUser-fill) 70%, transparent);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--isUser-fill) 40%, transparent),
+    color-mix(in srgb, var(--isUser-fill) 20%, transparent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.35);
+  font-family: var(--hud-tech);
+  font-variation-settings: "wght" 650, "wdth" 87.5;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.detailsPanel .fightReplayPlay:hover {
+  color: #fff;
+  border-color: var(--isUser-fill);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--isUser-fill) 55%, transparent),
+    color-mix(in srgb, var(--isUser-fill) 30%, transparent));
+}
+.detailsPanel .fightReplayPlay:active {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+/* No hit times to replay: the icon alone. */
+.detailsPanel .fightReplayPlay:disabled {
+  min-width: 0;
+  padding: 0 11px;
+  box-shadow: none;
+}
+.detailsPanel .fightReplayPlay:disabled .fightReplayPlayText {
+  display: none;
+}
+.detailsPanel .fightReplayPlay svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+.detailsPanel .fightReplayBar .fightReplayIconPause,
+.detailsPanel .fightReplayBar.isPlaying .fightReplayIconPlay {
+  display: none;
+}
+.detailsPanel .fightReplayBar.isPlaying .fightReplayIconPause {
+  display: block;
+}
+.detailsPanel .fightReplayTime {
+  /* Changes once a second while playing: kept to itself. */
+  contain: layout paint style;
+  margin-left: auto;
+  font-family: var(--hud-tech);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95em;
+  color: rgba(255, 255, 255, 0.82);
+  white-space: nowrap;
+}
+.detailsPanel .fightReplayBar.isActive .fightReplayTime {
+  color: var(--hud-num, #fff);
+}
+/* The speed menu: styled like the secondary replay buttons, with its own
+   chevron (the native arrow is hidden). */
+.detailsPanel .fightReplaySpeed {
+  flex: none;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 30px;
+  padding: 0 26px 0 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.06);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='rgba(255,255,255,0.85)' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 10px 6px;
+  color: rgba(255, 255, 255, 0.92);
+  font-family: var(--hud-tech);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+.detailsPanel .fightReplaySpeed:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+.detailsPanel .fightReplaySpeed:active {
+  transform: translateY(1px);
+}
+/* The open list: the panel's dark, the speed in use in the accent. */
+.detailsPanel .fightReplaySpeed option {
+  background: rgb(var(--hud-bg));
+  color: #fff;
+  font-weight: 600;
+}
+.detailsPanel .fightReplaySpeed option:checked {
+  background: var(--isUser-fill);
+  color: #fff;
+}
+.detailsPanel .fightReplayScrubWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+/* While playing: progress drawn by the GPU, the slider invisible above it
+   (it still takes a drag; fightReplay.js). */
+.detailsPanel .fightReplayProg {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 13px;
+  margin-top: -6.5px;
+  pointer-events: none;
+}
+.detailsPanel .fightReplayBar.isPlaying .fightReplayProg {
+  display: block;
+}
+.detailsPanel .fightReplayBar.isPlaying .fightReplayScrub {
+  opacity: 0;
+}
+.detailsPanel .fightReplayProg::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 5px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.detailsPanel .fightReplayProgFill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 5px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--isUser-fill);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.detailsPanel .fightReplayProgKnob {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 9px;
+  height: 13px;
+  border-radius: 1px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+/* Moved by one long transition while playing (fightReplay.js glide): each
+   on a steady layer of its own. */
+.detailsPanel .fightReplayProgFill,
+.detailsPanel .fightReplayProgKnob,
+.detailsPanel .fightReplayHead,
+.detailsPanel .fightReplayShadeFill {
+  will-change: transform;
+}
+.detailsPanel .fightReplayScrub {
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.detailsPanel .fightReplayScrub:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.detailsPanel .fightReplayScrub::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--isUser-fill) 0 var(--range-pct, 100%),
+    rgba(255, 255, 255, 0.14) var(--range-pct, 100%) 100%
+  );
+}
+.detailsPanel .fightReplayBar:not(.isActive) .fightReplayScrub::-webkit-slider-runnable-track {
+  background: rgba(255, 255, 255, 0.14);
+}
+.detailsPanel .fightReplayScrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 9px;
+  height: 13px;
+  margin-top: -5px;
+  border: 0;
+  border-radius: 1px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+.detailsPanel .fightReplayExit {
+  justify-self: start;
+  margin-left: 8px;
+  visibility: hidden;
+}
+.detailsPanel .fightReplayBar.isActive .fightReplayExit {
+  visibility: visible;
+}
+.detailsPanel .fightReplayNote {
+  display: none;
+  grid-column: 2 / -1;
+  padding: 0 12px 5px 0;
+  font-size: 0.75em;
+  color: var(--hud-sub);
+}
+.detailsPanel .fightReplayBar.isActive .fightReplayNote:not(.fightReplayHealNote),
+.detailsPanel .fightReplayBar.isActive.noHealTiming .fightReplayHealNote {
+  display: block;
+}
+/* The moment, through the timeline's lanes (which past it are faint). */
+.detailsPanel .fightReplayHead {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  border-left: 2px solid var(--isUser-fill);
+  pointer-events: none;
+  z-index: 29;
+  /* Moved every frame of a replay: its own layer, so nothing repaints. */
+  will-change: transform;
+}
+.detailsPanel .fightReplayShade {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 28;
+}
+.detailsPanel .fightReplayShade[hidden] {
+  display: none;
+}
+.detailsPanel .fightReplayShadeFill {
+  position: absolute;
+  inset: 0;
+  background: rgb(var(--hud-bg));
+  will-change: transform;
+}
+.detailsPanel .fightReplayHead[hidden] {
+  display: none;
+}
+/* What a replay cannot cut by time stays the whole fight's, greyed. */
+.detailsPanel.isReplaying .detailsStats .stat.isWholeFight,
+.detailsPanel.isReplaying .skillRow .cell.mindmg,
+.detailsPanel.isReplaying .skillRow .cell.maxdmg,
+.detailsPanel.isReplaying .fightTimeline .buffUptime {
+  opacity: 0.4;
+}
+
 /* HEAL draws healing per second and the heal casts; a fight saved before
    heals had times keeps only the buffs, with a note. */
 .detailsPanel .ftlHealNote {
@@ -7571,4 +7916,136 @@ html.a2-offline .historyUploadBtn {
 }
 .settingsPanel .barPreview .classIconImg {
   visibility: visible;
+}
+
+/* While core.js reads each theme's colours for the theme list. */
+.readingThemes *,
+.readingThemes *::before,
+.readingThemes *::after {
+  transition: none !important;
+}
+
+/* A Details section drawn after the first paint (details.js renderRest). */
+@keyframes detailsPopIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+.detailsPopIn {
+  animation: detailsPopIn 220ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .detailsPopIn { animation: none; }
+}
+
+/* Party bars sliding out from empty on a fight's first show (details.js). */
+.detailsPanel .detailsPartyBarFill.isSliding {
+  transform-origin: left center;
+  transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+/* Figures that count up keep their width while they do. */
+.detailsPanel .detailsPartyBarDps,
+.detailsPanel .detailsPartyBarDmg,
+.detailsPanel .detailsPartyBarPct,
+.detailsPanel .detailsStats {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Folding a timeline section by its heading (details.js foldHeading). */
+.detailsPanel .ftlFoldHeading {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.detailsPanel .ftlFoldHeading:hover { color: var(--text-color, #fff); }
+.detailsPanel .ftlFoldHeading:focus-visible { outline: 1px solid var(--hud-hairline); outline-offset: 2px; }
+.detailsPanel .ftlFoldChevron {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.7;
+  transition: transform 150ms ease-out;
+}
+.detailsPanel .isFolded > .ftlFoldHeading .ftlFoldChevron { transform: rotate(-90deg); }
+.detailsPanel .ftlGroup.isFolded > :not(.ftlGroupTitle),
+.detailsPanel .buffGroup.isFolded > :not(.buffGroupHeader) {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .detailsPanel .ftlFoldChevron { transition: none; }
+}
+
+/* Replaying: the figures are redrawn several times a second. No transition
+   inside the party list or the skill table: each running one put its row on
+   a GPU layer of its own, made and dropped with every redraw (about a
+   hundred, several times a second), which lagged the whole desktop
+   (2026-10-18). Each of the three blocks is instead one steady layer of its
+   own, so its redraws repaint only itself, not the page. */
+.detailsPanel.isReplaying .detailsPartyList *,
+.detailsPanel.isReplaying .detailsSkills * {
+  transition: none !important;
+}
+.detailsPanel.isReplaying .detailsPartyList,
+.detailsPanel.isReplaying .detailsStats,
+.detailsPanel.isReplaying .detailsSkills {
+  contain: layout paint;
+  will-change: transform;
+}
+
+/* Replaying: the skill table is redrawn four times a second. Rows scrolled
+   out of view are skipped (laid out and painted only when shown), and each
+   row's changes stay inside it, so a redraw no longer lays out and repaints
+   the whole long table (2026-10-18). */
+.detailsPanel.isReplaying .detailsSkills .skills .skillRow {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 28px;
+  contain: layout style paint;
+}
+
+/* While a replay plays: the skill list is one steady layer that keeps its
+   repaints to itself, and its rows take no hover (each mouse move over them
+   restyled and repainted the table; the list itself still scrolls). */
+.detailsPanel.isReplaying .detailsSkills .skills {
+  contain: layout paint style;
+  will-change: transform;
+}
+.detailsPanel.isReplayPlaying .detailsSkills .skills .skillRow {
+  pointer-events: none;
+}
+
+/* Replaying: the timeline's scroller is a steady layer of its own, so the
+   playhead and shade moving over it never repaint it. */
+.detailsPanel.isReplaying .fightTimelineScroll {
+  will-change: transform;
+}
+
+/* While a replay plays the skill table shows its first ten rows; this says
+   how many more there are (details.js showSkillsMore). */
+.detailsPanel .skillsReplayMore {
+  padding: 4px 12px;
+  font-size: 0.8em;
+  color: var(--hud-sub);
+}
+.detailsPanel .skillsReplayMore[hidden],
+.detailsPanel:not(.isReplayPlaying) .skillsReplayMore {
+  display: none;
+}
+
+/* The party row picked in Details, in its class colour at full strength, so
+   the selection stands out (the class themes). Its name in white over it,
+   over the name's own inline class colour. */
+:root[data-theme^="aion2-classes"] .detailsPanel .detailsPartyBar.isSelected .detailsPartyBarFill {
+  opacity: 0.95;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--class-fill, var(--row-fill)) 60%, transparent),
+    color-mix(in srgb, var(--class-fill, var(--row-fill)) 92%, transparent));
+}
+:root[data-theme^="aion2-classes"] .detailsPanel .detailsPartyBar.isSelected .detailsPartyBarName:not(.isSupporter) {
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }

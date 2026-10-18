@@ -134,10 +134,13 @@ pub async fn plugin_widget_open(
         serde_json::to_string(&id).unwrap_or_default(),
         serde_json::to_string(&name).unwrap_or_default(),
     );
+    let title = format!("{plugin_name} · {name}");
+    crate::app::note_window_title(&title, &label(&id, &name));
+    let front = crate::platform::window::front_window();
     let widget = tauri::WebviewWindowBuilder::new(&app, label(&id, &name), tauri::WebviewUrl::App("plugin-widget.html".into()))
         .initialization_script(script)
         // Its own title, so KWin can keep it where it was left (#76).
-        .title(format!("{plugin_name} · {name}"))
+        .title(title)
         .inner_size(width, height)
         .decorations(false)
         .transparent(true)
@@ -148,6 +151,9 @@ pub async fn plugin_widget_open(
         .focused(false)
         .build()
         .map_err(|e| e.to_string())?;
+    // Never in front of the game: an alert icon appearing must not tab the
+    // player out of it.
+    crate::platform::window::never_activate(&widget, front);
     // Where it was left; a widget never moved goes beside the plugin's others
     // rather than wherever the window manager puts a new window (the middle
     // of the screen).
@@ -272,6 +278,16 @@ pub fn plugin_widget_drag(app: tauri::AppHandle, window: tauri::WebviewWindow) -
         crate::platform::window::start_drag(&window);
     }
     Ok(())
+}
+
+/// Whether a widget is on screen and unlocked (so a double-click on it can
+/// open its plugin's window): a way back to the plugins with the meter hidden.
+pub fn any_unlocked_widget_shown(app: &tauri::AppHandle) -> bool {
+    app.webview_windows().into_iter().any(|(label, w)| {
+        parse_label(&label).is_some_and(|(id, _)| !is_locked(app, &id))
+            && w.is_visible().unwrap_or(false)
+            && !crate::platform::window::is_hidden_in_place(&w)
+    })
 }
 
 /// Close every widget of plugin `id`: its main window has gone.

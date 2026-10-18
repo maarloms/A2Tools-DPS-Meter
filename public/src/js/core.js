@@ -123,6 +123,8 @@ class DpsApp {
       partyPromoShown: "dpsMeter.partyPromoShown",
       accountPromoShown: "dpsMeter.accountPromoShown",
       windowOpacity: "dpsMeter.windowOpacity",
+      meterWidth: "dpsMeter.meterWidth",
+      meterMinHeight: "dpsMeter.meterMinHeight",
       titleOpacity: "dpsMeter.titleOpacity",
       bossNameSize: "dpsMeter.bossNameSize",
       betaUi: "dpsMeter.betaUi",
@@ -375,7 +377,7 @@ class DpsApp {
       getPartyStat: () => this.partyStat,
       getJobColor: (job) => this.getJobColor(job),
       onHoverUserRow: (row, event) => {
-        if (this.shouldSuppressRowInteractions()) return;
+        if (row?.isOthers || this.shouldSuppressRowInteractions()) return;
         this.openHoverDetailsRow(row, event);
       },
       onLeaveUserRow: () => {
@@ -393,7 +395,7 @@ class DpsApp {
         });
       },
       onClickUserRow: (row) => {
-        if (!row || this.isWindowDragging) return;
+        if (!row || row.isOthers || this.isWindowDragging) return;
         const rowId = Number(row?.id);
         const pinnedId = Number.isFinite(rowId) && rowId > 0 ? rowId : null;
         this.hideHoverTooltip();
@@ -1537,9 +1539,14 @@ class DpsApp {
       const job = isObj ? (value.job ?? "") : "";
       const nickname = isObj ? (value.nickname ?? "") : "";
       const idText = String(id);
+      // Everyone not in your party on an open-world boss, from the HP it
+      // lost (dps_calculator.rs world_boss_rows).
+      const isOthers = !!(isObj && value.isOthers);
       const hasNickname = !!nickname && nickname !== idText;
       const isIdentifying = !hasNickname;
-      const name = hasNickname ? nickname : idText;
+      const name = isOthers
+        ? this.i18n?.t?.("meter.others", "Others") ?? "Others"
+        : hasNickname ? nickname : idText;
 
       const dpsRaw = isObj ? value.dps : value;
       const dps = Math.trunc(Number(dpsRaw)) || 0;
@@ -1573,7 +1580,8 @@ class DpsApp {
         damageContribution,
         combatPower,
         gearScore,
-        isUser: (!!name && name === this.USER_NAME) || (hasLocalId && numericId === localId),
+        isUser: !isOthers && ((!!name && name === this.USER_NAME) || (hasLocalId && numericId === localId)),
+        isOthers,
         isIdentifying,
         // Resolved in Rust against a downloaded roster; the frontend only
         // renders it. Cosmetic only — it must not reach sorting or bar colour.
@@ -3493,17 +3501,29 @@ class DpsApp {
   }
 
   initializeSettingsDropdowns() {
+    // Each theme's colours, read by putting the whole page in that theme for
+    // a moment. Only Settings shows the theme list: every other window (a
+    // fight's Details too) ran this for every theme on opening, restyling the
+    // page and restarting its colour transitions each time, so it repainted
+    // and ignored the mouse for seconds (2026-10-18). Elsewhere the list is
+    // never seen, and its fixed previews are enough.
+    const themesShown = !window.__A2_VIEW__ || window.__A2_VIEW__ === "main" || window.__A2_VIEW__ === "settings";
     const previewThemeVars = (themeId) => {
       this._themePreviewCache ||= new Map();
       if (this._themePreviewCache.has(themeId)) return this._themePreviewCache.get(themeId);
+      if (!themesShown) return { textColor: "", nameShadow: "", rowFill: "" };
       const root = document.documentElement;
       const previous = root.dataset.theme;
+      // No transitions while the page is in another theme for a moment.
+      root.classList.add("readingThemes");
       root.dataset.theme = themeId;
       const computed = getComputedStyle(root);
       const textColor = computed.getPropertyValue("--text-color").trim() || "#ffffff";
       const nameShadow = computed.getPropertyValue("--player-name-shadow").trim() || "none";
       const rowFill = computed.getPropertyValue("--row-fill").trim() || "#2f2f2f";
       root.dataset.theme = previous || "aion2";
+      getComputedStyle(root).color; // settle the page back before transitions return
+      root.classList.remove("readingThemes");
       const preview = { textColor, nameShadow, rowFill };
       this._themePreviewCache.set(themeId, preview);
       return preview;
@@ -6248,6 +6268,25 @@ class DpsApp {
     const minWidth = 300;
     const minHeight = 30;
 
+    // The size the player gave the meter, kept across restarts: it went back
+    // to the default on every start (Windows, 2026-10-17). Saved by both
+    // resizes, the corner handle here and the window's edges (tauriBridge.js
+    // sends "meter-resized").
+    const px = (v) => Math.round(parseFloat(v));
+    const saveSize = () => {
+      const width = px(this.meterEl.style.width);
+      const height = px(this.meterEl.style.minHeight);
+      if (width >= minWidth && width <= 3000) this.safeSetSetting(this.storageKeys.meterWidth, String(width));
+      if (height >= minHeight && height <= 3000) this.safeSetSetting(this.storageKeys.meterMinHeight, String(height));
+    };
+    if (window.A2_VIEW === "main") {
+      const width = px(this.safeGetSetting(this.storageKeys.meterWidth));
+      const height = px(this.safeGetSetting(this.storageKeys.meterMinHeight));
+      if (width >= minWidth && width <= 3000) this.meterEl.style.width = `${width}px`;
+      if (height >= minHeight && height <= 3000) this.meterEl.style.minHeight = `${height}px`;
+      window.addEventListener("meter-resized", saveSize);
+    }
+
     // Screen coordinates, not client ones: a window manager that keeps windows
     // on screen (KWin) moves the window while it grows during the drag, which
     // shifts clientX/Y and made the size jump past the cursor (issue #11).
@@ -6279,6 +6318,7 @@ class DpsApp {
         this.meterEl.style.minHeight = currentHeight;
         this.meterEl.style.height = "";
       }
+      saveSize();
     };
 
     this.resizeHandle.addEventListener("mousedown", (event) => {

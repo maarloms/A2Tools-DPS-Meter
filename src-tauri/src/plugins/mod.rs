@@ -933,7 +933,8 @@ pub async fn plugin_catalog(app: tauri::AppHandle) -> Result<Vec<CatalogItem>, S
     {
         let host = host(&app)?;
         let http = app.try_state::<AppState>().ok_or("no app state")?.http.clone();
-        let catalog = catalog::fetch(&http).await?;
+        // Settings asks on every open; a list from the last few minutes does.
+        let catalog = catalog::recent(&http, std::time::Duration::from_secs(300)).await?;
         let installed: HashMap<String, String> =
             host.list().into_iter().filter(|p| p.reviewed && p.error.is_none()).map(|p| (p.id, p.version)).collect();
         Ok(catalog
@@ -1206,6 +1207,7 @@ fn open_window(app: &tauri::AppHandle, id: &str, visible: bool) -> Result<(), St
     }
     // The size it was left at, else the manifest's panel and its title bar.
     let (inner_w, inner_h) = saved_size(app, id).unwrap_or((width, height + 30.0));
+    crate::app::note_window_title(&format!("{name} (plugin)"), &label);
     tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App("plugin-host.html".into()))
         .initialization_script(format!("window.__A2_PLUGIN_ID__ = {};", serde_json::to_string(id).unwrap_or_default()))
         .title(format!("{name} (plugin)"))
@@ -1295,6 +1297,12 @@ pub fn plugin_window(app: tauri::AppHandle, window: tauri::WebviewWindow, visibl
             show_in_place(&app, &window, &id, || crate::platform::window::show_on_top_without_focus(&window));
         }
     } else {
+        // A plugin hiding itself (Event Timers when idle) stays shown when
+        // it is the last way back: the meter hidden, no other plugin window
+        // and no unlocked widget on screen.
+        if !crate::app::way_back_without(&app, window.label()) {
+            return Ok(());
+        }
         crate::platform::window::hide_in_place(&window);
     }
     remember_window(&app, &id, Some(if visible { "shown" } else { "hidden" }));
@@ -1340,6 +1348,7 @@ pub fn plugin_close(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Resu
     let id = window_plugin(&window)?;
     crate::platform::window::hide_in_place(&window);
     remember_window(&app, &id, Some("hidden"));
+    crate::app::keep_something_on_screen(&app, window.label());
     Ok(())
 }
 

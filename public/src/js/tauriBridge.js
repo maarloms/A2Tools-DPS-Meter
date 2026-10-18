@@ -863,8 +863,15 @@
       return invoke("load_fight", { id }).then((r) => JSON.stringify(r)).catch(() => null);
     },
 
+    // Asked by the account line and the supporter check together on every
+    // window's start: one request to the site answers both.
     accountStatus() {
-      return invoke("account_status");
+      if (!this._accountStatus) {
+        this._accountStatus = invoke("account_status").finally(() => {
+          this._accountStatus = null;
+        });
+      }
+      return this._accountStatus;
     },
 
     discordActivityAvailable() {
@@ -943,6 +950,16 @@
         }
       }
       return null;
+    },
+    // The cached icon, once read from disk (null when there is none).
+    readCachedIconAsync(key) {
+      if (!key) return Promise.resolve(null);
+      if (window._iconCache?.[key] !== undefined) return Promise.resolve(window._iconCache[key]);
+      return invoke("read_cached_icon", { key }).then((data) => {
+        if (!window._iconCache) window._iconCache = {};
+        window._iconCache[key] = data ?? null;
+        return data ?? null;
+      }).catch(() => null);
     },
     readCachedIcon(key) {
       // Synchronous read from Rust via cached map
@@ -1114,6 +1131,8 @@
           meter.style.width = style.width;
           meter.style.minHeight = style.height;
           meter.style.height = "";
+          // Kept across restarts (core.js bindResizeHandle).
+          if (!operation.cancel) window.dispatchEvent(new Event("meter-resized"));
         }
       }
       nativeResize = null;
