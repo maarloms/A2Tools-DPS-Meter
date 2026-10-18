@@ -20,6 +20,8 @@ export interface Env {
   DISCORD_API_BASE?: string;
   /** Nur für Tests: "1" schaltet POST /api/rooms/:code/test/hooks frei (D1-Ausfall simulieren u. a.). In Produktion NICHT setzen. */
   TEST_HOOKS?: string;
+  /** Wochenbild: Bearer-Key des lokalen Render-Agenten für /api/weekly/*. Ohne: Routen 404, Cron sendet sofort Text. */
+  WEEKLY_RENDER_KEY?: string;
 }
 
 const MIN_SECRET_LEN = 16;
@@ -89,6 +91,18 @@ export function isAdminRoute(method: string, rest: string): boolean {
     ((method === "PATCH" || method === "DELETE") && rest === "/webhook") ||
     (method === "POST" && rest === "/webhook/test")
   );
+}
+
+/**
+ * Render-Agent (/api/weekly/*): "disabled" = Secret nicht gesetzt (oder zu kurz), "ok" = Bearer passt.
+ * Konstantzeit-Vergleich über die SHA-256-Digests.
+ */
+export async function checkRenderKey(env: Env, req: Request): Promise<"disabled" | "unauthorized" | "ok"> {
+  const want = env.WEEKLY_RENDER_KEY ?? "";
+  if (want.length < MIN_SECRET_LEN) return "disabled";
+  const given = bearer(req);
+  if (!given || given.length > 256) return "unauthorized";
+  return crypto.subtle.timingSafeEqual(await sha256(given), await sha256(want)) ? "ok" : "unauthorized";
 }
 
 /** SHA-256 des Raum-Secrets (für Session-Signaturen), null = Raum unbekannt */

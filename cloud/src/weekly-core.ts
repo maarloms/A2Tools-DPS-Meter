@@ -17,6 +17,20 @@ export const EMBED_COLOR = 0xd4af69;
 export const TEST_MIN_INTERVAL_MS = 30_000;
 /** Bei 429 so lange höchstens warten und einmal neu senden; länger → nächster Cron-Lauf */
 export const MAX_RETRY_WAIT_MS = 5_000;
+/**
+ * Wochenbild (lokal gerendertes PNG, POST /api/weekly/:room/image): so lange nach dem Reset wartet der Cron
+ * auf das Bild, danach sendet er die Text-Karte. 4 h → 11:00 UTC = 12:00 MEZ / 13:00 MESZ
+ * (der Cron läuft zur Minute 15, also sendet der Lauf um 11:15 UTC).
+ */
+export const IMAGE_DEADLINE_MS = 4 * 3_600_000;
+/** Höchstgröße des Wochenbilds */
+export const MAX_IMAGE_BYTES = 1_048_576;
+/** Höchstmaß je Seite (Discord zeigt ohnehin klein) */
+export const MAX_IMAGE_SIDE = 4096;
+/** Versand-Sperre je Raum (Cron und Bild-Upload gleichzeitig): so lange gilt ein Claim */
+export const CLAIM_MS = 60_000;
+/** Dateiname des Anhangs (embed.image.url = attachment://…) */
+export const IMAGE_NAME = "wochenbild.png";
 
 /** Beginn der laufenden Reset-Woche (Mittwoch 07:00 UTC, ≤ now) */
 export function weekStart(now: number): number {
@@ -108,6 +122,146 @@ export interface Recap {
   top: { name: string; dps: number; boss: string }[];
   /** Ø DPS je Boss gegen die Vorwoche in %, nur Bosse aus beiden Wochen; null = kein Vergleich */
   dpsChange: number | null;
+  /** Fürs Wochenbild: bester Kampfschnitt ALLER Mitglieder, absteigend, mit Klassen-ID (11–19, 0 = unbekannt) */
+  players: RecapPlayer[];
+  /** Fürs Wochenbild: je Boss Kills/Versuche, Ø DPS der Mitglieder, Veränderung zur Vorwoche (%), meiste Versuche zuerst */
+  bosses: RecapBoss[];
+  /** Schnellster Kill der Woche */
+  fastest: { fightId: string; boss: string; durationMs: number } | null;
+}
+
+export interface RecapPlayer {
+  name: string;
+  job: number;
+  dps: number;
+  boss: string;
+}
+
+export interface RecapBoss {
+  boss: string;
+  kills: number;
+  tries: number;
+  avgDps: number | null;
+  change: number | null;
+}
+
+/** Ein Kampf der Woche (Summe der Mitglieder-DPS) */
+export interface WeekFight {
+  fightId: string;
+  boss: string;
+  bossKey: string;
+  durationMs: number;
+  killed: number;
+  groupDps: number;
+}
+
+/** Bester Kampf (besiegte zuerst, dann Gruppen-DPS) und schnellster Kill aus allen Kämpfen der Woche */
+export function pickFights(fights: WeekFight[]) {
+  let best: WeekFight | null = null;
+  let fastest: WeekFight | null = null;
+  for (const f of fights) {
+    if (!best || f.killed > best.killed || (f.killed === best.killed && f.groupDps > best.groupDps)) best = f;
+    if (f.killed && f.durationMs > 0 && (!fastest || f.durationMs < fastest.durationMs)) fastest = f;
+  }
+  return {
+    best: best ? { fightId: best.fightId, boss: best.boss, groupDps: best.groupDps, durationMs: best.durationMs, killed: !!best.killed } : null,
+    fastest: fastest ? { fightId: fastest.fightId, boss: fastest.boss, durationMs: fastest.durationMs } : null,
+  };
+}
+
+/**
+ * Boss-Tabelle: Kills/Versuche aus den Kämpfen, Ø DPS + Veränderung aus der perBoss-Abfrage
+ * (Zeilen mit cur = 1 diese Woche, 0 Vorwoche; Schlüssel "mob:dungeon").
+ */
+export function bossTable(fights: WeekFight[], perBoss: { boss: string; cur: number; avgDps: number }[]): RecapBoss[] {
+  const cur = new Map<string, number>();
+  const prev = new Map<string, number>();
+  for (const r of perBoss) (r.cur ? cur : prev).set(r.boss, r.avgDps);
+  const by = new Map<string, RecapBoss>();
+  for (const f of fights) {
+    let b = by.get(f.bossKey);
+    if (!b) {
+      const avg = cur.get(f.bossKey) ?? null;
+      const before = prev.get(f.bossKey);
+      b = { boss: f.boss, kills: 0, tries: 0, avgDps: avg, change: avg !== null && before && before > 0 ? ((avg - before) / before) * 100 : null };
+      by.set(f.bossKey, b);
+    }
+    b.tries++;
+    if (f.killed) b.kills++;
+  }
+  return [...by.values()].sort((a, b) => b.tries - a.tries || b.kills - a.kills || a.boss.localeCompare(b.boss));
+}
+
+// Klassen wie im Dashboard (public/js/core.js): die App liefert IDs 11–19 (FightRecord.jobId) oder nur den
+// koreanischen Namen (jobId 0) – fürs Bild immer die ID.
+const JOB_KEYS: [number, string, string, string][] = [
+  [11, "검성", "GLADIATOR", "GLADIATOR"],
+  [12, "수호성", "TEMPLAR", "TEMPLER"],
+  [13, "살성", "ASSASSIN", "ASSASSINE"],
+  [14, "궁성", "RANGER", "WALDLÄUFER"],
+  [15, "마도성", "SORCERER", "MAGIER"],
+  [16, "정령성", "ELEMENTALIST", "BESCHWÖRER"],
+  [17, "치유성", "CLERIC", "KLERIKER"],
+  [18, "호법성", "CHANTER", "KANTOR"],
+  [19, "권성", "FIGHTER", "FAUSTKÄMPFER"],
+];
+
+/** Klassen-ID 11–19 aus ID oder Name, 0 = unbekannt */
+export function resolveJobId(id: unknown, name: unknown): number {
+  const n = Number(id);
+  if (JOB_KEYS.some((k) => k[0] === n)) return n;
+  const key = String(name ?? "").trim();
+  const up = key.toUpperCase();
+  return JOB_KEYS.find((k) => k[1] === key || k[2] === up || k[3] === up || String(k[0]) === key)?.[0] ?? 0;
+}
+
+/** ISO-Kalenderwoche eines Zeitpunkts (UTC) – fürs Bild ("KW 42", Woche beginnt mittwochs) */
+export function isoWeek(ms: number): number {
+  const d = new Date(ms);
+  const t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const day = (new Date(t).getUTCDay() + 6) % 7; // Mo = 0
+  const thursday = t - day * DAY_MS + 3 * DAY_MS;
+  const y = new Date(thursday).getUTCFullYear();
+  return 1 + Math.floor((thursday - Date.UTC(y, 0, 1)) / WEEK_MS);
+}
+
+/** Wartet der Cron noch auf das Wochenbild? (nur wenn der Bild-Weg eingeschaltet ist) */
+export function waitingForImage(now: number, week: Week, imageEnabled: boolean, imageWeek: string | null): boolean {
+  return imageEnabled && imageWeek !== week.key && now < week.to + IMAGE_DEADLINE_MS;
+}
+
+// ---------- Wochenbild ----------
+
+/** Breite/Höhe aus dem PNG-Kopf, null = kein PNG (Signatur + IHDR als erster Chunk) */
+export function pngSize(b: Uint8Array): { width: number; height: number } | null {
+  const SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (b.length < 33) return null;
+  for (let i = 0; i < 8; i++) if (b[i] !== SIG[i]) return null;
+  // Chunk 1: Länge 13, Typ "IHDR"
+  if (b[8] !== 0 || b[9] !== 0 || b[10] !== 0 || b[11] !== 13) return null;
+  if (b[12] !== 0x49 || b[13] !== 0x48 || b[14] !== 0x44 || b[15] !== 0x52) return null;
+  const u32 = (o: number) => ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0;
+  const width = u32(16);
+  const height = u32(20);
+  if (!width || !height) return null;
+  return { width, height };
+}
+
+/** Was der Render-Agent je Raum bekommt (GET /api/weekly/pending): Zahlen, Namen, Klassen – keine Webhook-URL */
+export function pendingView(r: Recap) {
+  return {
+    room: r.room,
+    week: { key: r.week.key, from: r.week.from, to: r.week.to, label: weekLabel(r.week), kw: isoWeek(r.week.from) },
+    fights: r.fights,
+    kills: r.kills,
+    prevFights: r.prevFights,
+    prevKills: r.prevKills,
+    dpsChange: r.dpsChange,
+    best: r.best,
+    fastest: r.fastest,
+    players: r.players,
+    bosses: r.bosses,
+  };
 }
 
 /** Zeilen: Ø DPS der Mitglieder je Boss und Woche (cur = 1 diese, 0 Vorwoche) */
@@ -222,6 +376,16 @@ export function buildPayload(r: Recap, opts: EmbedOptions) {
         timestamp: new Date(Math.min(r.week.to, opts.now ?? Date.now())).toISOString(),
       },
     ],
+  };
+}
+
+/** Wie buildPayload, dazu das Wochenbild als Anhang groß in der Karte (multipart: payload_json + files[0]) */
+export function buildImagePayload(r: Recap, opts: EmbedOptions) {
+  const p = buildPayload(r, opts);
+  return {
+    ...p,
+    embeds: p.embeds.map((e) => ({ ...e, image: { url: `attachment://${IMAGE_NAME}` } })),
+    attachments: [{ id: 0, filename: IMAGE_NAME, description: `Wochenrückblick ${r.room} ${weekLabel(r.week)}`.slice(0, 1024) }],
   };
 }
 

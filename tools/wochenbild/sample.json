@@ -1,0 +1,123 @@
+{
+  "week": {
+    "key": "w2026-10-14",
+    "from": 1791961200000,
+    "to": 1792566000000
+  },
+  "deadlineMs": 1792580400000,
+  "rooms": [
+    {
+      "room": "silberschwinge",
+      "week": {
+        "key": "w2026-10-14",
+        "from": 1791961200000,
+        "to": 1792566000000,
+        "label": "14.10.–21.10.2026",
+        "kw": 42
+      },
+      "fights": 47,
+      "kills": 31,
+      "prevFights": 39,
+      "prevKills": 24,
+      "dpsChange": 4.7,
+      "best": {
+        "fightId": "0123456789abcdef",
+        "boss": "Schattenkönigin Nerevia",
+        "groupDps": 642800,
+        "durationMs": 227000,
+        "killed": true
+      },
+      "fastest": {
+        "fightId": "fedcba9876543210",
+        "boss": "Ursprungsgolem",
+        "durationMs": 118000
+      },
+      "players": [
+        {
+          "name": "Kaelith",
+          "job": 13,
+          "dps": 186400,
+          "boss": "Schattenkönigin Nerevia"
+        },
+        {
+          "name": "Mirevan",
+          "job": 15,
+          "dps": 171900,
+          "boss": "Feuerdrache Pyrothar"
+        },
+        {
+          "name": "Thoryn",
+          "job": 11,
+          "dps": 158200,
+          "boss": "Schattenkönigin Nerevia"
+        },
+        {
+          "name": "Selwyn",
+          "job": 14,
+          "dps": 149700,
+          "boss": "Ursprungsgolem"
+        },
+        {
+          "name": "Aurelis",
+          "job": 16,
+          "dps": 133500,
+          "boss": "Feuerdrache Pyrothar"
+        },
+        {
+          "name": "Brannoc",
+          "job": 19,
+          "dps": 127800,
+          "boss": "Hohepriester Varuun"
+        },
+        {
+          "name": "Ysolde",
+          "job": 18,
+          "dps": 96300,
+          "boss": "Ursprungsgolem"
+        },
+        {
+          "name": "Varekh",
+          "job": 12,
+          "dps": 81200,
+          "boss": "Schattenkönigin Nerevia"
+        },
+        {
+          "name": "Lioria",
+          "job": 17,
+          "dps": 58900,
+          "boss": "Feuerdrache Pyrothar"
+        }
+      ],
+      "bosses": [
+        {
+          "boss": "Schattenkönigin Nerevia",
+          "kills": 9,
+          "tries": 14,
+          "avgDps": 121300,
+          "change": 11.2
+        },
+        {
+          "boss": "Feuerdrache Pyrothar",
+          "kills": 8,
+          "tries": 10,
+          "avgDps": 109800,
+          "change": 6.9
+        },
+        {
+          "boss": "Ursprungsgolem",
+          "kills": 11,
+          "tries": 12,
+          "avgDps": 98400,
+          "change": 3.1
+        },
+        {
+          "boss": "Hohepriester Varuun",
+          "kills": 3,
+          "tries": 11,
+          "avgDps": 87600,
+          "change": -2.4
+        }
+      ]
+    }
+  ]
+}

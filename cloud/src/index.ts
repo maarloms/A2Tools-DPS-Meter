@@ -10,7 +10,7 @@ import { handleDiagnostics, isDiagnosticPath } from "./diagnostics";
 import { LIMITS, PROTOCOL_VERSION, ROOM_CODE_RE } from "./protocol";
 import { SESSION_DAYS, createSession, sessionCookie, sessionRoom } from "./session";
 import { handleStats } from "./stats";
-import { handleWebhook, runWeekly } from "./weekly";
+import { handleWebhook, handleWeeklyApi, runWeekly } from "./weekly";
 
 export { Room } from "./room";
 
@@ -126,6 +126,8 @@ export default {
     const url = new URL(req.url);
     if (!url.pathname.startsWith("/api/")) return serveAsset(req, env, url);
     if (url.pathname === "/api/session") return handleSession(req, env, url);
+    // Wochenbild: nur der lokale Render-Agent (eigener Bearer-Key, keine Browser/CORS)
+    if (url.pathname.startsWith("/api/weekly/")) return withHeaders(await handleWeeklyApi(req, env, url), { ...SECURITY_HEADERS, ...NO_STORE });
 
     const origin = allowedOrigin(env, req);
     if (!origin.ok) return json({ error: "origin_not_allowed" }, 403);

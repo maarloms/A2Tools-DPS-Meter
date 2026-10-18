@@ -40,6 +40,23 @@ Die Adresse ist ein Geheimnis: Sie steht nur in D1 (`room_webhooks`) und geht ni
 - Lokal testen: `wrangler dev`, dann `http://127.0.0.1:8787/cdn-cgi/handler/scheduled?cron=*&time=<ms>`.
   `DISCORD_API_BASE` (nur Tests) leitet die Posts an einen lokalen Discord-Ersatz um – in Produktion nicht setzen.
 
+### Wochenbild (lokal gerendertes PNG)
+
+Das Bild entsteht nicht im Worker (resvg braucht 125–740 ms CPU, Free Plan erlaubt 10 ms), sondern lokal mit
+`tools/wochenbild` (satori + resvg). Ablauf und Agenten-Anleitung: `../tools/wochenbild/README.md`.
+
+- Secret `WEEKLY_RENDER_KEY` (≥ 16 Zeichen, zufällig) schaltet den Bild-Weg ein. Ohne Secret: `/api/weekly/*` = 404 und
+  der Cron sendet wie bisher sofort die Text-Karte.
+- `GET /api/weekly/pending` (Bearer-Key): Räume mit aktivem Webhook, deren abgelaufene Woche noch nicht gepostet ist, samt
+  Recap (Zahlen, alle Mitglieder mit Klassen-ID, Bosse mit Kills/Versuchen/Trend, bester/schnellster Kampf, KW). Nie URLs.
+- `POST /api/weekly/:raum/image` (Bearer-Key, `Content-Type: image/png`, ≤ 1 MB, PNG-Signatur + IHDR geprüft, ≤ 4096 px):
+  postet per multipart an den Raum-Webhook (bisheriges Embed + `attachment://wochenbild.png`). 200 = gepostet, 502 =
+  Discord-Fehler (`outcome`: `rejected` → Text-Karte sofort, `retry`/`rate_limited` → erneut versuchen), 409 = nicht
+  (mehr) erwartet bzw. Versand läuft.
+- Mit Secret wartet der Cron bis **4 h nach dem Reset** (11:00 UTC = 12:00 MEZ / 13:00 MESZ) auf das Bild, danach Text.
+  Versand-Sperre `claim_ms` (Migration 0014) verhindert Bild + Text in derselben Woche. Die Auswertung der Woche wird
+  einmal berechnet und in `room_webhooks.recap_json` abgelegt (Cron, pending und Upload lesen sie von dort).
+
 ## Zugang / Sessions
 
 - Login-Seite: Raum + Passwort (= Raum-Secret) oder Einladungslink `https://<host>/#/join/<raum>/<secret>`
