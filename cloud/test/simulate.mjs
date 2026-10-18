@@ -9,11 +9,11 @@
 //
 // Umgebungsvariablen: BASE (Default http://127.0.0.1:8787), ROOM, SECRET (wie in .dev.vars)
 
-import { gzipSync } from "node:zlib";
+import { crc32, deflateSync, gzipSync } from "node:zlib";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { WEEK_MS, weekStart } from "../src/weekly-core.ts";
+import { IMAGE_DEADLINE_MS, WEEK_MS, weekStart } from "../src/weekly-core.ts";
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:8787";
 const ROOM = process.env.ROOM ?? "testraum";
@@ -703,24 +703,41 @@ async function main() {
 }
 
 /**
- * Discord-Ersatz: merkt sich jeden POST. Antwort je Webhook-ID:
- * 1111… → 200, 4040… → 404, 4290… → einmal 429 (retry_after 0,3 s), dann 200, 5000… → 500.
+ * Discord-Ersatz: merkt sich jeden POST (JSON oder multipart mit payload_json + files[0]). Antwort je Webhook-ID:
+ * 1111… → 200, 4040… → 404, 4290… → einmal 429 (retry_after 0,3 s), dann 200, 5000… → 500,
+ * 4000… → 400 für multipart (Bild abgelehnt), 200 für JSON (Text-Karte).
  */
 function fakeDiscord(port) {
   const hits = [];
   const seen429 = new Set();
   const server = createServer((req, res) => {
-    let body = "";
-    req.on("data", (d) => (body += d));
+    const chunks = [];
+    req.on("data", (d) => chunks.push(d));
     req.on("end", () => {
+      const raw = Buffer.concat(chunks);
       const m = /^\/api\/webhooks\/(\d+)\/([^/?]+)/.exec(req.url);
+      const ct = req.headers["content-type"] ?? "";
       let json = null;
-      try {
-        json = JSON.parse(body);
-      } catch {
-        /* egal */
+      let file = null;
+      const multipart = ct.startsWith("multipart/form-data");
+      if (multipart) {
+        const parts = parseMultipart(raw, /boundary=(?:"([^"]+)"|([^;]+))/.exec(ct)?.slice(1).find(Boolean) ?? "");
+        const pj = parts.find((p) => p.name === "payload_json");
+        try {
+          json = pj ? JSON.parse(pj.body.toString("utf8")) : null;
+        } catch {
+          /* egal */
+        }
+        const f = parts.find((p) => p.name === "files[0]");
+        if (f) file = { filename: f.filename, type: f.type, bytes: f.body.length, png: f.body.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) };
+      } else {
+        try {
+          json = JSON.parse(raw.toString("utf8"));
+        } catch {
+          /* egal */
+        }
       }
-      hits.push({ id: m?.[1], url: req.url, method: req.method, json });
+      hits.push({ id: m?.[1], url: req.url, method: req.method, json, multipart, file });
       const id = m?.[1] ?? "";
       const reply = (status, data) => {
         res.writeHead(status, { "content-type": "application/json" });
@@ -728,6 +745,7 @@ function fakeDiscord(port) {
       };
       if (id.startsWith("404")) return reply(404, { message: "Unknown Webhook", code: 10015 });
       if (id.startsWith("500")) return reply(500, { message: "kaputt" });
+      if (id.startsWith("400") && multipart) return reply(400, { message: "Invalid Form Body", code: 50035 });
       if (id.startsWith("429") && !seen429.has(id)) {
         seen429.add(id);
         return reply(429, { message: "You are being rate limited.", retry_after: 0.3, global: false });
@@ -736,6 +754,56 @@ function fakeDiscord(port) {
     });
   });
   return new Promise((res) => server.listen(port, "127.0.0.1", () => res({ hits, close: () => server.close() })));
+}
+
+/** Minimaler multipart/form-data-Parser (für den Discord-Ersatz) */
+function parseMultipart(buf, boundary) {
+  const out = [];
+  if (!boundary) return out;
+  const sep = Buffer.from(`--${boundary}`);
+  let pos = buf.indexOf(sep);
+  while (pos !== -1) {
+    const start = pos + sep.length;
+    if (buf.subarray(start, start + 2).toString() === "--") break;
+    const next = buf.indexOf(sep, start);
+    if (next === -1) break;
+    const part = buf.subarray(start + 2, next - 2); // CRLF nach der Grenze / vor der nächsten
+    const headEnd = part.indexOf("\r\n\r\n");
+    const head = part.subarray(0, headEnd).toString("utf8");
+    out.push({
+      name: /name="([^"]*)"/.exec(head)?.[1],
+      filename: /filename="([^"]*)"/.exec(head)?.[1] ?? null,
+      type: /content-type:\s*([^\r\n;]+)/i.exec(head)?.[1]?.trim() ?? null,
+      body: part.subarray(headEnd + 4),
+    });
+    pos = next;
+  }
+  return out;
+}
+
+/** Gültiges PNG (RGB, w×h, einfarbig) – für den Bild-Upload */
+function makePng(w, h) {
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(td) >>> 0);
+    return Buffer.concat([len, td, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; // Bittiefe
+  ihdr[9] = 2; // RGB
+  const rows = Buffer.alloc((w * 3 + 1) * h, 0x40);
+  for (let y = 0; y < h; y++) rows[y * (w * 3 + 1)] = 0; // Filter "none"
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 async function weeklyTests(t0f, hiddenName) {
@@ -782,54 +850,156 @@ async function weeklyTests(t0f, hiddenName) {
     tp.json.allowed_mentions?.parse?.length === 0 && /wait=true/.test(tp.url), JSON.stringify(tp?.json).slice(0, 300));
   check("zweiter Test sofort → 400 too_soon", (await whj("POST", null, admin, "/webhook/test")).json.error === "too_soon" && discord.hits.length === 1);
 
-  // Cron in der Woche nach den Testkämpfen
+  // ---------- Wochenbild (Render-Agent, WEEKLY_RENDER_KEY) ----------
+  // Woche nach den Testkämpfen: 07:15 UTC (erster Cron-Lauf) und 11:15 UTC (nach der Bild-Frist)
   const cronAt = weekStart(t0f) + WEEK_MS + 15 * 60_000;
-  check("Cron lokal auslösbar", (await cron(cronAt)) === 200);
+  const cronLate = cronAt + IMAGE_DEADLINE_MS;
+  const KEY = process.env.WEEKLY_KEY;
+  const wk = (path, { headers = {}, at = cronAt, ...opts } = {}) =>
+    fetch(`${BASE}/api/weekly${path}`, { ...opts, headers: { authorization: `Bearer ${KEY}`, "x-a2-test-now": String(at), ...headers } });
+  const wkj = async (...a) => {
+    const r = await wk(...a);
+    const text = await r.text();
+    let json = {};
+    try {
+      json = JSON.parse(text);
+    } catch {
+      /* kein JSON */
+    }
+    return { status: r.status, text, json };
+  };
+  const png = makePng(120, 68);
+  const upload = (body, { type = "image/png", at = cronAt, room = ROOM, headers = {} } = {}) =>
+    wkj(`/${room}/image`, { method: "POST", headers: { "content-type": type, ...headers }, body, at });
+
+  if (!KEY) console.log("SKIP  Wochenbild (ohne WEEKLY_KEY, nur mit npm test)");
+  else {
+    check("Wochenbild: ohne Key → 401", (await fetch(`${BASE}/api/weekly/pending`)).status === 401);
+    check("Wochenbild: falscher Key → 401", (await wk("/pending", { headers: { authorization: "Bearer falsch-falsch-falsch-falsch" } })).status === 401);
+    check("Wochenbild: Raum-Secret gilt nicht", (await wk("/pending", { headers: { authorization: `Bearer ${SECRET}` } })).status === 401);
+    check("Wochenbild: Session-Cookie/Browser (Origin) → 403", (await wk("/pending", { headers: { origin: BASE } })).status === 403);
+    check("Wochenbild: Upload ohne Key → 401", (await fetch(`${BASE}/api/weekly/${ROOM}/image`, { method: "POST", headers: { "content-type": "image/png" }, body: png })).status === 401);
+
+    const n0 = discord.hits.length;
+    check("Cron vor der Bild-Frist: wartet, kein Post", (await cron(cronAt)) === 200 && discord.hits.length === n0);
+
+    const pend = await wkj("/pending");
+    const room0 = pend.json.rooms?.[0];
+    check("pending: Raum mit Recap (Klassen, Bosse, KW)", pend.status === 200 && pend.json.rooms?.length === 1 && room0.room === ROOM &&
+      room0.fights > 0 && room0.players.some((p) => p.name === "Marlon" && Number.isInteger(p.job)) && room0.bosses.length > 0 &&
+      Number.isInteger(room0.week.kw) && pend.json.deadlineMs === cronLate - 15 * 60_000, pend.text.slice(0, 400));
+    check("pending: keine Webhook-URL", noSecret(pend.text) && !pend.text.includes("discord"));
+    check("pending: nur Mitglieder", !pend.text.includes(hiddenName) && !pend.text.includes("Mitspieler"), pend.text.slice(0, 300));
+
+    check("Bild: falscher Content-Type → 415", (await upload(png, { type: "image/jpeg" })).status === 415);
+    const notPng = await upload(Buffer.from("GIF89a" + "x".repeat(100)));
+    check("Bild: kein PNG (Magic Bytes) → 400", notPng.status === 400 && notPng.json.error === "bad_image", notPng.text);
+    const huge = Buffer.concat([png, Buffer.alloc(1_100_000)]);
+    check("Bild: > 1 MB → 413", (await upload(huge)).status === 413);
+    // Der Worker liest den zu großen Body nicht → die Keep-Alive-Verbindung ist danach weg; kurz warten
+    await sleep(300);
+    await fetch(`${BASE}/api/health`).catch(() => null);
+    check("Bild: unbekannter Raum → 404", (await upload(png, { room: "gibtsnicht" })).status === 404);
+    check("Bild: abgelehnte Uploads posten nichts", discord.hits.length === n0);
+
+    const up = await upload(png);
+    const hit = discord.hits.at(-1);
+    check("Bild gepostet (multipart, Anhang wochenbild.png)", up.status === 200 && up.json.ok === true && discord.hits.length === n0 + 1 &&
+      hit.multipart && hit.file?.filename === "wochenbild.png" && hit.file.type === "image/png" && hit.file.bytes === png.length && hit.file.png &&
+      /wait=true/.test(hit.url), `${up.text} ${JSON.stringify(hit?.file)}`);
+    const ie = hit?.json?.embeds?.[0];
+    check("Bild-Karte: bisheriges Embed + attachment://", ie?.image?.url === "attachment://wochenbild.png" && /^Wochenrückblick testraum · /.test(ie?.title ?? "") &&
+      (ie?.fields ?? []).some((f) => f.name === "Bester Kampf") && hit.json.attachments?.[0]?.filename === "wochenbild.png" && hit.json.allowed_mentions?.parse?.length === 0,
+      JSON.stringify(hit?.json).slice(0, 300));
+    check("Bild-Antwort ohne Webhook-URL", noSecret(up.text));
+    const again = await upload(png);
+    check("zweites Bild → 409, kein Doppelpost", again.status === 409 && again.json.error === "not_pending" && discord.hits.length === n0 + 1, again.text);
+    check("pending danach leer", (await wkj("/pending")).json.rooms?.length === 0);
+    check("Cron nach der Frist: keine Text-Karte zusätzlich", (await cron(cronLate)) === 200 && discord.hits.length === n0 + 1);
+    const gi = await whj("GET", null, auth);
+    check("Stand: Woche + Bild gemerkt", gi.json.status === "ok" && gi.json.lastWeek === gi.json.imageWeek && /^w\d{4}/.test(gi.json.lastWeek ?? "") && gi.json.imageStatus === "ok", gi.text);
+
+    // Bild von Discord abgelehnt (400) → Cron schickt sofort die Text-Karte (nicht erst nach der Frist)
+    await wh("DELETE");
+    await wh("PATCH", { url: hook("400400400400400400"), enabled: true });
+    const n1 = discord.hits.length;
+    const rej = await upload(png);
+    check("Bild abgelehnt → 502 rejected", rej.status === 502 && rej.json.outcome === "rejected" && discord.hits.length === n1 + 1, rej.text);
+    check("nach Ablehnung: pending leer", (await wkj("/pending")).json.rooms?.length === 0);
+    await cron(cronAt);
+    check("nach Ablehnung: Text-Karte sofort", discord.hits.length === n1 + 2 && !discord.hits.at(-1).multipart && !discord.hits.at(-1).json?.embeds?.[0]?.image);
+    await cron(cronAt + 3_600_000);
+    check("nach Ablehnung: Text nur einmal", discord.hits.length === n1 + 2);
+  }
+
+  // ---------- Text-Karte (kein Bild bis zur Frist) ----------
+  await wh("DELETE");
+  await wh("PATCH", { url: hook("111111111111111111"), enabled: true });
+  const n2 = discord.hits.length;
+  if (KEY) check("ohne Bild: Cron um 07:15 wartet", (await cron(cronAt)) === 200 && discord.hits.length === n2);
+  check("Cron lokal auslösbar", (await cron(cronLate)) === 200);
   const wp = discord.hits.at(-1);
   const emb = wp?.json?.embeds?.[0];
   const fields = Object.fromEntries((emb?.fields ?? []).map((f) => [f.name, f.value]));
-  check("Cron postet Wochenrückblick", discord.hits.length === 2 && /^Wochenrückblick testraum · \d\d\.\d\d\.–\d\d\.\d\d\.\d{4}$/.test(emb?.title ?? ""), emb?.title);
+  check("Cron postet Wochenrückblick (nach der Frist als Text)", discord.hits.length === n2 + 1 && !wp.multipart && /^Wochenrückblick testraum · \d\d\.\d\d\.–\d\d\.\d\d\.\d{4}$/.test(emb?.title ?? ""), emb?.title);
   check("Karte: Kämpfe, bester Kampf, Top-DPS, Vorwoche, Link", /\*\*\d+\*\* Bosskämpfe/.test(emb?.description ?? "") && !!fields["Bester Kampf"] &&
     /Top-\d-DPS der Woche/.test(Object.keys(fields).join("|")) && "Kills gegen Vorwoche" in fields && emb?.url === `${BASE}/#/overview` && emb?.color === 0xd4af69,
     JSON.stringify(emb).slice(0, 400));
   const topText = Object.entries(fields).find(([k]) => k.startsWith("Top-"))?.[1] ?? "";
   check("Top-DPS nur Mitglieder (ausgeblendete und Fremde nicht)", topText.includes("Marlon") && !topText.includes(hiddenName) && !topText.includes("Mitspieler"), topText);
-  check("Cron zweimal → kein zweiter Post", (await cron(cronAt + 3_600_000)) === 200 && discord.hits.length === 2);
+  check("Cron zweimal → kein zweiter Post", (await cron(cronLate + 3_600_000)) === 200 && discord.hits.length === n2 + 1);
+  if (KEY) {
+    const late = await upload(png, { at: cronLate + 3_600_000 });
+    check("Bild nach der Text-Karte → 409, kein Doppelpost", late.status === 409 && discord.hits.length === n2 + 1, late.text);
+  }
   const g2 = await whj("GET", null, auth);
   check("Stand: gepostet, Woche gemerkt", g2.json.status === "ok" && /^w\d{4}-\d\d-\d\d$/.test(g2.json.lastWeek ?? "") && g2.json.lastPostMs > 0, g2.text);
-  check("Woche ohne Kämpfe wird nicht gepostet", (await cron(cronAt + 2 * WEEK_MS)) === 200 && discord.hits.length === 2);
+  check("Woche ohne Kämpfe wird nicht gepostet", (await cron(cronLate + 2 * WEEK_MS)) === 200 && discord.hits.length === n2 + 1);
+  if (KEY) check("Woche ohne Kämpfe: pending leer", (await wkj("/pending", { at: cronAt + 3 * WEEK_MS })).json.rooms?.length === 0);
 
   // 404 → ungültig, kein weiterer Versuch
   await wh("DELETE");
   await wh("PATCH", { url: hook("404404404404404404"), enabled: true });
-  await cron(cronAt);
+  const n3 = discord.hits.length;
+  await cron(cronLate);
   const g3 = await whj("GET", null, auth);
-  check("404 → Webhook ungültig", discord.hits.length === 3 && g3.json.status === "invalid" && g3.json.lastCode === 404 && noSecret(g3.text), g3.text);
+  check("404 → Webhook ungültig", discord.hits.length === n3 + 1 && g3.json.status === "invalid" && g3.json.lastCode === 404 && noSecret(g3.text), g3.text);
   await wh("PATCH", { enabled: true }); // nur einschalten setzt den Status nicht zurück
-  await cron(cronAt);
-  await cron(cronAt + 60_000);
-  check("ungültig → keine Wiederholung", discord.hits.length === 3, `${discord.hits.length} Aufrufe`);
+  await cron(cronLate);
+  await cron(cronLate + 60_000);
+  check("ungültig → keine Wiederholung", discord.hits.length === n3 + 1, `${discord.hits.length - n3} Aufrufe`);
+  if (KEY) check("ungültig → nicht in pending", (await wkj("/pending")).json.rooms?.length === 0);
 
   // 429 mit kurzer Wartezeit → einmal neu, dann gepostet
   await wh("DELETE");
   await wh("PATCH", { url: hook("429429429429429429"), enabled: true });
-  await cron(cronAt);
+  const n4 = discord.hits.length;
+  await cron(cronLate);
   const g4 = await whj("GET", null, auth);
-  check("429 → kurz gewartet, einmal neu gesendet", discord.hits.length === 5 && g4.json.status === "ok" && !!g4.json.lastWeek, `${discord.hits.length} ${g4.text}`);
+  check("429 → kurz gewartet, einmal neu gesendet", discord.hits.length === n4 + 2 && g4.json.status === "ok" && !!g4.json.lastWeek, `${discord.hits.length - n4} ${g4.text}`);
 
   // 500 → Fehler, nächster Cron-Lauf versucht es nochmal
   await wh("DELETE");
   await wh("PATCH", { url: hook("500500500500500500"), enabled: true });
-  await cron(cronAt);
+  const n5 = discord.hits.length;
+  await cron(cronLate);
   const g5 = await whj("GET", null, auth);
-  await cron(cronAt + 3_600_000);
-  check("500 → Fehler gemerkt, nächster Lauf versucht neu", g5.json.status === "error" && g5.json.lastWeek === null && discord.hits.length === 7, `${discord.hits.length} ${g5.text}`);
+  await cron(cronLate + 3_600_000);
+  check("500 → Fehler gemerkt, nächster Lauf versucht neu", g5.json.status === "error" && g5.json.lastWeek === null && discord.hits.length === n5 + 2, `${discord.hits.length - n5} ${g5.text}`);
+  if (KEY) {
+    // Bild-Upload bei gestörtem Discord: 502 retry, Woche bleibt offen (Agent darf neu versuchen)
+    const r5 = await upload(png, { at: cronLate + 3_600_000 });
+    check("Bild bei Discord-Störung → 502 retry, bleibt in pending", r5.status === 502 && r5.json.outcome === "retry" &&
+      (await wkj("/pending", { at: cronLate + 3_600_000 })).json.rooms?.length === 1, r5.text);
+  }
 
   // Ausschalten: kein Post
   await wh("DELETE");
   await wh("PATCH", { url: hook("111111111111111111"), enabled: false });
-  await cron(cronAt);
-  check("ausgeschaltet → kein Post", discord.hits.length === 7);
+  const n6 = discord.hits.length;
+  await cron(cronLate);
+  check("ausgeschaltet → kein Post", discord.hits.length === n6);
+  if (KEY) check("ausgeschaltet → nicht in pending, Bild 409", (await wkj("/pending")).json.rooms?.length === 0 && (await upload(png)).status === 409 && discord.hits.length === n6);
   const del = await whj("DELETE");
   check("Webhook löschen", del.status === 200 && del.json.configured === false && (await whj("GET", null, auth)).json.configured === false);
   discord.close();

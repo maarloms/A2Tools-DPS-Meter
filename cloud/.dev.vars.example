@@ -3,3 +3,5 @@
 ROOMS="testraum:dev-secret-bitte-aendern-123"
 # Signiert die Login-Cookies des Dashboards (lokal optional – sonst aus ROOMS abgeleitet)
 SESSION_KEY="lokaler-session-schluessel-nur-fuer-tests-0123456789"
+# Optional: Wochenbild-Weg (tools/wochenbild) – Bearer-Key des Render-Agenten, mind. 16 Zeichen
+# WEEKLY_RENDER_KEY="lokaler-render-key-0123456789"

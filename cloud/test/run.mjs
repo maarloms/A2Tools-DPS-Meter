@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ROOM = "testraum";
 const SECRET = "dev-secret-bitte-aendern-123";
+// Wochenbild: Bearer-Key des Render-Agenten (nur Test)
+const WEEKLY_KEY = "weekly-render-key-nur-fuer-tests-0123456789";
 const win = process.platform === "win32";
 
 const freePort = () =>
@@ -42,7 +44,7 @@ const discordPort = await freePort();
 writeFileSync(
   vars,
   `ROOMS="${ROOM}:${SECRET}"\nSESSION_KEY="lokaler-session-schluessel-nur-fuer-tests-0123456789"\nADMIN_SECRET="admin-secret-nur-fuer-tests-123"\nTEST_HOOKS="1"\n` +
-    `DISCORD_API_BASE="http://127.0.0.1:${discordPort}"\n`,
+    `DISCORD_API_BASE="http://127.0.0.1:${discordPort}"\nWEEKLY_RENDER_KEY="${WEEKLY_KEY}"\n`,
 );
 
 let dev = null;
@@ -83,7 +85,7 @@ try {
     const t = spawn(process.execPath, ["test/simulate.mjs", ...process.argv.slice(2)], {
       cwd: root,
       stdio: "inherit",
-      env: { ...process.env, BASE, ROOM, SECRET, FAKE_DISCORD_PORT: String(discordPort) },
+      env: { ...process.env, BASE, ROOM, SECRET, FAKE_DISCORD_PORT: String(discordPort), WEEKLY_KEY },
     });
     t.on("exit", (c) => res(c ?? 1));
   });

@@ -53,6 +53,7 @@
   //   npx wrangler secret put SESSION_KEY   (zufällig, ≥ 32 Zeichen; signiert die Login-Cookies)
   //   npx wrangler secret put ROOMS
   //   Format: "raumcode:secret" – mehrere Raeume mit Komma trennen.
+  //   npx wrangler secret put WEEKLY_RENDER_KEY   (optional, Wochenbild aus tools/wochenbild; ohne: nur Text-Karte)
   // Lokal: Datei .dev.vars (siehe .dev.vars.example).
 
   // Fehler/eigene Logs ja, aber KEINE Invocation-Logs: die enthalten Request-Header
