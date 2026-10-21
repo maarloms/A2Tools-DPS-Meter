@@ -646,7 +646,14 @@
                   <label class="settingsToggle">
                     <span class="settingsToggleLabel settingsLabel" data-i18n="settings.autoHideMeter" title="The meter disappears while another window is in front of the game, and comes back with it." data-i18n-title="settings.tips.autoHideMeter">Hide when AION2 isn't focused</span>
                     <span class="settingsToggleControl">
-                      <input type="checkbox" class="autoHideMeterCheckbox" checked />
+                      <input type="checkbox" class="autoHideMeterCheckbox" />
+                      <span class="settingsToggleTrack" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                  <label class="settingsToggle">
+                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.hideWhenGameClosed" title="The meter hides while the game isn't running, and comes back when it starts." data-i18n-title="settings.tips.hideWhenGameClosed">Hide while AION2 is closed</span>
+                    <span class="settingsToggleControl">
+                      <input type="checkbox" class="hideWhenGameClosedCheckbox" />
                       <span class="settingsToggleTrack" aria-hidden="true"></span>
                     </span>
                   </label>
@@ -731,6 +738,7 @@
               <section class="settingsSection" id="settingsSection-appearance" role="tabpanel" aria-labelledby="settingsTab-appearance" data-section="appearance" hidden>
                 <h2 class="settingsSectionTitle" data-i18n="settings.appearance">Appearance</h2>
                 <div class="settingsGroupBody">
+                  <h3 class="settingsSubTitle appearanceGroupTitle" data-i18n="settings.appearanceGroups.general">General</h3>
                   <div class="settingsRow settingsRowSelect">
                     <div class="settingsInfo">
                       <div class="settingsLabel" data-i18n="settings.language.label">Language</div>
@@ -743,6 +751,31 @@
                       <div class="settingsDropdownMenu languageDropdownMenu" role="menu"></div>
                     </div>
                   </div>
+                  <div class="settingsRow settingsRowSelect">
+                    <div class="settingsInfo">
+                      <div class="settingsLabel" data-i18n="settings.font.label" title="The font of the meter, Settings, Battle History and Details." data-i18n-title="settings.font.tip">Font</div>
+                    </div>
+                    <div class="settingsDropdownWrapper fontDropdownWrapper">
+                      <button class="settingsDropdownBtn fontDropdownBtn" type="button">
+                        <span class="settingsDropdownText">-</span>
+                        <span class="settingsDropdownCaret" aria-hidden="true">▾</span>
+                      </button>
+                      <div class="settingsDropdownMenu fontDropdownMenu" role="menu"></div>
+                    </div>
+                  </div>
+                  <div class="settingsRow settingsRowSelect">
+                    <div class="settingsInfo">
+                      <div class="settingsLabel" data-i18n="settings.settingsTheme.label" title="The colours of this Settings window. The meter keeps its own theme." data-i18n-title="settings.settingsTheme.tip">Settings colours</div>
+                    </div>
+                    <div class="settingsDropdownWrapper settingsThemeDropdownWrapper">
+                      <button class="settingsDropdownBtn settingsThemeDropdownBtn" type="button">
+                        <span class="settingsDropdownText">-</span>
+                        <span class="settingsDropdownCaret" aria-hidden="true">▾</span>
+                      </button>
+                      <div class="settingsDropdownMenu settingsThemeDropdownMenu" role="menu"></div>
+                    </div>
+                  </div>
+                  <h3 class="settingsSubTitle appearanceGroupTitle" data-i18n="settings.appearanceGroups.colours">Colours</h3>
                   <div class="settingsRow settingsRowSelect">
                     <div class="settingsInfo">
                       <div class="settingsLabel" data-i18n="settings.theme.label">Colour theme</div>
@@ -777,72 +810,6 @@
                       </span>
                     </label>
                   </div>
-                  <div class="settingsRow settingsRowSelect">
-                    <div class="settingsInfo">
-                      <div class="settingsLabel" data-i18n="settings.meterLayout.label">Meter layout</div>
-                    </div>
-                    <div class="settingsDropdownWrapper meterLayoutDropdownWrapper">
-                      <button class="settingsDropdownBtn meterLayoutDropdownBtn" type="button">
-                        <span class="settingsDropdownText">Standard</span>
-                        <span class="settingsDropdownCaret" aria-hidden="true">▾</span>
-                      </button>
-                      <div class="settingsDropdownMenu meterLayoutDropdownMenu" role="menu"></div>
-                    </div>
-                  </div>
-                  <div class="settingsRow settingsRowInput">
-                    <div class="settingsInfo">
-                      <div class="settingsLabel" data-i18n="settings.windowOpacity.label" title="How see-through the meter's background is. Bars and text stay as they are." data-i18n-title="settings.tips.windowOpacity">Background opacity</div>
-                    </div>
-                    <div class="settingsRangeInline">
-                      <input
-                        id="windowOpacityInput"
-                        class="settingsRange windowOpacityInput"
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="5"
-                        value="40"
-                        aria-label="Background opacity"
-                        data-i18n-aria-label="settings.windowOpacity.label" />
-                      <div class="settingsValue windowOpacityValue">40%</div>
-                    </div>
-                  </div>
-                  <div class="settingsRow settingsRowInput">
-                    <div class="settingsInfo">
-                      <div class="settingsLabel" data-i18n="settings.titleOpacity.label" title="How see-through the meter's title bar is, apart from the background under it. Until you move it, it follows the background." data-i18n-title="settings.tips.titleOpacity">Title bar opacity</div>
-                    </div>
-                    <div class="settingsRangeInline">
-                      <input
-                        id="titleOpacityInput"
-                        class="settingsRange titleOpacityInput"
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="5"
-                        value="40"
-                        aria-label="Title bar opacity"
-                        data-i18n-aria-label="settings.titleOpacity.label" />
-                      <div class="settingsValue titleOpacityValue">40%</div>
-                    </div>
-                  </div>
-                  <div class="settingsRow settingsRowInput">
-                    <div class="settingsInfo">
-                      <div class="settingsLabel" data-i18n="settings.meterOpacity.label" title="How solid the coloured damage bars are." data-i18n-title="settings.tips.meterOpacity">Bar opacity</div>
-                    </div>
-                    <div class="settingsRangeInline">
-                      <input
-                        id="meterOpacityInput"
-                        class="settingsRange meterOpacityInput"
-                        type="range"
-                        min="10"
-                        max="100"
-                        step="5"
-                        value="80"
-                        aria-label="Bar opacity"
-                        data-i18n-aria-label="settings.meterOpacity.label" />
-                      <div class="settingsValue meterOpacityValue">80%</div>
-                    </div>
-                  </div>
                   <div class="settingsRow settingsRowInput">
                     <div class="settingsInfo">
                       <div class="settingsLabel" data-i18n="settings.meterSaturation.label" title="How strong the bars' colours are: lower for softer, higher for more vivid." data-i18n-title="settings.tips.meterSaturation">Bar colour strength</div>
@@ -859,6 +826,19 @@
                         aria-label="Bar colour strength"
                         data-i18n-aria-label="settings.meterSaturation.label" />
                       <div class="settingsValue meterSaturationValue">100%</div>
+                    </div>
+                  </div>
+                  <h3 class="settingsSubTitle appearanceGroupTitle" data-i18n="settings.appearanceGroups.layout">Layout</h3>
+                  <div class="settingsRow settingsRowSelect">
+                    <div class="settingsInfo">
+                      <div class="settingsLabel" data-i18n="settings.meterLayout.label">Meter layout</div>
+                    </div>
+                    <div class="settingsDropdownWrapper meterLayoutDropdownWrapper">
+                      <button class="settingsDropdownBtn meterLayoutDropdownBtn" type="button">
+                        <span class="settingsDropdownText">Standard</span>
+                        <span class="settingsDropdownCaret" aria-hidden="true">▾</span>
+                      </button>
+                      <div class="settingsDropdownMenu meterLayoutDropdownMenu" role="menu"></div>
                     </div>
                   </div>
                   <div class="settingsRow settingsRowInput">
@@ -916,6 +896,61 @@
                           <span class="settingsToggleTrack" aria-hidden="true"></span>
                         </span>
                       </label>
+                    </div>
+                  </div>
+                  <h3 class="settingsSubTitle appearanceGroupTitle" data-i18n="settings.appearanceGroups.opacity">Opacity</h3>
+                  <div class="settingsRow settingsRowInput">
+                    <div class="settingsInfo">
+                      <div class="settingsLabel" data-i18n="settings.windowOpacity.label" title="How see-through the meter's background is. Bars and text stay as they are." data-i18n-title="settings.tips.windowOpacity">Background opacity</div>
+                    </div>
+                    <div class="settingsRangeInline">
+                      <input
+                        id="windowOpacityInput"
+                        class="settingsRange windowOpacityInput"
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value="40"
+                        aria-label="Background opacity"
+                        data-i18n-aria-label="settings.windowOpacity.label" />
+                      <div class="settingsValue windowOpacityValue">40%</div>
+                    </div>
+                  </div>
+                  <div class="settingsRow settingsRowInput">
+                    <div class="settingsInfo">
+                      <div class="settingsLabel" data-i18n="settings.titleOpacity.label" title="How see-through the meter's title bar is, apart from the background under it. Until you move it, it follows the background." data-i18n-title="settings.tips.titleOpacity">Title bar opacity</div>
+                    </div>
+                    <div class="settingsRangeInline">
+                      <input
+                        id="titleOpacityInput"
+                        class="settingsRange titleOpacityInput"
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value="40"
+                        aria-label="Title bar opacity"
+                        data-i18n-aria-label="settings.titleOpacity.label" />
+                      <div class="settingsValue titleOpacityValue">40%</div>
+                    </div>
+                  </div>
+                  <div class="settingsRow settingsRowInput">
+                    <div class="settingsInfo">
+                      <div class="settingsLabel" data-i18n="settings.meterOpacity.label" title="How solid the coloured damage bars are." data-i18n-title="settings.tips.meterOpacity">Bar opacity</div>
+                    </div>
+                    <div class="settingsRangeInline">
+                      <input
+                        id="meterOpacityInput"
+                        class="settingsRange meterOpacityInput"
+                        type="range"
+                        min="10"
+                        max="100"
+                        step="5"
+                        value="80"
+                        aria-label="Bar opacity"
+                        data-i18n-aria-label="settings.meterOpacity.label" />
+                      <div class="settingsValue meterOpacityValue">80%</div>
                     </div>
                   </div>
                 </div>
@@ -1032,15 +1067,6 @@
               <section class="settingsSection" id="settingsSection-plugins" role="tabpanel" aria-labelledby="settingsTab-plugins" data-section="plugins" hidden>
                 <h2 class="settingsSectionTitle" data-i18n="settings.plugins.title">Plugins</h2>
                 <div class="settingsGroupBody">
-                  <div class="settingsRow pluginActionsRow">
-                    <div class="settingsInfo">
-                      <div class="settingsHint" data-i18n="settings.plugins.intro">Reviewed plugins add features beside the meter. Each one gets only what it asks for when you install it.</div>
-                      <div class="settingsHint pluginStatus" role="status"></div>
-                    </div>
-                    <div class="settingsRowEnd">
-                      <button class="settingsAction pluginUpdateBtn" type="button" data-i18n="settings.plugins.checkUpdates">Check for updates</button>
-                    </div>
-                  </div>
                   <label class="settingsToggle showMeterToggle">
                     <span class="settingsToggleLabel settingsLabel" data-i18n="settings.plugins.showMeter" title="Off: only your plugins show. The meter keeps reading combat and uploading in the background. Bring it back here, with the show/hide hotkey, or with the meter button on a plugin window." data-i18n-title="settings.tips.showMeter">Show the DPS meter</span>
                     <span class="settingsToggleControl">
@@ -1048,12 +1074,28 @@
                       <span class="settingsToggleTrack" aria-hidden="true"></span>
                     </span>
                   </label>
-                  <h3 class="pluginListTitle" data-i18n="settings.plugins.installed">Installed</h3>
-                  <div class="pluginList"></div>
-                  <div class="settingsHint pluginListEmpty" data-i18n="settings.plugins.none">No plugins installed yet.</div>
-                  <h3 class="pluginListTitle" data-i18n="settings.plugins.available">Available</h3>
-                  <div class="pluginCatalog"></div>
-                  <div class="settingsHint pluginCatalogStatus"></div>
+                  <div class="pluginBar">
+                    <div class="pluginTabs" role="tablist">
+                      <button class="pluginTab isActive" type="button" role="tab" aria-selected="true" data-tab="installed"><span data-i18n="settings.plugins.installed">Installed</span><span class="pluginTabCount pluginInstalledCount"></span></button>
+                      <button class="pluginTab" type="button" role="tab" aria-selected="false" data-tab="browse"><span data-i18n="settings.plugins.available">Available</span><span class="pluginTabCount pluginAvailableCount"></span></button>
+                    </div>
+                    <label class="pluginSearch" hidden>
+                      <i data-lucide="search" aria-hidden="true"></i>
+                      <input class="pluginSearchInput" type="search" spellcheck="false" autocomplete="off" placeholder="Search" data-i18n-placeholder="settings.plugins.search" data-i18n-aria-label="settings.plugins.search" aria-label="Search" />
+                    </label>
+                    <button class="pluginIconBtn pluginUpdateBtn" type="button" data-i18n-title="settings.plugins.checkUpdates" title="Check for updates" data-i18n-aria-label="settings.plugins.checkUpdates" aria-label="Check for updates"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>
+                  </div>
+                  <div class="settingsHint pluginStatus" role="status"></div>
+                  <div class="pluginPane" data-pane="installed">
+                    <div class="pluginList"></div>
+                    <div class="settingsHint pluginListEmpty" data-i18n="settings.plugins.none">No plugins installed yet.</div>
+                  </div>
+                  <div class="pluginPane" data-pane="browse" hidden>
+                    <div class="settingsHint pluginIntro" data-i18n="settings.plugins.intro">Reviewed plugins add features beside the meter. Each one gets only what it asks for when you install it.</div>
+                    <div class="pluginCatalog"></div>
+                    <div class="settingsHint pluginCatalogStatus"></div>
+                  </div>
+                  <div class="settingsHint pluginNoMatch" data-i18n="settings.plugins.noMatch" hidden>No plugins match.</div>
                   <label class="settingsToggle pluginDevToggle">
                     <span class="settingsToggleLabel settingsLabel" data-i18n="settings.plugins.devMode" title="Loads plugins from folders on this computer, for building and testing them. They are not reviewed, so only load plugins you trust." data-i18n-title="settings.tips.pluginDevMode">Plugin developer mode</span>
                     <span class="settingsToggleControl">

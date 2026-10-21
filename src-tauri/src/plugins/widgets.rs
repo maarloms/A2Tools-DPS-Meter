@@ -83,6 +83,8 @@ fn areas() -> &'static Mutex<HashMap<String, Area>> {
 /// `platform::window::hide_in_place`), so a widget is locked again once its
 /// page has loaded (`plugin_widget_hello`) and each time it is shown again.
 fn apply_lock(window: &tauri::WebviewWindow, locked: bool) {
+    // A screenshot tool in front: clicks go through, whatever the lock.
+    let locked = locked || crate::app::screenshot_tool_in_front();
     let area = areas().lock().unwrap_or_else(|p| p.into_inner()).get(window.label()).copied();
     let applied = match (locked, area) {
         (true, _) => crate::platform::window::click_through_except(window, true, None),
@@ -94,13 +96,30 @@ fn apply_lock(window: &tauri::WebviewWindow, locked: bool) {
     }
 }
 
+/// Every widget's click-through as its lock and area say (after a
+/// screenshot tool, see `app::screenshot_tool_in_front`).
+pub fn reapply_locks(app: &tauri::AppHandle) {
+    for (_, window) in app.webview_windows() {
+        relock(app, &window);
+    }
+}
+
+/// A widget's click-through as its lock and area say, if `window` is one:
+/// after `platform::window::reveal_in_place`, which gives a window the whole
+/// mouse, so a locked widget shown again took the clicks over it.
+pub fn relock(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
+    if let Some((id, _)) = parse_label(window.label()) {
+        apply_lock(window, is_locked(app, &id));
+    }
+}
+
 /// The window in front when each widget was made, until its page loads.
 fn fronts() -> &'static Mutex<HashMap<String, Option<isize>>> {
     static FRONTS: std::sync::OnceLock<Mutex<HashMap<String, Option<isize>>>> = std::sync::OnceLock::new();
     FRONTS.get_or_init(Mutex::default)
 }
 
-fn saved_place(app: &tauri::AppHandle, id: &str, name: &str) -> Option<(i32, i32)> {
+pub fn saved_place(app: &tauri::AppHandle, id: &str, name: &str) -> Option<(i32, i32)> {
     let value = app.try_state::<AppState>()?.settings.get(&place_key(id, name))?;
     let (x, y) = value.split_once(',')?;
     Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
@@ -124,8 +143,10 @@ pub async fn plugin_widget_open(
     let size = |v: f64| if v.is_finite() { v.clamp(24.0, 800.0) } else { 64.0 };
     let (width, height) = (size(width), size(height));
     if let Some(widget) = app.get_webview_window(&label(&id, &name)) {
-        let _ = widget.set_size(tauri::LogicalSize::new(width, height));
-        if !crate::platform::window::reveal_in_place(&widget) {
+        crate::platform::window::set_size(&widget, tauri::LogicalSize::new(width, height).into());
+        if super::game_hides(&app, &id) {
+            super::hold_for_game(&widget);
+        } else if !crate::platform::window::reveal_in_place(&widget) {
             crate::platform::window::show_on_top_without_focus(&widget);
         }
         apply_lock(&widget, is_locked(&app, &id));
@@ -153,7 +174,14 @@ pub async fn plugin_widget_open(
         .shadow(false)
         .always_on_top(true)
         .skip_taskbar(true)
-        .resizable(false)
+        // Resizable, its size then pinned (set_size below), as the meter's
+        // other windows are: GTK sizes a window that isn't resizable to what
+        // the page asks for, at least 200 x 200, so a 118 x 38 widget had a
+        // 200 x 200 window. Dropped near a screen's bottom edge, that window
+        // reached past it, and KWin moved it back up each time it opened
+        // (Ping, 2026-10-20: left at y 1316, back at 1032). Windows sizes it
+        // as asked either way.
+        .resizable(cfg!(target_os = "linux"))
         .focused(false)
         // Never takes focus, from the start: clicks and drags still reach it.
         // Focusable, tao turns a GTK window's focus back on after its first
@@ -166,6 +194,7 @@ pub async fn plugin_widget_open(
     // Never in front of the game: an alert icon appearing must not tab the
     // player out of it.
     crate::platform::window::never_activate(&widget, front);
+    crate::platform::window::set_size(&widget, tauri::LogicalSize::new(width, height).into());
     fronts().lock().unwrap_or_else(|p| p.into_inner()).insert(widget.label().to_string(), front);
     // Where it was left; a widget never moved goes beside the plugin's others
     // rather than wherever the window manager puts a new window (the middle
@@ -180,6 +209,10 @@ pub async fn plugin_widget_open(
     }).or_else(|| beside_left(&app, &id));
     if let Some((x, y)) = place {
         let _ = widget.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+    // AION2 closed and the plugin set to hide then: shown when it opens.
+    if super::game_hides(&app, &id) {
+        super::hold_for_game(&widget);
     }
     Ok(())
 }

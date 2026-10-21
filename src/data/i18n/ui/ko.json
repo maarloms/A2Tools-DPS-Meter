@@ -283,6 +283,7 @@
     "roundDps": "DPS를 천 단위로 줄이기 (13k)",
     "showDpsSuffix": "DPS에 /s 붙이기",
     "autoHideMeter": "AION2가 활성 창이 아닐 때 숨기기",
+    "hideWhenGameClosed": "AION2가 꺼져 있으면 숨기기",
     "showSuspendBtn": "수집 일시정지 버튼 표시",
     "showLockBtn": "클릭 통과 잠금 버튼 표시",
     "playerLimit": {
@@ -347,6 +348,44 @@
         "varian": "바리안"
       }
     },
+    "settingsTheme": {
+      "label": "설정 창 색상",
+      "tip": "이 설정 창의 색상입니다. 미터는 자체 테마를 유지합니다.",
+      "options": {
+        "meter": "미터 테마",
+        "midnight": "미드나이트",
+        "graphite": "그래파이트",
+        "violet": "바이올렛",
+        "forest": "포레스트",
+        "crimson": "크림슨",
+        "ocean": "오션",
+        "sapphire": "사파이어",
+        "indigo": "인디고",
+        "rose": "로즈",
+        "sunset": "선셋",
+        "amber": "앰버",
+        "copper": "코퍼",
+        "lime": "라임",
+        "ice": "아이스",
+        "slate": "슬레이트",
+        "onyx": "오닉스"
+      }
+    },
+    "font": {
+      "label": "글꼴",
+      "tip": "미터, 설정, 전투 기록, 상세 정보의 글꼴입니다.",
+      "options": {
+        "meter": "미터 글꼴",
+        "system": "시스템 글꼴",
+        "inter": "Inter",
+        "exo2": "Exo 2",
+        "oxanium": "Oxanium",
+        "jetbrains": "JetBrains Mono (숫자 폭이 같음)",
+        "atkinson": "Atkinson Hyperlegible (글자와 숫자가 뚜렷함)",
+        "lexend": "Lexend (읽기 쉬움)",
+        "andika": "Andika (난독증용)"
+      }
+    },
     "textureOffset": "질감 위치 다르게",
     "barTexture": {
       "label": "막대 질감",
@@ -363,6 +402,12 @@
         "galaxy": "은하",
         "aura": "오라"
       }
+    },
+    "appearanceGroups": {
+      "general": "일반",
+      "colours": "색상",
+      "layout": "레이아웃",
+      "opacity": "불투명도"
     },
     "language": {
       "label": "언어"
@@ -507,7 +552,8 @@
       "globalHotkeys": "아래 키는 게임 화면이 앞에 있을 때도 작동합니다. 끄면 다른 프로그램이 이 키를 쓸 수 있습니다. 리눅스에서는 데스크톱이 키를 등록하며 승인을 요청할 수 있습니다.",
       "pluginDevMode": "이 컴퓨터의 폴더에서 플러그인을 불러와 만들고 시험할 수 있습니다. 검토되지 않은 플러그인이므로 신뢰할 수 있는 것만 불러오세요.",
       "showMeter": "끄면 플러그인만 표시됩니다. 미터는 백그라운드에서 전투 기록과 업로드를 계속합니다. 여기, 표시/숨기기 단축키, 또는 플러그인 창의 미터 버튼으로 다시 켤 수 있습니다.",
-      "clearOnZone": "지역이 바뀐 뒤 마지막 전투를 미터에서 지우는 시점입니다. 모든 전투는 어느 쪽이든 기록에 남습니다."
+      "clearOnZone": "지역이 바뀐 뒤 마지막 전투를 미터에서 지우는 시점입니다. 모든 전투는 어느 쪽이든 기록에 남습니다.",
+      "hideWhenGameClosed": "게임이 실행 중이 아닐 때 미터를 숨기고, 게임이 시작되면 다시 보여 줍니다."
     },
     "globalHotkeys": "단축키 사용",
     "hotkeyConsent": {
@@ -565,7 +611,12 @@
       "permNone": "창을 표시하는 것 외에는 없음",
       "enabled": "사용",
       "enabledTip": "켜짐: 미터와 함께 시작됩니다. 꺼짐: 설치된 상태로 남지만 실행되지 않습니다.",
-      "showMeter": "DPS 미터 표시"
+      "showMeter": "DPS 미터 표시",
+      "hideClosed": "AION2가 꺼져 있으면 숨기기",
+      "hideUnfocused": "AION2가 활성 창이 아닐 때 숨기기",
+      "search": "검색",
+      "noMatch": "일치하는 플러그인이 없습니다.",
+      "permsTitle": "할 수 있는 일:"
     },
     "clearOnZone": {
       "label": "미터 초기화",

@@ -63,6 +63,83 @@ pub const WINDOWS_KEY: &str = "dpsMeter.pluginWindows";
 /// Plugins turned off in Settings, a JSON array of ids: they stay installed
 /// but don't run. Every other plugin starts with the meter.
 pub const DISABLED_KEY: &str = "dpsMeter.pluginsDisabled";
+/// Plugins whose windows and widgets hide while AION2 is closed, a JSON
+/// array of ids (Settings → Plugins).
+pub const HIDE_CLOSED_KEY: &str = "dpsMeter.pluginsHideClosed";
+/// Plugins whose windows and widgets hide with the meter when AION2 isn't
+/// in front (the meter's "Hide when AION2 isn't focused"), a JSON array of
+/// ids. Off by default: an alert's icon is most use while the game isn't in
+/// front.
+pub const HIDE_UNFOCUSED_KEY: &str = "dpsMeter.pluginsHideUnfocused";
+/// Whether AION2 is open, as the plugin event loop last looked.
+static GAME_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// The plugin and widget windows hidden because AION2 closed, to show again
+/// when it opens.
+fn hidden_for_game() -> &'static Mutex<std::collections::HashSet<String>> {
+    static HIDDEN: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+    HIDDEN.get_or_init(Default::default)
+}
+
+/// The plugins listed under a setting (`HIDE_CLOSED_KEY`, `HIDE_UNFOCUSED_KEY`).
+fn listed(app: &tauri::AppHandle, key: &str) -> Vec<String> {
+    app.try_state::<AppState>()
+        .and_then(|s| s.settings.get(key))
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// The plugins that hide while AION2 is closed.
+fn hide_closed(app: &tauri::AppHandle) -> Vec<String> {
+    listed(app, HIDE_CLOSED_KEY)
+}
+
+/// Whether the window `label` (a plugin's, or one of its widgets) hides with
+/// the meter when AION2 isn't in front.
+pub fn hides_unfocused(app: &tauri::AppHandle, label: &str) -> bool {
+    plugin_of_window(label).is_some_and(|id| listed(app, HIDE_UNFOCUSED_KEY).contains(&id))
+}
+
+/// The plugin a window belongs to: its main window or one of its widgets.
+fn plugin_of_window(label: &str) -> Option<String> {
+    label.strip_prefix("plugin-").map(str::to_string).or_else(|| widgets::parse_label(label).map(|(id, _)| id))
+}
+
+/// Whether `id`'s windows are to stay hidden now: AION2 closed, and the
+/// plugin set to hide then.
+pub fn game_hides(app: &tauri::AppHandle, id: &str) -> bool {
+    !GAME_OPEN.load(std::sync::atomic::Ordering::Relaxed) && hide_closed(app).iter().any(|x| x == id)
+}
+
+/// A window `game_hides` keeps out of sight, to show when the game opens.
+pub fn hold_for_game(window: &tauri::WebviewWindow) {
+    crate::platform::window::hide_in_place(window);
+    hidden_for_game().lock().unwrap_or_else(|p| p.into_inner()).insert(window.label().to_string());
+}
+
+/// Hide the windows of the plugins set to hide while AION2 is closed, or
+/// show again the ones hidden so: on the game opening or closing, and on
+/// the setting changing. Windows the player brings back meanwhile stay.
+pub fn sync_game_hiding(app: &tauri::AppHandle) {
+    let open = GAME_OPEN.load(std::sync::atomic::Ordering::Relaxed);
+    let opted = hide_closed(app);
+    let mut hidden = hidden_for_game().lock().unwrap_or_else(|p| p.into_inner());
+    for (label, window) in app.webview_windows() {
+        let Some(id) = plugin_of_window(&label) else { continue };
+        let hide = !open && opted.contains(&id);
+        if hide {
+            let shown = window.is_visible().unwrap_or(false) && !crate::platform::window::is_hidden_in_place(&window);
+            if shown && hidden.insert(label) {
+                crate::platform::window::hide_in_place(&window);
+            }
+        } else if hidden.remove(&label) {
+            if !crate::platform::window::reveal_in_place(&window) {
+                crate::platform::window::show_on_top_without_focus(&window);
+            }
+            widgets::relock(app, &window);
+        }
+    }
+}
 /// Largest value one storage key may hold.
 const MAX_STORED: usize = 1024 * 1024;
 /// How long a decoded event waits before it is stamped with the character and
@@ -128,13 +205,24 @@ pub struct PluginsView {
     pub plugins: Vec<PluginInfo>,
     /// Ids of the plugins turned off.
     pub disabled: Vec<String>,
+    /// Ids of the plugins that hide while AION2 is closed.
+    pub hide_closed: Vec<String>,
+    /// Ids of the plugins that hide with the meter when AION2 isn't in front.
+    pub hide_unfocused: Vec<String>,
 }
 
 fn view(app: &tauri::AppHandle, host: &PluginHost) -> PluginsView {
     let dev_mode = app
         .try_state::<AppState>()
         .is_some_and(|s| s.settings.get(DEV_MODE_KEY).as_deref() == Some("true"));
-    PluginsView { dev_mode, online: cfg!(feature = "online"), plugins: host.list(), disabled: disabled(app) }
+    PluginsView {
+        dev_mode,
+        online: cfg!(feature = "online"),
+        plugins: host.list(),
+        disabled: disabled(app),
+        hide_closed: hide_closed(app),
+        hide_unfocused: listed(app, HIDE_UNFOCUSED_KEY),
+    }
 }
 
 /// The plugins turned off.
@@ -172,6 +260,31 @@ pub async fn plugin_set_enabled(app: tauri::AppHandle, id: String, enabled: bool
         let _ = window.close();
     }
     tracing::info!("Plugins: {id} {}", if enabled { "enabled" } else { "disabled" });
+    let host = host(&app)?;
+    Ok(view(&app, &host))
+}
+
+/// Hide a plugin's windows and widgets while AION2 is closed (`when`
+/// "closed"), or with the meter while AION2 isn't in front ("unfocused"), or
+/// not.
+#[tauri::command]
+pub fn plugin_set_hide(app: tauri::AppHandle, id: String, when: String, hide: bool) -> Result<PluginsView, String> {
+    if !valid_id(&id) {
+        return Err("not a plugin id".into());
+    }
+    let key = match when.as_str() {
+        "closed" => HIDE_CLOSED_KEY,
+        "unfocused" => HIDE_UNFOCUSED_KEY,
+        _ => return Err("closed or unfocused".into()),
+    };
+    let state = app.try_state::<AppState>().ok_or("no app state")?;
+    let mut ids = listed(&app, key);
+    ids.retain(|x| x != &id);
+    if hide {
+        ids.push(id.clone());
+    }
+    state.settings.set(key, &serde_json::to_string(&ids).unwrap_or_default());
+    sync_game_hiding(&app);
     let host = host(&app)?;
     Ok(view(&app, &host))
 }
@@ -394,7 +507,10 @@ impl PluginHost {
                 .spawn(move || {
                 let mut told = character(&app);
                 let mut game = crate::platform::window_detector::find_aion2_window();
+                GAME_OPEN.store(game, std::sync::atomic::Ordering::Relaxed);
+                sync_game_hiding(&app);
                 let mut game_checked = Instant::now();
+                let mut ping: Option<i32> = None;
                 let mut map_seq = 0u64;
                 let mut abyss_seq = 0u64;
                 loop {
@@ -438,6 +554,13 @@ impl PluginHost {
                             }
                         }
                     }
+                    // The ping to the game server, when it changes (about every
+                    // 10 s), to every plugin: a ping widget needs no permission.
+                    let now_ping = app.try_state::<AppState>().and_then(|s| s.ping_tracker.current_ping_ms());
+                    if now_ping != ping {
+                        ping = now_ping;
+                        host.tell_all(&app, "ping", serde_json::json!({ "ms": now_ping }));
+                    }
                     // Whether AION2 is open, looked at every few seconds.
                     if game_checked.elapsed() >= GAME_CHECK {
                         game_checked = Instant::now();
@@ -445,6 +568,8 @@ impl PluginHost {
                         if running != game {
                             game = running;
                             host.tell_all(&app, "game", serde_json::json!({ "running": running }));
+                            GAME_OPEN.store(running, std::sync::atomic::Ordering::Relaxed);
+                            sync_game_hiding(&app);
                         }
                     }
                 }
@@ -1349,7 +1474,10 @@ pub fn plugin_window(app: tauri::AppHandle, window: tauri::WebviewWindow, visibl
     require(&app, &id, "window")?;
     // Hidden in place where the window manager would place it anew on
     // showing (Linux), so it comes back where it was left.
-    if visible {
+    if visible && game_hides(&app, &id) {
+        // Shown when AION2 opens (the plugin is set to hide while it's closed).
+        hold_for_game(&window);
+    } else if visible {
         if !crate::platform::window::reveal_in_place(&window) {
             show_in_place(&app, &window, &id, || crate::platform::window::show_on_top_without_focus(&window));
         }
@@ -1433,6 +1561,7 @@ pub fn plugin_hello(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Resu
         "language": language,
         "reviewed": reviewed,
         "game": crate::platform::window_detector::find_aion2_window(),
+        "ping": app.try_state::<AppState>().and_then(|s| s.ping_tracker.current_ping_ms()),
     }))
 }
 

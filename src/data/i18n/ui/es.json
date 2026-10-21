@@ -278,6 +278,7 @@
     "roundDps": "Abreviar DPS en miles (13k)",
     "showDpsSuffix": "Añadir /s al DPS",
     "autoHideMeter": "Ocultar cuando AION2 no está activo",
+    "hideWhenGameClosed": "Ocultar mientras AION2 está cerrado",
     "showSuspendBtn": "Mostrar botón de pausar captura",
     "showLockBtn": "Mostrar botón de bloqueo (clic a través)",
     "playerLimit": {
@@ -342,6 +343,44 @@
         "varian": "Varian"
       }
     },
+    "settingsTheme": {
+      "label": "Colores de los ajustes",
+      "tip": "Los colores de esta ventana de ajustes. El medidor conserva su propio tema.",
+      "options": {
+        "meter": "Tema del medidor",
+        "midnight": "Medianoche",
+        "graphite": "Grafito",
+        "violet": "Violeta",
+        "forest": "Bosque",
+        "crimson": "Carmesí",
+        "ocean": "Océano",
+        "sapphire": "Zafiro",
+        "indigo": "Índigo",
+        "rose": "Rosa",
+        "sunset": "Atardecer",
+        "amber": "Ámbar",
+        "copper": "Cobre",
+        "lime": "Lima",
+        "ice": "Hielo",
+        "slate": "Pizarra",
+        "onyx": "Ónix"
+      }
+    },
+    "font": {
+      "label": "Fuente",
+      "tip": "La fuente del medidor, los ajustes, el historial de combates y los detalles.",
+      "options": {
+        "meter": "Fuente del medidor",
+        "system": "Fuente del sistema",
+        "inter": "Inter",
+        "exo2": "Exo 2",
+        "oxanium": "Oxanium",
+        "jetbrains": "JetBrains Mono (números de igual ancho)",
+        "atkinson": "Atkinson Hyperlegible (letras y números claros)",
+        "lexend": "Lexend (lectura más fácil)",
+        "andika": "Andika (para la dislexia)"
+      }
+    },
     "textureOffset": "Desplazar texturas",
     "barTexture": {
       "label": "Textura de barras",
@@ -358,6 +397,12 @@
         "galaxy": "Galaxia",
         "aura": "Aura"
       }
+    },
+    "appearanceGroups": {
+      "general": "General",
+      "colours": "Colores",
+      "layout": "Diseño",
+      "opacity": "Opacidad"
     },
     "language": {
       "label": "Idioma"
@@ -500,7 +545,8 @@
       "globalHotkeys": "Las teclas de abajo funcionan en cualquier momento, incluso con el juego en primer plano. Desactivado, quedan libres para otros programas. En Linux las registra el escritorio, que puede pedirte que las apruebes.",
       "pluginDevMode": "Carga complementos desde carpetas de este equipo, para crearlos y probarlos. No están revisados, así que carga solo los que sean de confianza.",
       "showMeter": "Desactivado: solo se ven tus plugins. El medidor sigue registrando combates y subiéndolos en segundo plano. Vuelve a mostrarlo aquí, con el atajo de mostrar/ocultar o con el botón del medidor en una ventana de plugin.",
-      "clearOnZone": "Cuándo desaparece el último combate del medidor tras un cambio de zona. Todos los combates quedan en el Historial igualmente."
+      "clearOnZone": "Cuándo desaparece el último combate del medidor tras un cambio de zona. Todos los combates quedan en el Historial igualmente.",
+      "hideWhenGameClosed": "El medidor se oculta mientras el juego no está abierto y vuelve cuando se inicia."
     },
     "globalHotkeys": "Usar atajos de teclado",
     "hotkeyConsent": {
@@ -558,7 +604,12 @@
       "permNone": "Nada más que mostrar su ventana",
       "enabled": "Activado",
       "enabledTip": "Activado: se inicia con el medidor. Desactivado: sigue instalado, pero no se ejecuta.",
-      "showMeter": "Mostrar el medidor de DPS"
+      "showMeter": "Mostrar el medidor de DPS",
+      "hideClosed": "Ocultar mientras AION2 está cerrado",
+      "hideUnfocused": "Ocultar cuando AION2 no está activo",
+      "search": "Buscar",
+      "noMatch": "Ningún plugin coincide.",
+      "permsTitle": "Puede:"
     },
     "clearOnZone": {
       "label": "Vaciar el medidor",

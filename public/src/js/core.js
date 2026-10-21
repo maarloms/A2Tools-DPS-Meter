@@ -11,6 +11,11 @@ const SETTING_CHOICES = {
   // The number after the level in the Discord activity (presence.rs).
   discordStat: { allowed: ["combatPower", "gearScore", "off"], fallback: "off" },
   // A pattern over the meter's bars: a supporter's perk (applyBarTexture).
+  // The Settings window's own colours (styles.css, data-settings-theme):
+  // "meter" keeps the meter theme's accent.
+  settingsTheme: { allowed: ["meter", "midnight", "graphite", "violet", "forest", "crimson", "ocean", "sapphire", "indigo", "rose", "sunset", "amber", "copper", "lime", "ice", "slate", "onyx"], fallback: "meter" },
+  // The meter's font (styles.css, data-font): "meter" is its own (#98).
+  font: { allowed: ["meter", "system", "inter", "exo2", "oxanium", "jetbrains", "atkinson", "lexend", "andika"], fallback: "meter" },
   barTexture: { allowed: ["none", "flames", "crystal", "glacier", "feathers", "wing", "storm", "nebula", "galaxy", "aura"], fallback: "none" },
 };
 // Themes whose bars differ from one another show those colours in the theme
@@ -114,7 +119,10 @@ class DpsApp {
       playerLimit: "dpsMeter.playerLimit",
       theme: "dpsMeter.theme",
       slimMode: "dpsMeter.slimMode",
+      settingsTheme: "dpsMeter.settingsTheme",
+      font: "dpsMeter.font",
       autoHideMeter: "dpsMeter.autoHideMeter",
+      hideWhenGameClosed: "dpsMeter.hideWhenGameClosed",
       globalHotkeys: "dpsMeter.globalHotkeys",
       bossLogs: "dpsMeter.bossLogsEnabled",
       saveRawPackets: "dpsMeter.saveRawPackets",
@@ -251,6 +259,7 @@ class DpsApp {
     this.hoverTooltipPositionRaf = 0;
     this.hoverTooltipGeometryKey = "";
     this.hoverTooltipDismissed = true;
+    this.hoverPointerWatch = 0;
 
     DpsApp.instance = this;
   }
@@ -902,6 +911,10 @@ class DpsApp {
 
   hideHoverTooltip() {
     this.hoverTooltipDismissed = true;
+    if (this.hoverPointerWatch) {
+      clearInterval(this.hoverPointerWatch);
+      this.hoverPointerWatch = 0;
+    }
     if (this.hoverTooltipPositionRaf) {
       cancelAnimationFrame(this.hoverTooltipPositionRaf);
       this.hoverTooltipPositionRaf = 0;
@@ -1030,6 +1043,32 @@ class DpsApp {
     this.hoverTooltipEl.classList.add("isVisible");
     this.hoverTooltipEl.setAttribute("aria-hidden", "false");
     this.scheduleHoverTooltipPosition();
+    this.watchHoverPointer();
+  }
+
+  // A row can miss its mouse-leave: the game takes the pointer while it is
+  // over the meter, or the window stops taking the mouse under it. The
+  // tooltip then stayed up until the row was hovered and left again. While
+  // it shows, ask where the pointer really is and close it once it is off
+  // the row. Where the pointer can't be read (native Wayland) nothing changes.
+  watchHoverPointer() {
+    if (this.hoverPointerWatch || !window.javaBridge?.pointerInWindow) return;
+    this.hoverPointerWatch = setInterval(async () => {
+      const rowId = this.hoveredDetailsRowId;
+      const at = await window.javaBridge.pointerInWindow();
+      if (!this.hoverPointerWatch) return;
+      if (!at) {
+        clearInterval(this.hoverPointerWatch);
+        this.hoverPointerWatch = 0;
+        return;
+      }
+      // Hovering moved on while asking: the next check sees the new row.
+      if (rowId !== this.hoveredDetailsRowId) return;
+      const over = document.elementFromPoint(at.x, at.y)?.closest?.(".item");
+      if (rowId && Number(over?.dataset?.rowId) === rowId) return;
+      this.hoveredDetailsRowId = null;
+      this.hideHoverTooltip();
+    }, 300);
   }
 
   positionHoverTooltip(rowEl = null) {
@@ -2662,9 +2701,15 @@ class DpsApp {
     this.languageDropdownMenu = document.querySelector(".languageDropdownMenu");
     this.themeDropdownBtn = document.querySelector(".themeDropdownBtn");
     this.themeDropdownMenu = document.querySelector(".themeDropdownMenu");
+    this.settingsThemeDropdownBtn = document.querySelector(".settingsThemeDropdownBtn");
+    this.settingsThemeDropdownMenu = document.querySelector(".settingsThemeDropdownMenu");
+    this.fontDropdownBtn = document.querySelector(".fontDropdownBtn");
+    this.fontDropdownMenu = document.querySelector(".fontDropdownMenu");
     this.settingsSelections = {
       language: "en",
       theme: this.theme,
+      settingsTheme: "meter",
+      font: "meter",
       defaultMeterMode: "lastHitByMe", // fork: upstream "bossTargets"
       allTargetsWindowMs: "120000",
       trainSelectionMode: "all",
@@ -2733,6 +2778,8 @@ class DpsApp {
       reason: "default meter mode setting",
     });
     this.applyTheme(storedTheme || this.theme, { persist: false });
+    this.applySettingsTheme(this.safeGetSetting(this.storageKeys.settingsTheme));
+    this.applyFont(this.safeGetSetting(this.storageKeys.font));
     if (storedLanguage && storedLanguage !== this.i18n?.getLanguage?.()) {
       this.i18n?.setLanguage?.(storedLanguage, { persist: false });
     }
@@ -2987,12 +3034,22 @@ class DpsApp {
     }
     this.autoHideMeterCheckbox = document.querySelector(".autoHideMeterCheckbox");
     if (this.autoHideMeterCheckbox) {
-      const storedAutoHide = this.safeGetSetting(this.storageKeys.autoHideMeter) !== "false";
+      // Off unless turned on: the backend hides only on "true", so a box
+      // ticked by default showed auto-hide on while it was off.
+      const storedAutoHide = this.safeGetSetting(this.storageKeys.autoHideMeter) === "true";
       this.autoHideMeterCheckbox.checked = storedAutoHide;
       this.autoHideMeterCheckbox.addEventListener("change", (event) => {
         const isChecked = !!event.target?.checked;
         this.safeSetSetting(this.storageKeys.autoHideMeter, String(isChecked));
         window.javaBridge?.setAutoHideMeter?.(isChecked);
+      });
+    }
+    // Hide the meter while AION2 is closed (the backend's tick loop reads it).
+    this.hideWhenGameClosedCheckbox = document.querySelector(".hideWhenGameClosedCheckbox");
+    if (this.hideWhenGameClosedCheckbox) {
+      this.hideWhenGameClosedCheckbox.checked = this.safeGetSetting(this.storageKeys.hideWhenGameClosed) === "true";
+      this.hideWhenGameClosedCheckbox.addEventListener("change", (event) => {
+        this.safeSetSetting(this.storageKeys.hideWhenGameClosed, String(!!event.target?.checked));
       });
     }
     // Suspend button setting
@@ -3638,7 +3695,35 @@ class DpsApp {
         const wasOpen = menu.classList.contains("isOpen");
         closeAll();
         menu.classList.toggle("isOpen", !wasOpen);
+        if (!wasOpen) fitMenu(menu);
       };
+    };
+
+    // An open menu is placed over everything, the Appearance preview
+    // included, rather than inside the scrolling pane, which cut it off (a
+    // long one, the colour themes, had to end at the preview and scroll).
+    // Fixed, under its button, or above it when there is more room there;
+    // it scrolls only past the window's edge. The rects are in screen pixels
+    // and the panel is zoomed, so they are scaled back to the menu's own.
+    const fitMenu = (menu) => {
+      for (const key of ["position", "top", "left", "maxHeight", "overflowY", "minWidth"]) menu.style[key] = "";
+      const button = menu.parentElement?.querySelector(".settingsDropdownBtn");
+      if (!button || !menu.offsetHeight || !button.offsetHeight) return;
+      const r = button.getBoundingClientRect();
+      const scale = r.height / button.offsetHeight || 1;
+      const below = (window.innerHeight - r.bottom - 8) / scale;
+      const above = (r.top - 8) / scale;
+      menu.style.position = "fixed";
+      menu.style.minWidth = `${r.width / scale}px`;
+      const up = menu.offsetHeight > below && above > below;
+      const room = up ? above : below;
+      if (menu.offsetHeight > room) {
+        menu.style.maxHeight = `${Math.max(120, Math.floor(room))}px`;
+        menu.style.overflowY = "auto";
+      }
+      const top = up ? r.top / scale - 4 - menu.offsetHeight : r.bottom / scale + 4;
+      menu.style.top = `${Math.max(4, top)}px`;
+      menu.style.left = `${Math.max(4, r.right / scale - menu.offsetWidth)}px`;
     };
 
     if (!this._settingsDropdownOutsideBound) {
@@ -3647,6 +3732,12 @@ class DpsApp {
           closeAll();
         }
       });
+      // A placed menu stays where it opened: scrolling the pane under it, or
+      // resizing the window, closes it (scrolling the menu itself does not).
+      document.addEventListener("scroll", (event) => {
+        if (!event.target?.closest?.(".settingsDropdownMenu")) closeAll();
+      }, true);
+      window.addEventListener("resize", () => closeAll());
       this._settingsDropdownOutsideBound = true;
     }
 
@@ -3745,6 +3836,62 @@ class DpsApp {
         this.settingsSelections.language = value;
         this.safeSetStorage(this.storageKeys.language, value);
         this.i18n?.setLanguage?.(value, { persist: true });
+      }
+    );
+
+    const settingsThemeOptions = SETTING_CHOICES.settingsTheme.allowed.map((value) => ({
+      value,
+      label: this.i18n?.t(`settings.settingsTheme.options.${value}`, value[0].toUpperCase() + value.slice(1)),
+    }));
+    setupDropdown(
+      this.settingsThemeDropdownBtn,
+      this.settingsThemeDropdownMenu,
+      settingsThemeOptions,
+      this.settingsSelections.settingsTheme,
+      (value) => {
+        if (!value) return;
+        this.applySettingsTheme(value, { persist: true });
+      },
+      {
+        decorateItem: (item, value) => {
+          const swatch = document.createElement("span");
+          swatch.className = "settingsThemeSwatch";
+          swatch.dataset.settingsTheme = value;
+          swatch.setAttribute("aria-hidden", "true");
+          item.prepend(swatch);
+        },
+      }
+    );
+
+    // Each font's name in the font itself, so the menu shows how it reads.
+    const FONT_PREVIEW = {
+      meter: '"Pretendard", "A2 Pretendard", "Segoe UI", sans-serif',
+      system: 'system-ui, "Segoe UI", "Noto Sans", sans-serif',
+      inter: '"A2 Inter", sans-serif',
+      exo2: '"A2 Exo 2", sans-serif',
+      oxanium: '"A2 Oxanium", sans-serif',
+      jetbrains: '"A2 JetBrains Mono", monospace',
+      atkinson: '"A2 Atkinson", sans-serif',
+      lexend: '"A2 Lexend", sans-serif',
+      andika: '"A2 Andika", sans-serif',
+    };
+    const fontOptions = SETTING_CHOICES.font.allowed.map((value) => ({
+      value,
+      label: this.i18n?.t(`settings.font.options.${value}`, value[0].toUpperCase() + value.slice(1)),
+    }));
+    setupDropdown(
+      this.fontDropdownBtn,
+      this.fontDropdownMenu,
+      fontOptions,
+      this.settingsSelections.font,
+      (value) => {
+        if (!value) return;
+        this.applyFont(value, { persist: true });
+      },
+      {
+        decorateItem: (item, value) => {
+          item.style.fontFamily = FONT_PREVIEW[value] || "";
+        },
       }
     );
 
@@ -4861,7 +5008,8 @@ class DpsApp {
     }
     for (const [box, name, defaultOn] of [
       [this.bossLogsCheckbox, "bossLogs", false],
-      [this.autoHideMeterCheckbox, "autoHideMeter", true],
+      [this.autoHideMeterCheckbox, "autoHideMeter", false],
+      [this.hideWhenGameClosedCheckbox, "hideWhenGameClosed", false],
       [this.globalHotkeysCheckbox, "globalHotkeys", !document.documentElement?.classList?.contains?.("linux")],
       [this.saveRawPacketsCheckbox, "saveRawPackets", false],
       [document.querySelector(".discordActivityCheckbox"), "discordActivity", false],
@@ -4888,6 +5036,7 @@ class DpsApp {
     this.setBetaUi(true);
     this.setSlimMode(get("slimMode") === "true");
     this.applyTheme(get("theme") || this.theme);
+    this.applyFont(get("font"));
     const language = get("language");
     if (isSet(language)) this.applyRemoteSettingChange(this.storageKeys.language, language);
     this.settingsSelections.language = this.i18n?.getLanguage?.() || this.settingsSelections.language;
@@ -5172,6 +5321,26 @@ class DpsApp {
     }
   }
 
+  // The Settings window's colours, apart from the meter's theme.
+  // The font of every meter window (#98): data-font on the page, which
+  // styles.css turns into the font; "meter" keeps the meter's own.
+  applyFont(value, { persist = false } = {}) {
+    const normalized = pickSettingChoice("font", value);
+    const root = document.documentElement;
+    if (root?.dataset) root.dataset.font = normalized;
+    if (this.settingsSelections) this.settingsSelections.font = normalized;
+    this.syncSettingsDropdownSelection(this.fontDropdownBtn, this.fontDropdownMenu, normalized);
+    if (persist) this.safeSetSetting(this.storageKeys.font, normalized);
+  }
+
+  applySettingsTheme(value, { persist = false } = {}) {
+    const normalized = pickSettingChoice("settingsTheme", value);
+    document.documentElement.dataset.settingsTheme = normalized;
+    if (this.settingsSelections) this.settingsSelections.settingsTheme = normalized;
+    this.syncSettingsDropdownSelection(this.settingsThemeDropdownBtn, this.settingsThemeDropdownMenu, normalized);
+    if (persist) this.safeSetSetting(this.storageKeys.settingsTheme, normalized);
+  }
+
   setDisplayMode(mode, { persist = false } = {}) {
     const valid = this.showHealModes === false ? ["totalDamage", "both"] : ["totalDamage", "both", "hps", "totalHeal"];
     this.displayMode = valid.includes(mode) ? mode : "dps";
@@ -5448,6 +5617,10 @@ class DpsApp {
     }
     if (key === this.storageKeys.theme) {
       this.applyTheme(value, { persist: false });
+      return;
+    }
+    if (key === this.storageKeys.font) {
+      this.applyFont(value);
       return;
     }
     if (key === this.storageKeys.playerLimit) {

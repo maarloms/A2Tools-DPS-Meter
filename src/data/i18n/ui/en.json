@@ -288,6 +288,7 @@
     "roundDps": "Shorten DPS to thousands (13k)",
     "showDpsSuffix": "Add /s to DPS",
     "autoHideMeter": "Hide when AION2 isn't focused",
+    "hideWhenGameClosed": "Hide while AION2 is closed",
     "showSuspendBtn": "Show pause capture button",
     "showLockBtn": "Show click-through lock button",
     "playerLimit": {
@@ -352,6 +353,44 @@
         "varian": "Varian"
       }
     },
+    "settingsTheme": {
+      "label": "Settings colours",
+      "tip": "The colours of this Settings window. The meter keeps its own theme.",
+      "options": {
+        "meter": "Meter theme",
+        "midnight": "Midnight",
+        "graphite": "Graphite",
+        "violet": "Violet",
+        "forest": "Forest",
+        "crimson": "Crimson",
+        "ocean": "Ocean",
+        "sapphire": "Sapphire",
+        "indigo": "Indigo",
+        "rose": "Rose",
+        "sunset": "Sunset",
+        "amber": "Amber",
+        "copper": "Copper",
+        "lime": "Lime",
+        "ice": "Ice",
+        "slate": "Slate",
+        "onyx": "Onyx"
+      }
+    },
+    "font": {
+      "label": "Font",
+      "tip": "The font of the meter, Settings, Battle History and Details.",
+      "options": {
+        "meter": "Meter font",
+        "system": "System font",
+        "inter": "Inter",
+        "exo2": "Exo 2",
+        "oxanium": "Oxanium",
+        "jetbrains": "JetBrains Mono (even-width numbers)",
+        "atkinson": "Atkinson Hyperlegible (clear letters and numbers)",
+        "lexend": "Lexend (easier reading)",
+        "andika": "Andika (for dyslexia)"
+      }
+    },
     "textureOffset": "Offset textures",
     "barTexture": {
       "label": "Bar texture",
@@ -368,6 +407,12 @@
         "galaxy": "Galaxy",
         "aura": "Aura"
       }
+    },
+    "appearanceGroups": {
+      "general": "General",
+      "colours": "Colours",
+      "layout": "Layout",
+      "opacity": "Opacity"
     },
     "language": {
       "label": "Language"
@@ -512,7 +557,8 @@
       "globalHotkeys": "The keys below work anywhere, even while the game is in front. Off, they are released for other programs. On Linux your desktop registers them and may ask you to approve them.",
       "pluginDevMode": "Loads plugins from folders on this computer, for building and testing them. They are not reviewed, so only load plugins you trust.",
       "showMeter": "Off: only your plugins show. The meter keeps reading combat and uploading in the background. Bring it back here, with the show/hide hotkey, or with the meter button on a plugin window.",
-      "clearOnZone": "When the last fight leaves the meter after the zone changes. Every fight stays in History either way."
+      "clearOnZone": "When the last fight leaves the meter after the zone changes. Every fight stays in History either way.",
+      "hideWhenGameClosed": "The meter hides while the game isn't running, and comes back when it starts."
     },
     "globalHotkeys": "Use keybinds",
     "hotkeyConsent": {
@@ -570,7 +616,12 @@
       "permNone": "Nothing beyond showing its window",
       "enabled": "Enabled",
       "enabledTip": "On: starts with the meter. Off: stays installed but doesn't run.",
-      "showMeter": "Show the DPS meter"
+      "showMeter": "Show the DPS meter",
+      "hideClosed": "Hide while AION2 is closed",
+      "hideUnfocused": "Hide when AION2 isn't focused",
+      "search": "Search",
+      "noMatch": "No plugins match.",
+      "permsTitle": "It can:"
     },
     "clearOnZone": {
       "label": "Clear the meter",

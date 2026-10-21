@@ -278,6 +278,7 @@
     "roundDps": "DPS in Tausend kürzen (13k)",
     "showDpsSuffix": "/s an DPS anhängen",
     "autoHideMeter": "Ausblenden, wenn AION2 nicht im Vordergrund ist",
+    "hideWhenGameClosed": "Ausblenden, wenn AION2 geschlossen ist",
     "showSuspendBtn": "Taste „Erfassung pausieren“ anzeigen",
     "showLockBtn": "Taste für Durchklick-Sperre anzeigen",
     "playerLimit": {
@@ -342,6 +343,44 @@
         "varian": "Varian"
       }
     },
+    "settingsTheme": {
+      "label": "Farben der Einstellungen",
+      "tip": "Die Farben dieses Einstellungsfensters. Das Meter behält sein eigenes Farbschema.",
+      "options": {
+        "meter": "Meter-Farbschema",
+        "midnight": "Mitternacht",
+        "graphite": "Graphit",
+        "violet": "Violett",
+        "forest": "Wald",
+        "crimson": "Karmesin",
+        "ocean": "Ozean",
+        "sapphire": "Saphir",
+        "indigo": "Indigo",
+        "rose": "Rose",
+        "sunset": "Sonnenuntergang",
+        "amber": "Bernstein",
+        "copper": "Kupfer",
+        "lime": "Limette",
+        "ice": "Eis",
+        "slate": "Schiefer",
+        "onyx": "Onyx"
+      }
+    },
+    "font": {
+      "label": "Schriftart",
+      "tip": "Die Schrift der Anzeige, der Einstellungen, des Kampfverlaufs und der Details.",
+      "options": {
+        "meter": "Schrift der Anzeige",
+        "system": "Systemschrift",
+        "inter": "Inter",
+        "exo2": "Exo 2",
+        "oxanium": "Oxanium",
+        "jetbrains": "JetBrains Mono (gleich breite Ziffern)",
+        "atkinson": "Atkinson Hyperlegible (klare Buchstaben und Ziffern)",
+        "lexend": "Lexend (leichter lesbar)",
+        "andika": "Andika (für Legasthenie)"
+      }
+    },
     "textureOffset": "Texturen versetzen",
     "barTexture": {
       "label": "Balkentextur",
@@ -358,6 +397,12 @@
         "galaxy": "Galaxie",
         "aura": "Aura"
       }
+    },
+    "appearanceGroups": {
+      "general": "Allgemein",
+      "colours": "Farben",
+      "layout": "Layout",
+      "opacity": "Deckkraft"
     },
     "language": {
       "label": "Sprache"
@@ -500,7 +545,8 @@
       "globalHotkeys": "Die Tasten unten funktionieren überall, auch wenn das Spiel im Vordergrund ist. Aus: Sie werden für andere Programme freigegeben. Unter Linux registriert der Desktop sie und fragt eventuell, ob du sie erlaubst.",
       "pluginDevMode": "Lädt Plugins aus Ordnern auf diesem Computer, um sie zu entwickeln und zu testen. Sie sind nicht geprüft, lade also nur Plugins, denen du vertraust.",
       "showMeter": "Aus: Nur deine Plugins sind zu sehen. Das Meter liest im Hintergrund weiter Kämpfe mit und lädt hoch. Zurückholen kannst du es hier, mit dem Ein-/Ausblenden-Hotkey oder mit dem Meter-Knopf an einem Plugin-Fenster.",
-      "clearOnZone": "Wann der letzte Kampf nach einem Zonenwechsel aus dem Meter verschwindet. Jeder Kampf bleibt so oder so im Verlauf."
+      "clearOnZone": "Wann der letzte Kampf nach einem Zonenwechsel aus dem Meter verschwindet. Jeder Kampf bleibt so oder so im Verlauf.",
+      "hideWhenGameClosed": "Das Meter wird ausgeblendet, solange das Spiel nicht läuft, und erscheint wieder, wenn es startet."
     },
     "globalHotkeys": "Tastenkürzel verwenden",
     "hotkeyConsent": {
@@ -558,7 +604,12 @@
       "permNone": "Nichts außer sein Fenster anzuzeigen",
       "enabled": "Aktiviert",
       "enabledTip": "An: startet mit dem Meter. Aus: bleibt installiert, läuft aber nicht.",
-      "showMeter": "DPS-Meter anzeigen"
+      "showMeter": "DPS-Meter anzeigen",
+      "hideClosed": "Ausblenden, wenn AION2 geschlossen ist",
+      "hideUnfocused": "Ausblenden, wenn AION2 nicht im Vordergrund ist",
+      "search": "Suchen",
+      "noMatch": "Keine passenden Plugins.",
+      "permsTitle": "Es darf:"
     },
     "clearOnZone": {
       "label": "Meter leeren",

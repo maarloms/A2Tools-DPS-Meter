@@ -8,7 +8,7 @@
 //! the game (#33, and a CachyOS player on Discord, 2026-10-08). Forcing the
 //! meter's layer to Overlay puts it above. Keys and values are KWin's own
 //! (src/rulesettings.kcfg): `layerrule`/`aboverule` 2 is Force, `wmclassmatch`
-//! 1 is an exact match.
+//! 1 is an exact match and 3 a regular expression, `titlematch` the same.
 
 /// The rule's group in `kwinrulesrc`. Fixed, so the meter can tell its own
 /// rule from the player's and never adds it twice.
@@ -17,13 +17,28 @@ pub const GROUP: &str = "a2tools-dps-meter-overlay";
 /// The window class the meter's windows carry.
 pub const WINDOW_CLASS: &str = "a2tools-dps-meter";
 
-/// The rule, as (key, value) pairs in its group.
+/// The rules' class, as a regular expression (`wmclassmatch` 3). KWin
+/// compares the class as written: a native Wayland window's is
+/// `a2tools-dps-meter`, but under XWayland (`GDK_BACKEND=x11`) GTK capitalises
+/// it, `A2tools-dps-meter`, and an exact `a2tools-dps-meter` missed it. Since
+/// the rule also needs the title (#90) nothing else put the overlay above, so
+/// it went behind a fullscreen game.
+pub const WINDOW_CLASS_MATCH: &str = "^[aA]2tools-dps-meter$";
+
+/// The rule, as (key, value) pairs in its group: the overlay only (class and
+/// exact title). It matched every window of the meter's by class, and a
+/// forced Keep Above can't be unticked, so Settings, Battle History and
+/// plugin windows were stuck above everything (#90). Plugins' icons and
+/// windows get the same through their own rules (`icons_rule_entries`,
+/// `plugin_windows_rule_entries`).
 pub fn rule_entries() -> Vec<(&'static str, &'static str)> {
     vec![
         ("Description", "A2Tools DPS Meter above fullscreen games (added by the meter)"),
-        ("wmclass", WINDOW_CLASS),
-        ("wmclassmatch", "1"),
+        ("wmclass", WINDOW_CLASS_MATCH),
+        ("wmclassmatch", "3"),
         ("wmclasscomplete", "false"),
+        ("title", OVERLAY_TITLE),
+        ("titlematch", "1"),
         ("layer", "overlay"),
         ("layerrule", "2"),
         // Plasma 5 has no layer rule; keep-above is what it can do.
@@ -47,8 +62,8 @@ pub const OVERLAY_TITLE: &str = "A2Tools DPS Meter";
 pub fn no_focus_rule_entries() -> Vec<(&'static str, &'static str)> {
     vec![
         ("Description", "A2Tools DPS Meter overlay keeps focus on the game (added by the meter)"),
-        ("wmclass", WINDOW_CLASS),
-        ("wmclassmatch", "1"),
+        ("wmclass", WINDOW_CLASS_MATCH),
+        ("wmclassmatch", "3"),
         ("wmclasscomplete", "false"),
         ("title", OVERLAY_TITLE),
         ("titlematch", "1"),
@@ -68,69 +83,105 @@ pub const ICONS_GROUP: &str = "a2tools-dps-meter-icons";
 pub const ICON_TITLE_MARK: &str = " · ";
 
 /// The icons' rule: the meter's windows whose title contains
-/// `ICON_TITLE_MARK` (`titlematch` 2), `acceptfocus` false, forced.
+/// `ICON_TITLE_MARK` (`titlematch` 2), `acceptfocus` false, forced, and
+/// above a fullscreen game like the overlay (they are overlays too).
 pub fn icons_rule_entries() -> Vec<(&'static str, &'static str)> {
     vec![
         ("Description", "A2Tools DPS Meter plugin icons keep focus on the game (added by the meter)"),
-        ("wmclass", WINDOW_CLASS),
-        ("wmclassmatch", "1"),
+        ("wmclass", WINDOW_CLASS_MATCH),
+        ("wmclassmatch", "3"),
         ("wmclasscomplete", "false"),
         ("title", ICON_TITLE_MARK),
         ("titlematch", "2"),
         ("acceptfocus", "false"),
         ("acceptfocusrule", "2"),
+        ("layer", "overlay"),
+        ("layerrule", "2"),
+        ("above", "true"),
+        ("aboverule", "2"),
+    ]
+}
+
+/// The fourth rule's group: plugin windows above a fullscreen game. Since
+/// #90 they were Keep Above only, which a focused fullscreen game covers, so
+/// a plugin's alert window (a party member's low HP, a mantra off) opened
+/// behind the game on its monitor. Each plugin window has its own hide or
+/// close button; Settings, Battle History and Details stay normal windows.
+pub const PLUGIN_WINDOWS_GROUP: &str = "a2tools-dps-meter-plugins";
+
+/// The plugin windows' rule: the meter's windows whose title ends with
+/// " (plugin)" (`titlematch` 3, a regular expression), as plugin windows are
+/// titled `"<plugin> (plugin)"` (plugins::open_window) and no other window of
+/// the meter's is. Forced to the overlay layer and Keep Above like the
+/// overlay. They keep taking focus, so a plugin's search box can be typed in.
+pub fn plugin_windows_rule_entries() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("Description", "A2Tools DPS Meter plugin windows above fullscreen games (added by the meter)"),
+        ("wmclass", WINDOW_CLASS_MATCH),
+        ("wmclassmatch", "3"),
+        ("wmclasscomplete", "false"),
+        ("title", " \\(plugin\\)$"),
+        ("titlematch", "3"),
+        ("layer", "overlay"),
+        ("layerrule", "2"),
+        ("above", "true"),
+        ("aboverule", "2"),
     ]
 }
 
 /// The `[General]` entries that list the rules, with the meter's added.
 ///
-/// KWin 6 orders rules by `Order` and still reads the legacy `rules`/`count`
-/// when `Order` is empty. So `Order` is only written when it already exists,
-/// or as the legacy list plus ours: writing ours alone would hide every rule
-/// the player made before. The legacy pair is kept in step for older KWin.
+/// KWin loads the rules named in `rules` (with `count`), and deletes every
+/// rule group not named there as a stray (rulebooksettings.cpp, KDE Plasma
+/// 6.7.5 included). `Order` is not read: with `rules` gone, KWin loaded no
+/// rule at all, the player's own included, and the meter went behind the
+/// game (2026-10-18). So both lists are written as one: every rule either
+/// names, in their order, and the meter's on the end. Nothing is ever taken
+/// out of them.
 pub fn general_entries(order: &str, legacy_rules: &str) -> Vec<(&'static str, String)> {
     general_entries_for(GROUP, order, legacy_rules)
 }
 
 /// `general_entries` for any of the meter's rules.
 pub fn general_entries_for(group: &str, order: &str, legacy_rules: &str) -> Vec<(&'static str, String)> {
-    let split = |list: &str| -> Vec<String> {
-        list.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()
-    };
-    let add = |mut list: Vec<String>| {
-        if !list.iter().any(|g| g == group) {
-            list.push(group.to_string());
+    let mut list: Vec<&str> = Vec::new();
+    for name in order.split(',').chain(legacy_rules.split(',')).chain([group]).map(str::trim) {
+        if !name.is_empty() && !list.contains(&name) {
+            list.push(name);
         }
-        list
-    };
-    let legacy = add(split(legacy_rules));
-    let ordered = if split(order).is_empty() { legacy.clone() } else { add(split(order)) };
-    vec![
-        ("Order", ordered.join(",")),
-        ("rules", legacy.join(",")),
-        ("count", legacy.len().to_string()),
-    ]
+    }
+    let list = list.join(",");
+    let count = list.split(',').count().to_string();
+    vec![("Order", list.clone()), ("rules", list), ("count", count)]
 }
 
-/// Plasma 6's `Order` with the meter's rule on its end; nothing else.
-///
-/// Plasma 6 must never be given the Plasma 5 list (`rules`): when KWin 6
-/// finds one it deletes every rule *not* in it, as strays, and drops the
-/// key (rulebooksettings.cpp, the migration in `usrRead`). The meter wrote
-/// that list from what was left of it (nothing, once KWin had dropped it)
-/// plus the rule it was adding, so each rule it added wiped the others, the
-/// player's own included (KDE Plasma 6.8, 2026-10-19).
-pub fn plasma6_order(group: &str, order: &str) -> String {
+/// KWin 6.8 (from its 6.7.90 betas) lists rules in `Order` alone. A
+/// `rules` list is an old file to it: it deletes every rule group not named
+/// there, takes `rules` as the order, and drops the key when it saves
+/// (rulebooksettings.cpp, `usrRead`). Earlier KWin reads `rules`/`count`
+/// only (KDE Plasma 6.7.5, PR #88). So which list the meter keeps depends on
+/// the KWin that reads it: writing `rules` for 6.8 had KWin drop it and the
+/// meter write it back, over and over.
+pub fn reads_order_only(version: (u32, u32, u32)) -> bool {
+    version >= (6, 7, 90)
+}
+
+/// "kwin_wayland 6.7.5" (any word before it) -> (6, 7, 5).
+pub fn parse_version(text: &str) -> Option<(u32, u32, u32)> {
+    let word = text.split_whitespace().find(|w| w.chars().next().is_some_and(|c| c.is_ascii_digit()))?;
+    let mut parts = word.split('.').map(|p| p.trim_matches(|c: char| !c.is_ascii_digit()).parse::<u32>().ok());
+    Some((parts.next()??, parts.next().flatten().unwrap_or(0), parts.next().flatten().unwrap_or(0)))
+}
+
+/// For KWin 6.8: `Order` with every rule it names and the meter's on the
+/// end, and no `rules`/`count` (see `reads_order_only`).
+pub fn order_only_entries(group: &str, order: &str) -> String {
     let mut list: Vec<&str> = order.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
     if !list.contains(&group) {
         list.push(group);
     }
     list.join(",")
 }
-
-/// The Plasma 5 keys a Plasma 6 `kwinrulesrc` must not keep (see
-/// `plasma6_order`).
-pub const PLASMA5_KEYS: [&str; 2] = ["rules", "count"];
 
 /// Whether the session is KDE Plasma (`XDG_CURRENT_DESKTOP` is `KDE`).
 pub fn is_kde(current_desktop: &str) -> bool {
@@ -160,10 +211,10 @@ mod tests {
         let e = general_entries("", "abc-1,def-2");
         assert_eq!(get(&e, "Order"), format!("abc-1,def-2,{GROUP}"));
         assert_eq!(get(&e, "count"), "3");
-        // Order already kept: ours goes on its end.
+        // Both kept: every rule either names, ours on the end.
         let e = general_entries("x,y", "abc-1");
-        assert_eq!(get(&e, "Order"), format!("x,y,{GROUP}"));
-        assert_eq!(get(&e, "rules"), format!("abc-1,{GROUP}"));
+        assert_eq!(get(&e, "Order"), format!("x,y,abc-1,{GROUP}"));
+        assert_eq!(get(&e, "rules"), format!("x,y,abc-1,{GROUP}"));
     }
 
     #[test]
@@ -180,8 +231,8 @@ mod tests {
         let value = |k: &str| rule.iter().find(|(key, _)| *key == k).map(|(_, v)| *v);
         assert_eq!(value("layer"), Some("overlay"));
         assert_eq!(value("layerrule"), Some("2"));
-        assert_eq!(value("wmclass"), Some("a2tools-dps-meter"));
-        assert_eq!(value("wmclassmatch"), Some("1"));
+        assert_eq!(value("wmclass"), Some(WINDOW_CLASS_MATCH));
+        assert_eq!(value("wmclassmatch"), Some("3"));
     }
 
     /// #71: the overlay takes no focus, so a click on it leaves the game
@@ -208,18 +259,47 @@ mod tests {
         assert_eq!(value("title"), Some(" · "));
         assert_eq!(value("titlematch"), Some("2"));
         assert_eq!((value("acceptfocus"), value("acceptfocusrule")), (Some("false"), Some("2")));
-        assert_eq!(value("wmclass"), Some(WINDOW_CLASS));
+        assert_eq!(value("wmclass"), Some(WINDOW_CLASS_MATCH));
     }
 
-    /// Plasma 6: the meter's rule joins the end of Order, once, and the
-    /// player's own stay in front.
     #[test]
-    fn plasma6_order_adds_the_rule_once_after_the_players() {
-        assert_eq!(plasma6_order(ICONS_GROUP, ""), ICONS_GROUP);
-        assert_eq!(plasma6_order(ICONS_GROUP, "steam, mine"), format!("steam,mine,{ICONS_GROUP}"));
+    fn the_plugin_windows_rule_matches_titles_ending_in_plugin() {
+        let rule = plugin_windows_rule_entries();
+        let value = |k: &str| rule.iter().find(|(key, _)| *key == k).map(|(_, v)| *v);
+        assert_eq!(value("title"), Some(" \\(plugin\\)$"));
+        assert_eq!(value("titlematch"), Some("3"));
+        assert_eq!((value("layer"), value("layerrule")), (Some("overlay"), Some("2")));
+        assert_eq!(value("acceptfocus"), None);
+        assert_eq!(value("wmclass"), Some(WINDOW_CLASS_MATCH));
+    }
+
+    /// KWin reads `rules`: a list left only in `Order` (as 2.0.73 left it)
+    /// is put back there, and no rule either list names is lost.
+    #[test]
+    fn a_rule_named_in_either_list_stays_in_both() {
+        let e = general_entries_for(ICONS_GROUP, &format!("steam,{GROUP}"), "");
+        let both = format!("steam,{GROUP},{ICONS_GROUP}");
+        assert_eq!(get(&e, "rules"), both);
+        assert_eq!(get(&e, "Order"), both);
+        assert_eq!(get(&e, "count"), "3");
+        let e = general_entries_for(GROUP, "steam", "mine,steam");
+        assert_eq!(get(&e, "rules"), format!("steam,mine,{GROUP}"));
+    }
+
+    /// 6.8 and its betas list rules in Order alone; 6.7 and before read rules.
+    #[test]
+    fn the_kwin_version_picks_the_list() {
+        assert_eq!(parse_version("kwin_wayland 6.7.5"), Some((6, 7, 5)));
+        assert_eq!(parse_version("kwin_wayland 6.7.91\n"), Some((6, 7, 91)));
+        assert_eq!(parse_version("kwin 6.8"), Some((6, 8, 0)));
+        assert_eq!(parse_version("no version here"), None);
+        assert!(!reads_order_only((6, 7, 5)));
+        assert!(reads_order_only((6, 7, 91)));
+        assert!(reads_order_only((6, 8, 0)));
+        assert!(!reads_order_only((5, 27, 11)));
+        assert_eq!(order_only_entries(ICONS_GROUP, "steam, mine"), format!("steam,mine,{ICONS_GROUP}"));
         let listed = format!("steam,{ICONS_GROUP}");
-        assert_eq!(plasma6_order(ICONS_GROUP, &listed), listed);
-        assert_eq!(PLASMA5_KEYS, ["rules", "count"]);
+        assert_eq!(order_only_entries(ICONS_GROUP, &listed), listed);
     }
 
     #[test]

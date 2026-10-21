@@ -197,6 +197,39 @@ fn show_meter_again(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
     let _ = window.emit("force-resize", ());
 }
 
+/// The windows that hide with the meter when AION2 isn't in front ("Hide
+/// when AION2 isn't focused"): Settings, Battle History and Details, and the
+/// windows and icons of plugins set to (Settings → Plugins; an alert's icon
+/// is often wanted most then). Only the meter hid, and the rest stayed over
+/// the browser (Hirai, 2026-10-19).
+fn hides_with_meter(app: &tauri::AppHandle, label: &str) -> bool {
+    TOOL_WINDOWS.contains(&label) || label.starts_with("details-") || crate::plugins::hides_unfocused(app, label)
+}
+
+/// Hide those of `hides_with_meter` that are up, noting each.
+fn hide_with_meter(app: &tauri::AppHandle, hidden: &mut std::collections::HashSet<String>) {
+    for (label, window) in app.webview_windows() {
+        if !hides_with_meter(app, &label) || hidden.contains(&label) {
+            continue;
+        }
+        if window.is_visible().unwrap_or(false) && !platform::window::is_hidden_in_place(&window) {
+            platform::window::hide_in_place(&window);
+            hidden.insert(label);
+        }
+    }
+}
+
+/// Show again those `hide_with_meter` hid.
+fn show_with_meter(app: &tauri::AppHandle, hidden: &mut std::collections::HashSet<String>) {
+    for label in hidden.drain() {
+        let Some(window) = app.get_webview_window(&label) else { continue };
+        if !platform::window::reveal_in_place(&window) {
+            platform::window::show_on_top_without_focus(&window);
+        }
+        crate::plugins::widgets::relock(app, &window);
+    }
+}
+
 /// The label of the meter window titled `title`.
 fn window_titled(app: &tauri::AppHandle, title: &str) -> Option<String> {
     app.webview_windows()
@@ -230,6 +263,13 @@ fn save_window_place(app: &tauri::AppHandle, title: &str, (x, y, w, h): (i32, i3
 /// overlay sizes itself to its content, so it gets its place only.
 fn load_window_place(app: &tauri::AppHandle, title: &str) -> Option<(i32, i32, i32, i32)> {
     let label = window_titled(app, title)?;
+    // On X11 the meter places its windows itself; KWin puts back only a
+    // widget, where the meter saved it, as KWin may not let it go there
+    // (platform::linux::focus, X11_IN_WAYLAND).
+    if platform::window::places_own_windows() {
+        let (id, name) = crate::plugins::widgets::parse_label(&label)?;
+        return crate::plugins::widgets::saved_place(app, &id, &name).map(|(x, y)| (x, y, 0, 0));
+    }
     let state = app.try_state::<AppState>()?;
     let placed = |label: &str| {
         let value = state.settings.get(&format!("window.{label}.placed"))?;
@@ -267,10 +307,40 @@ fn auto_hide_now(app: &tauri::AppHandle) {
 
 /// Tell the main window whether to ignore the mouse: when locked, unless the
 /// pointer is over the lock button or a card is open.
+/// A screenshot tool (KDE's Spectacle) is the active window: every meter
+/// window lets clicks through, so its area selection can be dragged across
+/// them, which still show in the shot (KDE draws the selection under them).
+static SCREENSHOT_TOOL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn screenshot_tool_in_front() -> bool {
+    SCREENSHOT_TOOL.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// A screenshot tool came to the front (`true`) or left it.
+fn screenshot_tool(app: &tauri::AppHandle, in_front: bool) {
+    SCREENSHOT_TOOL.store(in_front, std::sync::atomic::Ordering::Relaxed);
+    // The overlay, by its lock (which reads the flag).
+    if let Some(state) = app.try_state::<AppState>() {
+        let lock = state.overlay_lock.clone();
+        *lock.applied.lock() = None;
+        sync_click_through(app, &lock, false);
+    }
+    // Plugins' icons, by their lock and area.
+    crate::plugins::widgets::reapply_locks(app);
+    // Settings, History, Details, and plugins' windows: all or nothing.
+    for (label, window) in app.webview_windows() {
+        let tool = TOOL_WINDOWS.contains(&label.as_str()) || label.starts_with("details-") || label.starts_with("plugin-");
+        if tool && !platform::window::click_through_except(&window, in_front, None) && !cfg!(target_os = "linux") {
+            let _ = window.set_ignore_cursor_events(in_front);
+        }
+    }
+}
+
 fn sync_click_through(app: &tauri::AppHandle, lock: &OverlayLock, over_button: bool) {
     use std::sync::atomic::Ordering;
     let mut applied = lock.applied.lock();
-    let ignore = click_through(lock.locked.load(Ordering::SeqCst), over_button, lock.card_open.load(Ordering::SeqCst));
+    let ignore = screenshot_tool_in_front()
+        || click_through(lock.locked.load(Ordering::SeqCst), over_button, lock.card_open.load(Ordering::SeqCst));
     // The region follows the button, so it is set again even unchanged.
     if let Some(main) = app.get_webview_window("main") {
         if platform::window::click_through_except(&main, ignore, *lock.button.lock()) {
@@ -1254,6 +1324,17 @@ fn suspend_capture(state: tauri::State<'_, AppState>, suspended: bool) {
 #[tauri::command]
 fn overlay_lock_supported() -> bool {
     platform::window::cursor_position().is_some()
+}
+
+/// Where the mouse pointer is from the calling window's top-left, in screen
+/// pixels, or `None` where it can't be read (a native Wayland window). The
+/// hover tooltip checks it: a row can miss its mouse-leave (the game takes
+/// the pointer while it is over the meter), and the tooltip then stayed up.
+#[tauri::command]
+fn pointer_in_window(window: tauri::WebviewWindow) -> Option<(i32, i32)> {
+    let (px, py) = platform::window::cursor_position()?;
+    let origin = window.inner_position().ok()?;
+    Some((px - origin.x, py - origin.y))
 }
 
 #[tauri::command]
@@ -3256,6 +3337,8 @@ pub fn run() {
                         move |title, rect| save_window_place(&save_app, title, rect),
                         move |title| load_window_place(&load_app, title),
                     );
+                    let shot_app = handle.clone();
+                    platform::window_detector::watch_screenshot_tool(move |in_front| screenshot_tool(&shot_app, in_front));
                     let focus_app = handle.clone();
                     if let Err(e) = platform::window_detector::watch_focus(move || auto_hide_now(&focus_app)) {
                         tracing::warn!("Cannot follow the active window: {e}");
@@ -3265,11 +3348,13 @@ pub fn run() {
                     // and a rule added once and never again left the overlay
                     // taking the focus (a CachyOS player, 2026-10-19). The
                     // overlay takes no focus, so a click on it leaves the game
-                    // focused (#71); nor do plugins' icons.
-                    let rules: [(&str, fn(bool) -> Result<bool, String>); 3] = [
+                    // focused (#71); nor do plugins' icons. Plugin windows
+                    // stay above the game, so their alerts are seen.
+                    let rules: [(&str, fn(bool) -> Result<bool, String>); 4] = [
                         ("above", platform::window_rules::keep_above_fullscreen),
                         ("no-focus", platform::window_rules::click_without_focus),
                         ("icons", platform::window_rules::icons_without_focus),
+                        ("plugin windows", platform::window_rules::plugin_windows_above),
                     ];
                     for (name, ensure) in rules {
                         if let Err(e) = ensure(false) {
@@ -3469,6 +3554,12 @@ pub fn run() {
                 let mut tick_count: u64 = 0;
                 let mut hide_delay: u64 = 0; // ticks to wait before hiding
                 let mut last_ping: Option<u64> = None;
+                // The meter hidden because AION2 is closed (Settings).
+                let mut hidden_closed = false;
+                // The other windows hidden with the meter (auto-hide), and how
+                // many ticks nothing of ours or the game has been in front.
+                let mut hidden_with_meter: std::collections::HashSet<String> = Default::default();
+                let mut others_delay: u32 = 0;
                 let mut last_odyle: Option<((u32, u32), Option<String>)> = None;
                 loop {
                     interval.tick().await;
@@ -3500,8 +3591,29 @@ pub fn run() {
                             }
                         }
 
+                        // --- Hide while AION2 is closed (every 2 s) ---
+                        // Hidden as the game closes (or the option is turned on
+                        // with it closed), shown as it opens: in between, the
+                        // keybind can still bring the meter back.
+                        if tick_count % 4 == 0 {
+                            let want = state.settings.get("dpsMeter.hideWhenGameClosed").as_deref() == Some("true")
+                                && meter_wanted(&handle)
+                                && !platform::window_detector::find_aion2_window();
+                            if want != hidden_closed {
+                                if let Some(window) = handle.get_webview_window("main") {
+                                    if want {
+                                        platform::window::minimize_off_top(&window);
+                                    } else {
+                                        show_meter_again(&handle, &window);
+                                    }
+                                }
+                                hidden_closed = want;
+                            }
+                        }
+
                         // --- Auto-hide when AION2 loses focus (every tick) ---
                         let auto_hide = tick_count > 20
+                            && !hidden_closed
                             && state.settings.get("dpsMeter.autoHideMeter")
                                 .unwrap_or_default() == "true"
                             && meter_wanted(&handle);
@@ -3534,6 +3646,24 @@ pub fn run() {
                                     }
                                 }
                             }
+                            // The rest go and come back with it: gone while
+                            // another program is in front, back with the game
+                            // or any of the meter's windows (Settings in use
+                            // stays).
+                            if platform::window::front_is_ours_or_game() {
+                                others_delay = 0;
+                                if !hidden_with_meter.is_empty() {
+                                    show_with_meter(&handle, &mut hidden_with_meter);
+                                }
+                            } else {
+                                others_delay += 1;
+                                if others_delay >= 3 {
+                                    hide_with_meter(&handle, &mut hidden_with_meter);
+                                }
+                            }
+                        } else if !hidden_with_meter.is_empty() {
+                            // Auto-hide turned off meanwhile: back.
+                            show_with_meter(&handle, &mut hidden_with_meter);
                         }
 
                         // --- Save window position every ~5 seconds (every 10 ticks) ---
@@ -3711,6 +3841,7 @@ pub fn run() {
             crate::plugins::plugin_close,
             crate::plugins::plugin_open,
             crate::plugins::plugin_set_enabled,
+            crate::plugins::plugin_set_hide,
             crate::plugins::plugin_hello,
             crate::plugins::widgets::plugin_widget_open,
             crate::plugins::widgets::plugin_widget_close,
@@ -3774,6 +3905,7 @@ pub fn run() {
             log_from_ui,
             suspend_capture,
             overlay_lock_supported,
+            pointer_in_window,
             set_overlay_locked,
             set_overlay_card_open,
             is_overlay_locked,
