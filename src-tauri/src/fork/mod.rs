@@ -41,6 +41,25 @@ pub fn close_meter_keeping_timer(app: &tauri::AppHandle) -> bool {
     true
 }
 
+/// The event timer goes and comes back with the meter while AION2 isn't in
+/// front ("Hide when AION2 isn't focused"), like Settings and plugin windows
+/// (Marlon, 2026-10-22). With "Hide while AION2 is closed" only the meter
+/// goes; the timer stays, as Settings do.
+pub fn hides_with_meter(label: &str) -> bool {
+    label == "timer"
+}
+
+/// A window hidden with the meter that the player closed meanwhile (the
+/// timer, by its hotkey or its ×) stays closed when the meter comes back.
+pub fn stays_hidden(app: &tauri::AppHandle, label: &str) -> bool {
+    let visible = app.try_state::<AppState>().and_then(|s| s.settings.get(VISIBLE));
+    timer_closed(label, visible.as_deref())
+}
+
+fn timer_closed(label: &str, visible: Option<&str>) -> bool {
+    hides_with_meter(label) && visible != Some("true")
+}
+
 /// The timer was the last window showing.
 fn quit_if_meter_closed(app: &tauri::AppHandle) {
     if meter_closed() {
@@ -134,6 +153,11 @@ pub fn toggle(app: &tauri::AppHandle) -> Result<(), String> {
             // route from click-through without needing to click the window.
             window.set_ignore_cursor_events(false).map_err(|e| e.to_string())?;
             window.show().map_err(|e| e.to_string())?;
+            // Auto-hide hid it without tao (app.rs hide_with_meter), whose
+            // flag still says shown, so show() alone changes nothing.
+            if !crate::platform::window::reveal_in_place(&window) {
+                crate::platform::window::show_on_top_without_focus(&window);
+            }
             let _ = window.eval("window.dispatchEvent(new Event('timer-unlocked'))");
             state.settings.set(VISIBLE, "true");
         }
@@ -292,5 +316,28 @@ fn on_packet(packet: &[u8]) {
         if storage.set_local_gear(g.gear_score, g.combat_power) {
             tracing::info!("Your gear: GS {:?} (highest {:?}), combat power {:?}", g.gear_score, g.gear_score_max, g.combat_power);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_timer_hides_with_the_meter() {
+        assert!(hides_with_meter("timer"));
+        assert!(!hides_with_meter("main"));
+        assert!(!hides_with_meter("plugin-timer"));
+    }
+
+    #[test]
+    fn a_timer_closed_meanwhile_stays_closed() {
+        // Still open (auto-hide does not touch the setting): comes back.
+        assert!(!timer_closed("timer", Some("true")));
+        // Closed by its hotkey or × while hidden with the meter: stays.
+        assert!(timer_closed("timer", Some("false")));
+        assert!(timer_closed("timer", None));
+        // Other windows are the meter's business.
+        assert!(!timer_closed("settings", Some("false")));
     }
 }

@@ -204,6 +204,7 @@ fn show_meter_again(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
 /// the browser (Hirai, 2026-10-19).
 fn hides_with_meter(app: &tauri::AppHandle, label: &str) -> bool {
     TOOL_WINDOWS.contains(&label) || label.starts_with("details-") || crate::plugins::hides_unfocused(app, label)
+        || crate::fork::hides_with_meter(label) // fork: event timer
 }
 
 /// Hide those of `hides_with_meter` that are up, noting each.
@@ -223,6 +224,7 @@ fn hide_with_meter(app: &tauri::AppHandle, hidden: &mut std::collections::HashSe
 fn show_with_meter(app: &tauri::AppHandle, hidden: &mut std::collections::HashSet<String>) {
     for label in hidden.drain() {
         let Some(window) = app.get_webview_window(&label) else { continue };
+        if crate::fork::stays_hidden(app, &label) { continue; } // fork: timer closed meanwhile
         if !platform::window::reveal_in_place(&window) {
             platform::window::show_on_top_without_focus(&window);
         }
