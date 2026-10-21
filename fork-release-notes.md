@@ -1,20 +1,21 @@
 **Neu**
-- Meter leeren beim Dungeon-Wechsel: Betrittst oder verlässt du einen Dungeon (auch beim erneuten Betreten desselben Dungeons), verschwindet der letzte Kampf vom Meter, statt bis zum nächsten Kampf stehen zu bleiben. Einstellbar unter Einstellungen → Meter-Einstellungen → „Meter leeren“ (Beim Betreten oder Verlassen eines Dungeons / Bei jedem Zonenwechsel / Nie). Der Kampf bleibt im Kampfverlauf gespeichert.
-- Tastenkürzel mit 1 bis 3 Tasten: Unter Einstellungen → Tastenbelegung lässt sich jede Belegung frei mit einer bis drei Tasten setzen, dazu „Standard wiederherstellen“ und ein neues Kürzel „Plugin-Fenster zurückholen“ (standardmäßig nicht belegt). Der Event-Timer bleibt auf Strg+Alt+T.
-- Update-Knopf: Neben der Versionsnummer in den Einstellungen prüft „Nach Updates suchen“ sofort, ob eine neue Version da ist; ein Update öffnet wie gewohnt das Fenster mit den Patchnotes.
+- Ausblenden, wenn AION2 geschlossen ist: Neuer Schalter unter Einstellungen → Meter-Einstellungen. Das Meter verschwindet, solange das Spiel nicht läuft, und erscheint beim Spielstart wieder. Plugins haben dafür unter Einstellungen → Plugins einen eigenen Schalter. Ein Meter, das du neben dem Event-Timer geschlossen hast, bleibt beim Spielstart zu.
+- „Ausblenden, wenn AION2 nicht im Vordergrund ist“ nimmt jetzt auch Einstellungen, Kampfverlauf, Details und den Event-Timer mit: Sie verschwinden, solange ein anderes Programm vorne ist, und kommen mit dem Spiel zurück. Hast du den Event-Timer in der Zwischenzeit geschlossen, bleibt er zu.
+- Schriftart: Unter Einstellungen → Darstellung → Allgemein lässt sich die Schrift für Meter, Einstellungen, Kampfverlauf und Details wählen (Schrift der Anzeige, Systemschrift, Inter, Exo 2, Oxanium, JetBrains Mono, Atkinson Hyperlegible, Lexend, Andika). In den Fork-Designs wirkt die Wahl noch nicht überall, z. B. in den Details.
+- Farben der Einstellungen: Das Einstellungsfenster kann eigene Farben bekommen (Meter-Farbschema, Mitternacht, Graphit, Violett, Wald, Karmesin und elf weitere); das Meter behält sein Farbschema. Die Darstellung ist in vier Gruppen sortiert (Allgemein, Farben, Layout, Deckkraft).
+- Plugins-Seite neu: Installiert/Verfügbar als Reiter, Suche, eine Zeile je Plugin, Details per Klick.
 
 **Behoben**
-- Das Meter friert beim Speichern eines Kampfs nicht mehr ein. Bisher konnte das Speichern vor einem Zonenwechsel minutenlang hängen, dabei gingen Pakete verloren und das Meter stand still. Jetzt dauert es unter einer Sekunde und läuft im Hintergrund.
-- Genauere Kampfdauer und DPS nach Lag: Treffer zählen zu dem Zeitpunkt, an dem sie ankamen, nicht wann sie verarbeitet wurden. Ein zwei Minuten langer Bosskampf wird nach einem Hänger nicht mehr als zwei Sekunden mit Fantasie-DPS angezeigt.
-- Beim Beenden werden noch wartende Kämpfe vollständig gespeichert.
-- Server-Erkennung mit ExitLag/VPN oder im LAN verbessert.
+- Treffer in einen Schild werden richtig gezählt. Bisher konnte ein Treffer in einen Schild als viel zu großer Wert erscheinen (z. B. 581 als 8.968), und DoT-Schaden in einen Schild fehlte ganz.
+- Serverwechsel: Das Meter folgt dem Spiel nach wenigen Sekunden auf die neue Verbindung, statt bis zu zwei Minuten auf der alten zu hängen. So fehlt nach einem Wechsel nichts mehr (z. B. die Begleiter-Liste). Direkt nach einem Wechsel kann einmalig eine Lag-Warnung erscheinen; das ist harmlos.
+- Der Haken bei „Ausblenden, wenn AION2 nicht im Vordergrund ist“ zeigt jetzt, was wirklich gilt: Er war bisher angehakt, obwohl die Funktion aus war. Wer sie nutzen will, schaltet sie einmal ein.
 
 **Sonstiges**
-- Basis jetzt A2Tools 2.0.73. Neue A2Tools-Meldungen zu Abyss-Artefakten und Dimensionskernen laufen über den Schalter „Feldboss-Timer teilen“ und sind im Fork wie bisher standardmäßig aus.
+- Basis jetzt A2Tools 2.0.75. Kein neuer Datenversand; „Feldboss-Timer teilen“ und die übrigen A2Tools-Teilen-Schalter bleiben im Fork wie bisher standardmäßig aus.
 - Puppen-Test, HPS, Event-Timer, „Gruppe teilen“ und alle bisherigen Fork-Funktionen bleiben erhalten.
 
 **Installation (neu)**
-1. `AION2-DPS-Meter_3.0.26_x64.msi` herunterladen und ausführen. Windows SmartScreen warnt, weil der Installer nicht signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
+1. `AION2-DPS-Meter_3.0.27_x64.msi` herunterladen und ausführen. Windows SmartScreen warnt, weil der Installer nicht signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
 2. Npcap: Fehlt es, bietet das Meter beim ersten Start an, es herunterzuladen und zu installieren (Standardoptionen übernehmen, danach Meter neu starten).
 3. Meter starten, im Spiel einloggen. Updates kommen danach automatisch (Meldung beim Start).
 4. Einstellungen → „Gruppe teilen“: Einladungslink einfügen.
