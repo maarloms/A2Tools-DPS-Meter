@@ -3595,7 +3595,7 @@ pub fn run() {
                         // Hidden as the game closes (or the option is turned on
                         // with it closed), shown as it opens: in between, the
                         // keybind can still bring the meter back.
-                        if tick_count % 4 == 0 {
+                        if tick_count % 4 == 0 && !crate::fork::meter_closed() { // fork: closed beside the timer stays closed
                             let want = state.settings.get("dpsMeter.hideWhenGameClosed").as_deref() == Some("true")
                                 && meter_wanted(&handle)
                                 && !platform::window_detector::find_aion2_window();
