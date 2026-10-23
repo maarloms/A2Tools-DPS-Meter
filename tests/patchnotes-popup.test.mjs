@@ -358,7 +358,7 @@ test("demo and demoWhatsNew install nothing and remember nothing", async () => {
 
 const CHECK_SOURCE = readFileSync(new URL("../public/src/js/checkRelease.js", import.meta.url), "utf8");
 
-async function runCheckRelease({ withPopup }) {
+async function runCheckRelease({ withPopup, onAvailable }) {
   const calls = [];
   const offers = [];
   globalThis.window = {
@@ -378,7 +378,7 @@ async function runCheckRelease({ withPopup }) {
   };
   if (withPopup) window.ForkPatchnotes = { offer: (info) => { offers.push(info); return true; } };
   (0, eval)(CHECK_SOURCE);
-  window.ReleaseChecker.start();
+  window.ReleaseChecker.start(onAvailable);
   for (let i = 0; i < 50 && !calls.some((c) => c[0] === "show_update_window") && !offers.length; i++) {
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -402,4 +402,23 @@ test("checkRelease falls back to the native dialog without the popup", async () 
   assert.ok(dialog);
   assert.equal(dialog[1].latest, "v3.0.20");
   assert.equal(dialog[1].msiSha256, "ab".repeat(32));
+});
+
+test("at start the popup comes up and the title's button opens it again", async () => {
+  const available = [];
+  const { calls, offers } = await runCheckRelease({ withPopup: true, onAvailable: (v) => available.push(v) });
+  assert.equal(offers.length, 1);
+  assert.deepEqual(available, ["v3.0.20"]);
+  // The button: the popup again, nothing native; it stays until installing.
+  assert.equal(await window.ReleaseChecker.offer(), false);
+  assert.equal(offers.length, 2);
+  assert.equal(offers[1].latest, "v3.0.20");
+  assert.equal(calls.some((c) => c[0] === "show_update_window"), false);
+});
+
+test("Settings' check asks with the popup too", async () => {
+  const { offers } = await runCheckRelease({ withPopup: true });
+  const found = await window.ReleaseChecker.checkNow();
+  assert.deepEqual(found, { state: "update", latest: "v3.0.20" });
+  assert.equal(offers.length, 2);
 });

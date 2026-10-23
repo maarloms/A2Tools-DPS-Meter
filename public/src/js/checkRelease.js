@@ -96,6 +96,15 @@
       rpmSha256: result.hashes.rpm,
     };
     if (!ask) {
+      // fork: at start the patch-notes popup comes up right away, as up to
+      // 3.0.27 (Marlon, 23.10.2026); the green button in the title stays
+      // and opens it again. Without the popup: upstream's button, which
+      // asks with the native dialog.
+      const info = forkOffer(args, result.notes);
+      if (window.ForkPatchnotes?.offer?.(info)) {
+        pendingFork = info;
+        return { state: "offer", latest };
+      }
       const offered = await window.__TAURI__.core.invoke("show_update_window", { ...args, ask: false });
       if (!offered) return { state: "update", latest };
       pending = args;
@@ -112,6 +121,7 @@
   let once = false;
   // The update found at start, for the title's button to offer.
   let pending = null;
+  let pendingFork = null; // fork: the same, for the patch-notes popup
 
   // At start nothing pops up: an update this install can take shows the
   // green button in the meter's title (`onAvailable`), which asks.
@@ -130,6 +140,9 @@
   // The button: the update window for the update found at start. True when
   // it is installing.
   const offer = async () => {
+    // fork: the patch-notes popup again; it installs itself and closes the
+    // meter then, so the button stays until that happens.
+    if (pendingFork && window.ForkPatchnotes?.offer?.(pendingFork)) return false;
     if (!pending) return false;
     const accepted = await window.__TAURI__.core.invoke("show_update_window", pending);
     if (accepted) pending = null;
