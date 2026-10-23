@@ -341,6 +341,8 @@ pub struct ActorCombatData {
     pub regen: i64,
     pub damage_received: i64,
     pub hits_received: i32,
+    /// How the hits taken were met (shield blocks, parries...).
+    pub received: crate::entity::details_context::ReceivedHits,
     pub last_damage_time: i64,
     pub job: Option<JobClass>,
     /// Skills keyed by (raw_skill_code, is_dot)
@@ -355,6 +357,7 @@ impl ActorCombatData {
         self.regen += other.regen;
         self.damage_received += other.damage_received;
         self.hits_received += other.hits_received;
+        self.received.add(other.received);
         self.last_damage_time = self.last_damage_time.max(other.last_damage_time);
         self.job = self.job.or(other.job);
         for (key, skill) in other.skills {
@@ -374,6 +377,7 @@ impl ActorCombatData {
             regen: 0,
             damage_received: 0,
             hits_received: 0,
+            received: Default::default(),
             last_damage_time: 0,
             job: None,
             skills: HashMap::new(),
@@ -401,6 +405,7 @@ impl TargetCombatData {
                 regen: actor.regen,
                 damage_received: actor.damage_received,
                 hits_received: actor.hits_received,
+                received: actor.received,
                 last_damage_time: actor.last_damage_time,
                 job: actor.job,
                 skills: actor.skills.iter().map(|(&key, skill)| (key, skill.clone_light())).collect(),
@@ -619,6 +624,10 @@ struct Inner {
     abyss_artifacts: crate::capture::abyss_artifacts::ArtifactState,
     abyss_artifacts_seen_ms: i64,
     abyss_artifacts_seq: u64,
+    /// The Supply Requests boards, as last told at login
+    /// (`capture::supply_requests`), and a count that moves with each.
+    supply_requests: Vec<crate::capture::supply_requests::Board>,
+    supply_requests_seq: u64,
     /// Entities whose max HP came from their spawn record, so a percentage of
     /// it can be trusted (a peak seen later may be below the real max).
     spawn_hp_ids: HashSet<i32>,
@@ -795,6 +804,8 @@ impl DataStorage {
                 abyss_artifacts: crate::capture::abyss_artifacts::ArtifactState { wars: Vec::new(), artifacts: Vec::new() },
                 abyss_artifacts_seen_ms: 0,
                 abyss_artifacts_seq: 0,
+                supply_requests: Vec::new(),
+                supply_requests_seq: 0,
                 spawn_hp_ids: HashSet::new(),
                 boss_hp_now: HashMap::new(),
                 boss_hp_sent: HashMap::new(),
@@ -1480,6 +1491,7 @@ impl DataStorage {
                 if let Some(actor_data) = fight_of(&mut inner, resolved_target, Some(actor_id)) {
                     actor_data.damage_received += dmg;
                     actor_data.hits_received += 1;
+                    actor_data.received.note(pdp.specials());
                 }
             }
             return;
@@ -1780,6 +1792,19 @@ impl DataStorage {
         let inner = self.inner.read();
         (inner.abyss_artifacts_seq != seq)
             .then(|| (inner.abyss_artifacts_seq, inner.abyss_artifacts.clone(), inner.abyss_artifacts_seen_ms))
+    }
+
+    /// The Supply Requests boards the game just sent (at login).
+    pub fn note_supply_requests(&self, boards: Vec<crate::capture::supply_requests::Board>) {
+        let mut inner = self.inner.write();
+        inner.supply_requests = boards;
+        inner.supply_requests_seq += 1;
+    }
+
+    /// The boards, when told since `seq`: (the new seq, the boards).
+    pub fn supply_requests_since(&self, seq: u64) -> Option<(u64, Vec<crate::capture::supply_requests::Board>)> {
+        let inner = self.inner.read();
+        (inner.supply_requests_seq != seq).then(|| (inner.supply_requests_seq, inner.supply_requests.clone()))
     }
 
     pub fn deaths_between(&self, from: i64, to: i64) -> Vec<(i32, i64, Option<i64>)> {

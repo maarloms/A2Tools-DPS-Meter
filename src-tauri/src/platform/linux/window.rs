@@ -233,8 +233,17 @@ fn hidden_in_place() -> &'static std::sync::Mutex<std::collections::HashSet<Stri
 /// window back, so a window that stays mapped is the only one that stays where
 /// it was left. Without a compositor nothing can be transparent, and it is
 /// hidden as before.
+///
+/// Where KWin puts the meter's windows back as they appear (KDE on native
+/// Wayland, `focus::kwin_places_windows`) a window is hidden for good: there
+/// the invisible window, kept mapped and above everything (the plugin windows
+/// rule), still took every click over it (#100).
 pub fn hide_in_place(window: &tauri::WebviewWindow) {
     use gtk::prelude::*;
+    if super::focus::kwin_places_windows() {
+        hide_without_focus(window);
+        return;
+    }
     let target = window.clone();
     let concealed = super::dialog::on_gtk_thread(move || {
         let gtk_window = target.gtk_window().ok()?;
@@ -383,3 +392,15 @@ pub fn never_activate(_window: &tauri::WebviewWindow, _before: Option<isize>) {}
 
 /// Windows only (see the Windows version).
 pub fn give_front_back(_window: &tauri::WebviewWindow, _before: Option<isize>) {}
+
+/// Whether a tray icon can be shown. GTK's tray is an AppIndicator, whose
+/// library (libayatana-appindicator, or the older libappindicator) is loaded
+/// as the icon is built, and building one without it aborts the meter. Not
+/// every desktop has it, so it is looked for first.
+pub fn tray_supported() -> bool {
+    ["libayatana-appindicator3.so.1", "libappindicator3.so.1"]
+        .iter()
+        // SAFETY: loading runs the library's initialisers only, as the
+        // tray's own loading would.
+        .any(|name| unsafe { libloading::Library::new(name) }.is_ok())
+}

@@ -58,6 +58,7 @@
 
           <div class="headerBtns">
             <div class="headerBtn lockBtn" style="display:none" role="button" tabindex="0" aria-label="Lock overlay (click-through)" data-i18n-aria-label="settings.showLockBtn"><i data-lucide="lock-open"></i></div>
+            <div class="headerBtn updatesBtn" role="button" hidden><i data-lucide="circle-arrow-down"></i></div>
             <div class="headerBtn suspendBtn" style="display:none"><i data-lucide="power"></i></div>
             <div class="headerBtn historyBtn" role="button" tabindex="0" aria-label="Fight history" data-i18n-aria-label="history.title"><i data-lucide="scroll-text"></i></div>
             <div class="headerBtn resetBtn"><i data-lucide="rotate-ccw"></i></div>
@@ -657,6 +658,13 @@
                       <span class="settingsToggleTrack" aria-hidden="true"></span>
                     </span>
                   </label>
+                  <label class="settingsToggle">
+                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.hideWhenSolo" title="The meter hides while you're not in a party, and comes back when you join one. The Show/Hide keybind still brings it up." data-i18n-title="settings.tips.hideWhenSolo">Show only in a party</span>
+                    <span class="settingsToggleControl">
+                      <input type="checkbox" class="hideWhenSoloCheckbox" />
+                      <span class="settingsToggleTrack" aria-hidden="true"></span>
+                    </span>
+                  </label>
                   <div class="settingsRow settingsRowSelect">
                     <div class="settingsInfo">
                       <div class="settingsLabel" data-i18n="settings.detailsMonitor.label" title="Opens the Details window on the chosen display and keeps it there." data-i18n-title="settings.tips.detailsMonitor">Details on second monitor</div>
@@ -1179,6 +1187,13 @@
                       <span class="settingsToggleTrack" aria-hidden="true"></span>
                     </span>
                   </label>
+                  <label class="settingsToggle">
+                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.shareSupplyRequests" title="Shares your server's Supply Requests boards with a2tools.app's Profiteer when they change (after each reset): the server, the boards and their requests. Nothing about your character or its progress is sent." data-i18n-title="settings.tips.shareSupplyRequests">Share Supply Requests</span>
+                    <span class="settingsToggleControl">
+                      <input type="checkbox" class="shareSupplyRequestsCheckbox" />
+                      <span class="settingsToggleTrack" aria-hidden="true"></span>
+                    </span>
+                  </label>
                 </div>
                 <h3 class="settingsSubTitle" data-i18n="settings.diagnostics">Diagnostics</h3>
                 <div class="settingsGroupBody">
@@ -1617,7 +1632,7 @@
     <script src="/src/js/history.js?v=2018a"></script>
 
     <!-- 추가 -->
-    <script src="/src/js/checkRelease.js?v=202b6"></script>
+    <script src="/src/js/checkRelease.js?v=2076a"></script>
 
     <script src="/src/js/i18n.js"></script>
     <script src="/fork/themes.js"></script>
@@ -1627,7 +1642,8 @@
     <script src="/fork/patchnotes.js"></script>
     <script src="/fork/dummy-logic.js"></script>
     <script src="/fork/dummy.js"></script>
-    <script src="/src/js/core.js?v=2018a"></script>
+    <script src="/src/js/core.js?v=2076a"></script>
+    <script src="/src/js/pluginIcons.js"></script>
     <script src="/src/js/pluginSettings.js"></script>
   </body>
 </html>
