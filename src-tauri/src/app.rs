@@ -3434,7 +3434,7 @@ pub fn run() {
             }
             #[cfg(feature = "online")]
             crate::presence::spawn(app.handle().clone());
-            crate::fork::privacy::seed_off_by_default(&app.state::<AppState>().settings); // fork: boss timers and A2 tag start off
+            crate::fork::privacy::seed_off_by_default(&app.state::<AppState>().settings); // fork: boss timers, A2 tag and Supply Requests start off
             #[cfg(feature = "online")]
             crate::boss_report::spawn(app.handle().clone());
             #[cfg(feature = "online")]
