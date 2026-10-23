@@ -22,7 +22,7 @@ pub fn spawn(app: &tauri::AppHandle) {
     let built = menu(app).and_then(|menu| {
         TrayIconBuilder::with_id(ID)
             .icon(icon)
-            .tooltip("A2Tools DPS Meter")
+            .tooltip(&app.package_info().name) // fork: the fork's product name (tauri.conf.json)
             .menu(&menu)
             .show_menu_on_left_click(false)
             .on_menu_event(|app, event| match event.id().as_ref() {
