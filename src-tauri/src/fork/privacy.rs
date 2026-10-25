@@ -158,4 +158,39 @@ pub fn ")).map_or(code.len(), |e| start + 1 + e);
         assert_eq!(s.get(crate::supply_report::SETTING_KEY).as_deref(), Some("false"));
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    /// "Send Logs to Dev" (share/dev_logs.rs; from 2.0.77 with debug.log,
+    /// which can hold names, the party roster and the Windows user name)
+    /// stays the fork's stub in app.rs, and nothing else calls the sender.
+    /// A merge that brings upstream's command body back fails here.
+    #[test]
+    fn send_logs_to_dev_stays_the_stub() {
+        let app = include_str!("../app.rs").replace("\r\n", "\n");
+        let at = app.find("async fn send_logs_to_dev(\n    _state").expect("the fork's stub (online build)");
+        let body = &app[at..];
+        let body = &body[..body.find("\n}\n").expect("end of the stub")];
+        assert!(body.contains("Err(\"Sending logs to the developer is turned off in this build\".into())"), "{body}");
+        assert!(!body.contains("dev_logs::send"), "{body}");
+        assert!(!body.contains(".await"), "{body}");
+
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() { walk(&p, out) } else if p.extension().is_some_and(|x| x == "rs") { out.push(p) }
+            }
+        }
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        walk(&src, &mut files);
+        assert!(files.len() > 50, "found the sources");
+        let callers: Vec<_> = files
+            .iter()
+            .filter(|p| !p.ends_with("share/dev_logs.rs") && !p.ends_with("fork/privacy.rs"))
+            .filter(|p| {
+                let code = std::fs::read_to_string(p).unwrap();
+                code.contains("dev_logs::send") || code.contains("dev_logs::{")
+            })
+            .collect();
+        assert!(callers.is_empty(), "dev_logs sender called from {callers:?}");
+    }
 }
