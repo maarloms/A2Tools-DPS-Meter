@@ -5,6 +5,7 @@ use std::sync::Arc;
 use parking_lot::{Mutex, RwLock};
 
 use crate::capture::abnormal;
+use crate::combat::stagger::{End, Outcome, StaggerHit, StaggerLog, StaggerWindow};
 
 use crate::entity::damage_packet::ParsedDamagePacket;
 use crate::entity::job_class::JobClass;
@@ -508,6 +509,10 @@ pub struct DataStorage {
     /// yet. Its own lock: it is fed every packet, and nothing here needs it
     /// together with `inner`.
     abnormals: Mutex<AbnormalLog>,
+    /// Stagger gauges and their windows (see `combat::stagger`). Its own
+    /// lock, as `abnormals`: fed by its own records, read when a fight is
+    /// saved.
+    stagger: Mutex<StaggerLog>,
 }
 
 /// The timeline and when it was last pruned.
@@ -587,6 +592,12 @@ struct Inner {
     /// fought should still get rows. See `party_placeholders_wanted`.
     party_roster_at_ms: i64,
     party_placeholders_hidden: bool,
+    /// The party key of the last roster that had you in it; `None` outside a
+    /// party. See `is_other_party`.
+    own_party_key: Option<u32>,
+    /// Whether a roster since the party began has had you in it. Only then
+    /// does a whole roster without you say you left (see `set_party_roster_of`).
+    self_in_roster: bool,
     /// Damage records since `bind_roster_names_by_class` last ran. Counted in
     /// records rather than time so a replay names players where a live meter
     /// did.
@@ -790,6 +801,8 @@ impl DataStorage {
                 party_members: HashMap::new(),
                 former_party_members: HashMap::new(),
                 party_roster_at_ms: 0,
+                own_party_key: None,
+                self_in_roster: false,
                 damage_since_roster_bind: 0,
                 party_placeholders_hidden: false,
                 current_dungeon_id: 0,
@@ -842,6 +855,7 @@ impl DataStorage {
             combat_reset_requested: AtomicBool::new(false),
             before_reset: RwLock::new(None),
             abnormals: Mutex::new(AbnormalLog { timeline: abnormal::Timeline::default(), pruned_ms: NEVER_MS }),
+            stagger: Mutex::new(StaggerLog::default()),
         }
     }
 
@@ -902,6 +916,95 @@ impl DataStorage {
         self.abnormals.lock().timeline.clear();
     }
 
+    /// The stagger gauge an entity's spawn carries (its starting value).
+    pub fn note_stagger_spawn(&self, entity: i32, max: u32, rest: u32) {
+        self.stagger.lock().note_spawn(entity, max, rest);
+    }
+
+    /// A gauge update (`05 E0 .. 03 01`), at the current time.
+    pub fn note_stagger_gauge(&self, entity: i32, max: u32, rest: u32, status: u8) {
+        tracing::debug!("Stagger gauge: entity {} at {}/{} status {}", entity, rest, max, status);
+        self.stagger.lock().note_gauge(entity, max, rest, status, now_ms());
+    }
+
+    /// A gauge broke (`05 E0 .. 00 03 02`), at the current time.
+    pub fn note_stagger_break(&self, entity: i32) {
+        tracing::debug!("Stagger gauge: entity {} broken", entity);
+        self.stagger.lock().note_break(entity, now_ms());
+    }
+
+    /// A hit with a value, or a DoT tick, that the next update of the
+    /// target's gauge may take (`StaggerLog::note_hit`).
+    pub fn note_stagger_hit(&self, target: i32, actor: i32, skill: i32, dot: bool) {
+        self.stagger.lock().note_hit(target, actor, skill, now_ms(), dot);
+    }
+
+    /// An entry of a hit with no value (`StaggerLog::note_hit_entry`).
+    pub fn note_stagger_hit_entry(&self, target: i32, actor: i32, skill: i32) {
+        self.stagger.lock().note_hit_entry(target, actor, skill);
+    }
+
+    /// The gauge of `entity` as last known: (max, rest).
+    #[cfg(test)]
+    pub fn stagger_gauge(&self, entity: i32) -> Option<(u32, u32)> {
+        self.stagger.lock().gauge(entity)
+    }
+
+    /// Stagger taken off the gauges of `entities` by each actor and skill
+    /// from `start_ms` to `end_ms`, summons as themselves (the meter resolves
+    /// them as it does damage). Deductions with no actor are left out.
+    pub fn stagger_totals(&self, start_ms: i64, end_ms: i64, entities: &HashSet<i32>) -> HashMap<(i32, i32), i64> {
+        let mut out: HashMap<(i32, i32), i64> = HashMap::new();
+        for w in self.stagger.lock().windows_between(start_ms, end_ms) {
+            if !entities.contains(&w.entity) {
+                continue;
+            }
+            for h in w.hits.iter().filter(|h| h.actor != 0 && h.ms >= start_ms && h.ms <= end_ms) {
+                *out.entry((h.actor, h.skill)).or_default() += h.value as i64;
+            }
+        }
+        out
+    }
+
+    /// The stagger window open on `entity`, if any.
+    #[cfg(test)]
+    pub fn stagger_open_window(&self, entity: i32) -> Option<crate::combat::stagger::Window> {
+        self.stagger.lock().open_window(entity).cloned()
+    }
+
+    /// The stagger windows with a deduction from `start_ms` to `end_ms`
+    /// (`StaggerLog::windows_between`), for a fight starting at `start_ms`:
+    /// times from its start, summons resolved to their owners.
+    pub fn fight_stagger(&self, start_ms: i64, end_ms: i64) -> Vec<StaggerWindow> {
+        let windows = self.stagger.lock().windows_between(start_ms, end_ms);
+        let inner = self.inner.read();
+        windows
+            .into_iter()
+            .map(|w| StaggerWindow {
+                entity: w.entity,
+                mob_code: inner.mob_storage.get(&w.entity).copied().unwrap_or(0),
+                max: w.max,
+                start: w.start_ms - start_ms,
+                end: w.end_ms.unwrap_or(end_ms) - start_ms,
+                result: w.outcome().unwrap_or(Outcome::Missed),
+                ended: w.ended.unwrap_or(End::FightEnd),
+                missing: w.missing,
+                incomplete: w.incomplete,
+                hits: w
+                    .hits
+                    .iter()
+                    .map(|h| StaggerHit {
+                        t: h.ms - start_ms,
+                        actor: summon_resolver::resolve(h.actor, &inner.summon_storage),
+                        skill: h.skill,
+                        value: h.value,
+                        ambiguous: h.ambiguous,
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
     /// Called when a self/world teleport (zone-change opcode) is seen. Resets
     /// combat data only if not in active combat (lull) and not recently reset
     /// (debounce), so the meter starts clean on entering a dungeon/instance
@@ -951,6 +1054,12 @@ impl DataStorage {
     /// if it has not.
     pub fn last_zone_reset_ms(&self) -> i64 {
         self.last_zone_reset_ms.load(Ordering::Relaxed)
+    }
+
+    /// When the party last ended (`end_party`, which resets combat too),
+    /// clock ms; `NEVER_MS` if it has not.
+    pub fn party_ended_at_ms(&self) -> i64 {
+        self.inner.read().party_ended_at_ms
     }
 
     /// Consumed by the dps calculator to drop its cached snapshot/saved-target
@@ -1706,6 +1815,7 @@ impl DataStorage {
             }
             inner.boss_hp_now.remove(&entity_id);
             inner.boss_hp_sent.remove(&entity_id);
+            self.stagger.lock().note_gone(entity_id, now_ms(), true);
             inner.hp_floored_ids.remove(&entity_id);
             inner.death_log.push_back((entity_id, now_ms(), None));
             while inner.death_log.len() > MAX_DEATHS {
@@ -1812,8 +1922,9 @@ impl DataStorage {
     }
 
     /// `id` left the world. Only a linked summon is marked: see
-    /// `Inner::despawned_summon_ids`.
+    /// `Inner::despawned_summon_ids`. A stagger window open on it is missed.
     pub fn note_despawn(&self, id: i32) {
+        self.stagger.lock().note_gone(id, now_ms(), false);
         let mut inner = self.inner.write();
         if inner.summon_storage.contains_key(&id) {
             inner.despawned_summon_ids.insert(id);
@@ -1911,6 +2022,32 @@ impl DataStorage {
     /// record this parser trips over costs that member a refresh rather than
     /// costing the whole party their combat power.
     pub fn set_party_roster(&self, members: Vec<(String, PartyMember)>, complete: bool) {
+        self.set_party_roster_of(None, members, complete);
+    }
+
+    /// Is this roster another party's? A whole roster without you, of a party
+    /// that is not yours: the finder sends the rosters of other parties too,
+    /// and a leader who re-forms a party sends one per party key, the same
+    /// title and leader on each. Taken as yours, one of them said you had
+    /// left, and the party's end cleared the fight in progress: 38 logs a
+    /// re-derive at 2.0.76.4 could not update (2026-10-23). A roster stopped
+    /// at a member visiting another world hid it until 0272d47 read them.
+    /// When it is your own party's key, it is you who left. Until a roster
+    /// with you in it has given your party's key, every roster is taken as
+    /// before: in a slice your name and your roster entry can be blinded
+    /// apart, and the only roster then has no "you" in it (2026-10-24).
+    pub fn is_other_party(&self, key: u32, members: &[(String, PartyMember)], complete: bool) -> bool {
+        let inner = self.inner.read();
+        let Some(local) = inner.local_character_name.as_deref().map(str::trim).filter(|n| !n.is_empty()) else {
+            return false;
+        };
+        complete
+            && inner.own_party_key.is_some_and(|own| own != key)
+            && !members.iter().any(|(name, _)| name.trim() == local)
+    }
+
+    /// `set_party_roster` for a roster of party `key`, as `0x9702` gives it.
+    pub fn set_party_roster_of(&self, key: Option<u32>, members: Vec<(String, PartyMember)>, complete: bool) {
         if members.is_empty() {
             return;
         }
@@ -1918,6 +2055,13 @@ impl DataStorage {
         tracing::info!("party roster{}: {}", if complete { "" } else { " (partial)" },
             members.iter().map(|(n, m)| format!("{n} lvl {} gs {} cp {}", m.level, m.gear_score, m.combat_power)).collect::<Vec<_>>().join("; "));
         let mut inner = self.inner.write();
+        let local = inner.local_character_name.as_deref().map(str::trim).unwrap_or_default().to_string();
+        if !local.is_empty() && members.iter().any(|(name, _)| name.trim() == local) {
+            inner.self_in_roster = true;
+            if key.is_some() {
+                inner.own_party_key = key;
+            }
+        }
         inner.party_roster_at_ms = now_ms();
         inner.party_placeholders_hidden = false;
         // The meter's rows name the party: someone joining between fights
@@ -1932,7 +2076,11 @@ impl DataStorage {
         let was_in_party = inner.party_members.len() >= 2;
         let now_alone = complete && members.len() <= 1;
         let local_name = inner.local_character_name.clone();
+        // Not when no roster has had you yet: in a slice your name and your
+        // roster entry can be blinded apart, and each whole roster then
+        // ended the party, and the fight with it (2026-10-24).
         let dropped_self = complete
+            && inner.self_in_roster
             && local_name.as_ref().is_some_and(|n| {
                 !n.trim().is_empty() && !members.iter().any(|(name, _)| name.trim() == n.trim())
             });
@@ -1986,6 +2134,8 @@ impl DataStorage {
         inner.former_party_members.extend(members);
         inner.party_generation += 1;
         inner.party_ended_at_ms = now_ms();
+        inner.own_party_key = None;
+        inner.self_in_roster = false;
         inner.roster_dungeon_id = 0;
         inner.current_dungeon_id = dungeon_of_map(0, inner.current_map_id);
         drop(inner);
@@ -2443,6 +2593,7 @@ impl DataStorage {
     /// reset would otherwise stay unlinked for good. Ids that are reused get
     /// their links dropped by the new spawn (see `note_summon_spawn`).
     pub fn flush(&self) {
+        self.stagger.lock().forget_pending();
         let mut inner = self.inner.write();
         inner.target_combat.clear();
         inner.held_dot_ticks.clear();
@@ -2466,6 +2617,7 @@ impl DataStorage {
     /// Used on a zone-change / in-instance-teleport reset so the meter starts on
     /// clean numbers without dropping who your party and you are.
     pub fn flush_combat_only(&self) {
+        self.stagger.lock().forget_pending();
         let mut inner = self.inner.write();
         inner.target_combat.clear();
         inner.held_dot_ticks.clear();
@@ -2483,8 +2635,10 @@ impl DataStorage {
     /// Drop every summon link, for a capture from another session (a replay),
     /// whose entity ids mean something else.
     pub fn forget_summon_links(&self) {
-        // The buffs those ids had on are as foreign as the links.
+        // The buffs those ids had on are as foreign as the links, and so
+        // are their stagger gauges.
         self.forget_abnormals();
+        self.stagger.lock().clear();
         let mut inner = self.inner.write();
         inner.summon_storage.clear();
         inner.confirmed_summon_ids.clear();
@@ -3352,6 +3506,26 @@ mod tests {
         assert_eq!(s.own_server(), 0, "never taken as the player's own");
         s.note_self_server(1305);
         assert_eq!(s.fight_server_id(), 1305, "the game's own word wins");
+    }
+
+    /// Another party's roster (the finder's, or the leader's next party) is
+    /// not word that you left yours: it changes nothing. Your own party's
+    /// roster without you still ends it (2026-10-23).
+    #[test]
+    fn another_partys_roster_leaves_yours_alone() {
+        let s = DataStorage::new();
+        s.set_local_character_name(Some("Me".into()));
+        let ours = || vec![("Lead".into(), member(1)), ("Me".into(), member(2)), ("Tank".into(), member(3))];
+        let theirs = vec![("Lead".into(), member(1)), ("Other".into(), member(2))];
+        assert!(!s.is_other_party(8, &theirs, true), "no party of yours known yet: as before");
+        assert!(!s.is_other_party(7, &ours(), true));
+        s.set_party_roster_of(Some(7), ours(), true);
+        assert!(s.is_other_party(8, &theirs, true), "a whole roster without you, of another key");
+        assert!(!s.is_other_party(8, &theirs, false), "a partial one may have stopped before you");
+        let gone = vec![("Lead".into(), member(1)), ("Tank".into(), member(3))];
+        assert!(!s.is_other_party(7, &gone, true), "your own party without you");
+        s.set_party_roster_of(Some(7), gone, true);
+        assert!(s.get_party_members().is_empty(), "you left it");
     }
 
     /// Members leaving after the boss falls (Vakron, 2026-10-17) keep their

@@ -482,6 +482,7 @@ mod tests {
             killed: false,
             server_id: 0,
             buffs: None,
+            stagger: None,
         }
     }
 

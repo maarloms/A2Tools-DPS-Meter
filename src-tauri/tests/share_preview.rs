@@ -53,6 +53,7 @@ fn record_spanning(start_ms: i64, duration_ms: i64) -> FightRecord {
         killed: false,
         server_id: 0,
         buffs: None,
+        stagger: None,
     }
 }
 

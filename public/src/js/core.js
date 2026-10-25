@@ -49,6 +49,7 @@ const REMOTE_APPLIED_SETTING_CONTROLS = {
   "dpsMeter.showOdyle": ".showOdyleCheckbox",
   "dpsMeter.showTtk": ".showTtkCheckbox",
   "dpsMeter.showHealModes": ".showHealModesCheckbox",
+  "dpsMeter.showStaggerMode": ".showStaggerModeCheckbox",
   "dpsMeter.bossNameSize": ".bossNameSizeInput",
   "dpsMeter.showSupporterColors": ".showSupporterColorsCheckbox",
   "dpsMeter.barTextureOffset": ".textureOffsetCheckbox",
@@ -112,6 +113,7 @@ class DpsApp {
       odyleLast: "dpsMeter.odyleLast",
       showTtk: "dpsMeter.showTtk",
       showHealModes: "dpsMeter.showHealModes",
+      showStaggerMode: "dpsMeter.showStaggerMode",
       showTotalDps: "dpsMeter.showTotalDps",
       roundDps: "dpsMeter.roundDps",
       autoDetectDevice: "dpsMeter.autoDetectDevice",
@@ -338,6 +340,7 @@ class DpsApp {
       this.showOdyle = this.safeGetSetting(this.storageKeys.showOdyle) === "true";
       this.showTtk = this.safeGetSetting(this.storageKeys.showTtk) !== "false";
       this.showHealModes = this.safeGetSetting(this.storageKeys.showHealModes) !== "false";
+      this.showStaggerMode = this.safeGetSetting(this.storageKeys.showStaggerMode) === "true";
       this.showTotalDps = this.safeGetSetting(this.storageKeys.showTotalDps) !== "false";
       this.roundDps = this.safeGetSetting(this.storageKeys.roundDps) !== "false";
       this.showDpsSuffix = this.safeGetSetting(this.storageKeys.showDpsSuffix) !== "false";
@@ -498,6 +501,8 @@ class DpsApp {
     this.showTtk = this.safeGetSetting(this.storageKeys.showTtk) !== "false";
     // HPS and total heal in the DPS/DMG button's cycle; on unless turned off.
     this.showHealModes = this.safeGetSetting(this.storageKeys.showHealModes) !== "false";
+    // Stagger in the same cycle, after healing; off unless turned on.
+    this.showStaggerMode = this.safeGetSetting(this.storageKeys.showStaggerMode) === "true";
     this.ttk = typeof createTtkEstimator === "function" ? createTtkEstimator() : null;
     // Ping is pushed immediately from PingTracker via window._dpsApp.updatePing().
     // A slow fallback poll handles edge cases (e.g. push not wired yet on startup).
@@ -1052,6 +1057,20 @@ class DpsApp {
     return this.jobColorMap[String(job || "")] || "";
   }
 
+  /** A row's stagger by skill, most first, as the hover tooltip lists skills. */
+  staggerTooltipDetails(row) {
+    // The codes are the ones skills are shown by (normalize_skill_id).
+    const name = (code) => this.i18n?.getSkillName?.(code, "")
+      || (code ? `#${code}` : this.i18n?.t?.("details.stagger.unknownSkill", "Unknown skill") ?? "Unknown skill");
+    const skills = Object.entries(row?.staggerSkills || {})
+      .map(([code, value]) => ({ code: Number(code), value: Number(value) || 0 }))
+      .filter((s) => s.value > 0)
+      .sort((a, b) => b.value - a.value || a.code - b.code)
+      .slice(0, 5)
+      .map((s) => ({ name: name(s.code), code: s.code, dmg: s.value, job: row?.job }));
+    return { skills, state: "empty", mode: "stagger" };
+  }
+
   renderHoverTooltip(details, row, rowEl) {
     if (!this.hoverTooltipEl || !rowEl) return;
     const skills = Array.isArray(details?.skills) ? details.skills.slice(0, 5) : [];
@@ -1061,7 +1080,9 @@ class DpsApp {
       empty: "No skill data for this fight",
       error: "Could not load skills",
     }[tooltipState] || "No skill data for this fight";
-    const stateText = this.i18n?.t(`details.hoverTooltip.${tooltipState}`, stateFallback) ?? stateFallback;
+    const stateText = details?.mode === "stagger"
+      ? this.i18n?.t("details.stagger.none", "No stagger gauge was worn down in this fight.") ?? "No stagger gauge was worn down in this fight."
+      : this.i18n?.t(`details.hoverTooltip.${tooltipState}`, stateFallback) ?? stateFallback;
     const dps = Number(row?.dps) || 0;
     const dpsText = `${this.dpsFormatter.format(dps)}${this.i18n?.t("meter.dpsSuffix", "/s") ?? "/s"}`;
     const totalDamage = Number(row?.totalDamage) || 0;
@@ -1085,11 +1106,15 @@ class DpsApp {
     const tooltipNameHtml = row?.isSupporter
       ? `<span class="isSupporter">${tooltipName}</span>`
       : tooltipName;
+    const statsHtml = details?.mode === "stagger"
+      ? `<span>${this.i18n?.t("details.stagger.title", "Stagger") ?? "Stagger"}: ${Number(row?.stagger) || 0}</span>
+        <span>${this.i18n?.t("details.stats.totalDamage", "Total Damage") ?? "Total Damage"}: ${totalDamageText}</span>`
+      : `<span>${this.i18n?.t("header.display.dps", "DPS") ?? "DPS"}: ${dpsText}</span>
+        <span>${this.i18n?.t("details.stats.totalDamage", "Total Damage") ?? "Total Damage"}: ${totalDamageText}</span>`;
     this.hoverTooltipEl.innerHTML = `
       <div class="hoverDetailsTooltipHeader">${tooltipClassIcon}${tooltipNameHtml}</div>
       <div class="hoverDetailsTooltipStats">
-        <span>${this.i18n?.t("header.display.dps", "DPS") ?? "DPS"}: ${dpsText}</span>
-        <span>${this.i18n?.t("details.stats.totalDamage", "Total Damage") ?? "Total Damage"}: ${totalDamageText}</span>
+        ${statsHtml}
       </div>
       <div class="hoverDetailsTooltipSkills">${skillsHtml || `<div class="hoverDetailsTooltipSkill muted">${stateText}</div>`}</div>
     `;
@@ -1110,9 +1135,17 @@ class DpsApp {
   // over the meter, or the window stops taking the mouse under it. The
   // tooltip then stayed up until the row was hovered and left again. While
   // it shows, ask where the pointer really is and close it once it is off
-  // the row. Where the pointer can't be read (native Wayland) nothing changes.
+  // the row. On Linux that isn't enough: a native Wayland window can't read
+  // the pointer, and under XWayland the pointer read is the last one X saw
+  // in the meter while it is over the game or a Wayland window, so still on
+  // the row (Hirai, KDE, stuck through both fixes, 2026-10-24). There the
+  // tooltip also closes when the pointer leaves the window, and after 4 s
+  // with no pointer movement over the meter (the game holding the pointer
+  // sends the meter nothing).
   watchHoverPointer() {
     if (this.hoverPointerWatch || !window.javaBridge?.pointerInWindow) return;
+    if (document.documentElement?.classList?.contains?.("linux")) this.hoverIdleOnly = true;
+    this.watchHoverIdle();
     this.hoverPointerWatch = setInterval(async () => {
       const rowId = this.hoveredDetailsRowId;
       const at = await window.javaBridge.pointerInWindow();
@@ -1120,6 +1153,7 @@ class DpsApp {
       if (!at) {
         clearInterval(this.hoverPointerWatch);
         this.hoverPointerWatch = 0;
+        this.hoverIdleOnly = true;
         return;
       }
       // Hovering moved on while asking: the next check sees the new row.
@@ -1129,6 +1163,31 @@ class DpsApp {
       this.hoveredDetailsRowId = null;
       this.hideHoverTooltip();
     }, 300);
+  }
+
+  // The fallback where the pointer can't be trusted (see watchHoverPointer):
+  // set up once; it acts on Linux, or once the pointer check found it
+  // unreadable.
+  watchHoverIdle() {
+    if (this.hoverIdleWatch) return;
+    this.lastPointerMoveAt = Date.now();
+    const moved = () => { this.lastPointerMoveAt = Date.now(); };
+    document.addEventListener("mousemove", moved, { passive: true });
+    document.documentElement?.addEventListener?.("mouseleave", () => {
+      if (this.hoverIdleOnly) {
+        this.hoveredDetailsRowId = null;
+        this.hideHoverTooltip();
+      }
+    });
+    this.hoverIdleWatch = setInterval(() => {
+      // By the tooltip being up, not by a hovered row: on Wayland the page can
+      // keep a row :hover after the pointer has gone, and leaving it then
+      // cleared the row but kept the tooltip (Hirai, KDE Wayland).
+      if (!this.hoverIdleOnly || !this.hoverTooltipEl?.classList.contains("isVisible")) return;
+      if (Date.now() - this.lastPointerMoveAt < 4000) return;
+      this.hoveredDetailsRowId = null;
+      this.hideHoverTooltip();
+    }, 500);
   }
 
   positionHoverTooltip(rowEl = null) {
@@ -1198,6 +1257,11 @@ class DpsApp {
     if (!Number.isFinite(rowId) || rowId <= 0) return;
     const rowEl = this.elList?.querySelector?.(`.item[data-row-id="${rowId}"]`);
     if (!rowEl) return;
+    // Stagger mode: the row carries its stagger by skill, nothing to ask for.
+    if (this.displayMode === "stagger") {
+      this.renderHoverTooltip(this.staggerTooltipDetails(row), row, rowEl);
+      return;
+    }
 
     const snapshot = this.getHoverTooltipSnapshot();
     const stored = this.hoverTooltipCacheByRowId.get(rowId);
@@ -1683,6 +1747,11 @@ class DpsApp {
       const totalDamage = Math.trunc(Number(isObj ? value.amount : 0)) || 0;
       const hps = Math.trunc(Number(isObj ? value.hps : 0)) || 0;
       const healAmount = Math.trunc(Number(isObj ? value.healAmount : 0)) || 0;
+      // Stagger taken off the target's gauge in the fight (combat/stagger.rs).
+      const stagger = Math.trunc(Number(isObj ? value.stagger : 0)) || 0;
+      // The same by skill code, for the tooltip in Stagger mode.
+      const staggerSkills = isObj && value.staggerSkills && typeof value.staggerSkills === "object"
+        ? value.staggerSkills : {};
 
       // 소수점 한자리
       const contribRaw = isObj ? Number(value.damageContribution) : NaN;
@@ -1707,6 +1776,8 @@ class DpsApp {
         totalDamage,
         hps,
         healAmount,
+        stagger,
+        staggerSkills,
         damageContribution,
         combatPower,
         gearScore,
@@ -2550,11 +2621,9 @@ class DpsApp {
       }
     });
     this.metricToggleBtn?.addEventListener("click", () => {
-      // DPS -> total damage -> both (-> HPS -> total heal, unless turned
-      // off in Settings) -> DPS.
-      const order = this.showHealModes === false
-        ? ["dps", "totalDamage", "both"]
-        : ["dps", "totalDamage", "both", "hps", "totalHeal"];
+      // DPS -> total damage -> both (-> HPS -> total heal) (-> stagger),
+      // each unless turned off in Settings, -> DPS.
+      const order = ["dps", ...this.displayModes()];
       const nextMode = order[(order.indexOf(this.displayMode) + 1) % order.length];
       this.setDisplayMode(nextMode, { persist: true });
       this.renderCurrentRows();
@@ -3018,6 +3087,19 @@ class DpsApp {
         this.safeSetSetting(this.storageKeys.showHealModes, String(this.showHealModes));
         // Turned off while showing healing: back to DPS.
         if (!this.showHealModes && (this.displayMode === "hps" || this.displayMode === "totalHeal")) {
+          this.setDisplayMode("dps", { persist: true });
+          this.renderCurrentRows?.();
+        }
+      });
+    }
+    this.showStaggerModeCheckbox = document.querySelector(".showStaggerModeCheckbox");
+    if (this.showStaggerModeCheckbox) {
+      this.showStaggerModeCheckbox.checked = this.showStaggerMode;
+      this.showStaggerModeCheckbox.addEventListener("change", (event) => {
+        this.showStaggerMode = !!event.target?.checked;
+        this.safeSetSetting(this.storageKeys.showStaggerMode, String(this.showStaggerMode));
+        // Turned off while showing stagger: back to DPS.
+        if (!this.showStaggerMode && this.displayMode === "stagger") {
           this.setDisplayMode("dps", { persist: true });
           this.renderCurrentRows?.();
         }
@@ -5461,9 +5543,17 @@ class DpsApp {
     }, 0);
   }
 
+  /** The display modes after DPS, in the button's cycle, as Settings allow. */
+  displayModes() {
+    const modes = ["totalDamage", "both"];
+    if (this.showHealModes !== false) modes.push("hps", "totalHeal");
+    // Off unless turned on: checked on only a few bosses so far.
+    if (this.showStaggerMode === true) modes.push("stagger");
+    return modes;
+  }
+
   setDisplayMode(mode, { persist = false } = {}) {
-    const valid = this.showHealModes === false ? ["totalDamage", "both"] : ["totalDamage", "both", "hps", "totalHeal"];
-    this.displayMode = valid.includes(mode) ? mode : "dps";
+    this.displayMode = this.displayModes().includes(mode) ? mode : "dps";
     if (persist) {
       this.safeSetStorage(this.storageKeys.displayMode, this.displayMode);
     }
@@ -5477,6 +5567,7 @@ class DpsApp {
       both: ["header.display.both", "BOTH", "header.display.ariaBoth", "Showing DPS and total damage"],
       hps: ["header.display.hps", "HPS", "header.display.ariaHps", "Showing healing per second"],
       totalHeal: ["header.display.totalHeal", "HEAL", "header.display.ariaHeal", "Showing total healing"],
+      stagger: ["header.display.stagger", "STAG", "header.display.ariaStagger", "Showing stagger dealt"],
       dps: ["header.display.dps", "DPS", "header.display.ariaDps", "Showing DPS"],
     }[this.displayMode];
     const label = this.i18n?.t(labelKey, labelFallback) ?? labelFallback;
@@ -5895,6 +5986,11 @@ class DpsApp {
       const healAmount = Number(row?.healAmount) || 0;
       return { value: healAmount, text: this.formatAbbreviatedNumber(healAmount) };
     }
+    if (this.displayMode === "stagger") {
+      // Gauge points, small whole numbers (a Story boss's gauge is 40).
+      const stagger = Number(row?.stagger) || 0;
+      return { value: stagger, text: String(stagger) };
+    }
     const dps = Number(row?.dps) || 0;
     const dpsText = `${this.formatDpsThousands(dps)}${this.meterDpsSuffix()}`;
     if (this.displayMode === "both") {
@@ -6021,7 +6117,10 @@ class DpsApp {
   }
 
   renderCurrentRows() {
-    if (this.isCollapse) return;
+    if (this.isCollapse) {
+      this.closeOrphanTooltip();
+      return;
+    }
     let rowsToRender = Array.isArray(this.lastSnapshot) ? this.lastSnapshot : [];
     if (this.lastTargetMode === "trainTargets" && this.isLocalUserIdentified()) {
       rowsToRender = rowsToRender.filter((row) => row.isUser); // by id or name: an unnamed row is still yours
@@ -6044,6 +6143,22 @@ class DpsApp {
     }
     this.updateMeterTotalBar(rowsToRender);
     this.meterUI?.updateFromRows?.(rowsToRender);
+    this.closeOrphanTooltip();
+  }
+
+  // A tooltip whose row is gone closes. A row removed from under the pointer
+  // (a new fight, a reset, a zone change, the meter folded) never fires its
+  // mouse-leave, so the tooltip stayed up over a meter with no rows (Hirai's
+  // screenshots, 2026-10-24).
+  closeOrphanTooltip() {
+    if (!this.hoverTooltipEl?.classList.contains("isVisible")) return;
+    const id = this.hoveredDetailsRowId;
+    const row = !this.isCollapse && id != null
+      ? this.elList?.querySelector?.(`.item[data-row-id="${CSS.escape(String(id))}"]`)
+      : null;
+    if (row) return;
+    this.hoveredDetailsRowId = null;
+    this.hideHoverTooltip();
   }
 
   getDefaultDetailsOpenOptions() {

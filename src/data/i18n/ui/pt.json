@@ -10,8 +10,10 @@
       "ariaBoth": "Mostrando DPS e dano total",
       "hps": "HPS",
       "totalHeal": "HEAL",
+      "stagger": "ATORD",
       "ariaHps": "Mostrando cura por segundo",
-      "ariaHeal": "Mostrando cura total"
+      "ariaHeal": "Mostrando cura total",
+      "ariaStagger": "Mostrando o atordoamento causado à barra do chefe"
     },
     "updates": {
       "meter": "A2Tools DPS Meter {version} está disponível",
@@ -182,6 +184,25 @@
         "replaced": "Substituído por um novo nível"
       }
     },
+    "stagger": {
+      "title": "Atordoamento",
+      "unknownActor": "Desconhecido",
+      "unknownSkill": "Habilidade desconhecida",
+      "older": "Sem dados de atordoamento para este combate (gravado por uma versão anterior).",
+      "loading": "Carregando...",
+      "none": "Nenhuma barra de atordoamento foi reduzida neste combate.",
+      "incomplete": "O início não foi visto: falta o atordoamento anterior.",
+      "ambiguous": "Pode ser de outro jogador: outra pessoa acertou ao mesmo tempo.",
+      "ambiguousCount": "{n} golpe(s) podem ser de outro jogador.",
+      "value": "{n} de atordoamento",
+      "ended": {
+        "break": "Quebrada após {secs} s",
+        "reset": "Falhou: restavam {missing} de {max}",
+        "death": "Derrotado antes da quebra: restavam {missing} de {max}",
+        "despawn": "Sumiu antes da quebra: restavam {missing} de {max}",
+        "fightEnd": "Ainda aberta no fim do combate: restavam {missing} de {max}"
+      }
+    },
     "fightTimeline": "Linha do tempo da luta",
     "replay": {
       "label": "Replay",
@@ -283,6 +304,7 @@
     "odyleEnergy": "Energia de Odyle",
     "showTtk": "Mostrar tempo estimado para matar",
     "showHealModes": "Mostrar cura no botão DPS/DMG",
+    "showStaggerMode": "Mostrar atordoamento no botão DPS/DMG",
     "showTotalDps": "Mostrar total do grupo",
     "roundDps": "Abreviar DPS em milhares (13k)",
     "showDpsSuffix": "Adicionar /s ao DPS",
@@ -511,9 +533,9 @@
       "supporter": "Apoiador"
     },
     "sendLogs": {
-      "hint": "Envia seus 3 logs de pacotes mais recentes ao desenvolvedor, para um relatório de bug.",
+      "hint": "Envia seu log de depuração e seus logs de pacotes mais recentes (3 arquivos no total) ao desenvolvedor, para um relatório de bug.",
       "button": "Enviar logs ao dev",
-      "confirm": "Enviar seus 3 logs de pacotes mais recentes ao desenvolvedor do A2 Tools?\n\nLogs de pacotes são o tráfego bruto do jogo gravado enquanto o registro de pacotes estava ligado, incluindo nomes de personagens. Só o desenvolvedor pode abri-los, e eles são apagados após 30 dias.",
+      "confirm": "Enviar seu log de depuração e seus logs de pacotes mais recentes ao desenvolvedor do A2 Tools?\n\nO log de depuração registra o que o medidor fez. Logs de pacotes são o tráfego bruto do jogo gravado enquanto o registro de pacotes estava ligado. Ambos podem incluir nomes de personagens. Só o desenvolvedor pode abri-los, e eles são apagados após 30 dias.",
       "sending": "Enviando...",
       "sent": "Enviado. Seu código de relatório é {code}: passe para o desenvolvedor no Discord.",
       "failed": "Não foi possível enviar: {error}"
@@ -534,6 +556,7 @@
       "detailsMonitor": "Abre a janela de detalhes na tela escolhida e a mantém lá.",
       "showTtk": "Ao lado do cronômetro, uma estimativa de quanto durará toda a luta contra o chefe.",
       "showHealModes": "O botão DPS/DMG do medidor também alterna para cura por segundo e cura total.",
+      "showStaggerMode": "O botão DPS/DMG do medidor também mostra quanto cada jogador reduziu a barra de atordoamento do chefe.",
       "showTotalDps": "Uma barra sob as linhas com o DPS e o dano de todo o grupo.",
       "roundDps": "13.412 aparece como 13k.",
       "showSuspendBtn": "Um botão no medidor que para de ler o tráfego do jogo até você apertar de novo.",
