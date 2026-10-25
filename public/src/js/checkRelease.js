@@ -100,8 +100,12 @@
       // 3.0.27 (Marlon, 23.10.2026); the green button in the title stays
       // and opens it again. Without the popup: upstream's button, which
       // asks with the native dialog.
+      // fork: the 6-hour re-check pops the popup up only once per version
+      // (Marlon, 25.10.2026); after that the same `latest` just keeps the
+      // button, which opens it again.
       const info = forkOffer(args, result.notes);
-      if (window.ForkPatchnotes?.offer?.(info)) {
+      if (window.ForkPatchnotes?.offer && (forkShownFor === latest || window.ForkPatchnotes.offer(info))) {
+        forkShownFor = latest;
         pendingFork = info;
         return { state: "offer", latest };
       }
@@ -113,7 +117,10 @@
     // fork: the patch-notes popup (public/fork/patchnotes.js) asks instead
     // of the native dialog, which stays the fallback. It installs itself, so
     // Settings hears "update" (one is out) while the popup is open.
-    if (window.ForkPatchnotes?.offer?.(forkOffer(args, result.notes))) return { state: "update", latest };
+    if (window.ForkPatchnotes?.offer?.(forkOffer(args, result.notes))) {
+      forkShownFor = latest;
+      return { state: "update", latest };
+    }
     const accepted = await window.__TAURI__.core.invoke("show_update_window", args);
     return { state: accepted ? "installing" : "update", latest };
   };
@@ -122,6 +129,7 @@
   // The update found at start, for the title's button to offer.
   let pending = null;
   let pendingFork = null; // fork: the same, for the patch-notes popup
+  let forkShownFor = null; // fork: the version the popup already came up for
 
   // At start nothing pops up: an update this install can take shows the
   // green button in the meter's title (`onAvailable`), which asks. Then

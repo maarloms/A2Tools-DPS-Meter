@@ -358,16 +358,25 @@ test("demo and demoWhatsNew install nothing and remember nothing", async () => {
 
 const CHECK_SOURCE = readFileSync(new URL("../public/src/js/checkRelease.js", import.meta.url), "utf8");
 
-async function runCheckRelease({ withPopup, onAvailable }) {
+// The 6-hour re-check's interval is only recorded: a real one would keep node
+// running after the tests, and a test runs it by hand.
+const intervals = [];
+globalThis.setInterval = (fn, ms) => {
+  intervals.push({ fn, ms });
+  return intervals.length;
+};
+
+async function runCheckRelease({ withPopup, onAvailable, manifest = { version: "3.0.20" } }) {
   const calls = [];
   const offers = [];
+  intervals.length = 0;
   globalThis.window = {
     __TAURI__: {
       core: {
         invoke: async (cmd, args) => {
           calls.push([cmd, args]);
           if (cmd === "fetch_url") {
-            return JSON.stringify({ version: "3.0.20", msiUrl: "https://x/a.msi", msiSha256: "ab".repeat(32), notes: "**Neu**\n- x" });
+            return JSON.stringify({ msiUrl: "https://x/a.msi", msiSha256: "ab".repeat(32), notes: "**Neu**\n- x", ...manifest });
           }
           return false;
         },
@@ -379,10 +388,19 @@ async function runCheckRelease({ withPopup, onAvailable }) {
   if (withPopup) window.ForkPatchnotes = { offer: (info) => { offers.push(info); return true; } };
   (0, eval)(CHECK_SOURCE);
   window.ReleaseChecker.start(onAvailable);
-  for (let i = 0; i < 50 && !calls.some((c) => c[0] === "show_update_window") && !offers.length; i++) {
+  for (let i = 0; i < 50 && !calls.some((c) => c[0] === "show_update_window") && !offers.length && !intervals.length; i++) {
     await new Promise((r) => setTimeout(r, 100));
   }
+  // Let the first run finish (onAvailable comes after the offer).
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
   return { calls, offers };
+}
+
+// One 6-hour re-check, run by hand.
+async function recheck() {
+  assert.equal(intervals.length, 1);
+  assert.equal(intervals[0].ms, 6 * 60 * 60 * 1000);
+  await intervals[0].fn();
 }
 
 test("checkRelease hands the update with its notes to the popup", async () => {
@@ -420,5 +438,45 @@ test("Settings' check asks with the popup too", async () => {
   const { offers } = await runCheckRelease({ withPopup: true });
   const found = await window.ReleaseChecker.checkNow();
   assert.deepEqual(found, { state: "update", latest: "v3.0.20" });
+  assert.equal(offers.length, 2);
+});
+
+test("the 6-hour re-check pops the popup up once per version, the button stays", async () => {
+  const available = [];
+  const manifest = { version: "3.0.20" };
+  const { calls, offers } = await runCheckRelease({ withPopup: true, onAvailable: (v) => available.push(v), manifest });
+  assert.equal(offers.length, 1);
+  await recheck();
+  await recheck();
+  assert.equal(offers.length, 1, "same version: no popup again");
+  assert.deepEqual(available, ["v3.0.20", "v3.0.20", "v3.0.20"], "the button stays");
+  // The button still opens it.
+  assert.equal(await window.ReleaseChecker.offer(), false);
+  assert.equal(offers.length, 2);
+  // A newer version: the popup once more, the button then offers that one.
+  manifest.version = "3.0.21";
+  await recheck();
+  assert.equal(offers.length, 3);
+  assert.equal(offers[2].latest, "v3.0.21");
+  await recheck();
+  assert.equal(offers.length, 3);
+  await window.ReleaseChecker.offer();
+  assert.equal(offers[3].latest, "v3.0.21");
+  // Settings' check opens it whenever asked.
+  assert.deepEqual(await window.ReleaseChecker.checkNow(), { state: "update", latest: "v3.0.21" });
+  assert.equal(offers.length, 5);
+  assert.equal(calls.some((c) => c[0] === "show_update_window"), false);
+});
+
+test("a version first seen in Settings doesn't pop up again on the re-check", async () => {
+  const manifest = { version: "3.0.19" }; // current at start: nothing
+  const { offers } = await runCheckRelease({ withPopup: true, manifest });
+  assert.equal(offers.length, 0);
+  manifest.version = "3.0.20";
+  await window.ReleaseChecker.checkNow();
+  assert.equal(offers.length, 1);
+  await recheck();
+  assert.equal(offers.length, 1);
+  assert.equal(await window.ReleaseChecker.offer(), false, "the button opens it");
   assert.equal(offers.length, 2);
 });
