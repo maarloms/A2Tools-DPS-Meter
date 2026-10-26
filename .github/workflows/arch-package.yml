@@ -19,9 +19,8 @@ name: Linux packages
 # the MSI before the manifest names them (archUrl, debUrl, rpmUrl), which is
 # what Linux meters update from.
 on:
-  # A pushed tag is checked out as itself (inputs.ref is empty then).
-  push:
-    tags: ["v*"]
+  # fork: no push trigger. The fork's release tags (v3.0.x) start no Linux
+  # build; run it by hand when needed (upstream starts it on every v* tag).
   workflow_dispatch:
     inputs:
       ref:
