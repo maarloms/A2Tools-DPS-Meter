@@ -3242,7 +3242,7 @@ fn decode_replay_hex(hex: &str) -> Option<Vec<u8>> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// The identifier the settings live under (tauri.conf.json), for reading
 /// `dpsMeter.runAsAdmin` before Tauri starts.
-const IDENTIFIER: &str = "com.a2tools.dps-meter";
+const IDENTIFIER: &str = "de.maarloms.aion2-dps-meter"; // fork: the fork's identifier (tauri.conf.json)
 /// The argument a meter restarting itself as administrator passes: its own
 /// process id, to wait for (it holds the one-meter lock until it has closed).
 const AFTER_ARG: &str = "--after";
