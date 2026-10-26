@@ -15,6 +15,7 @@
 pub mod catalog;
 pub mod decoder;
 pub mod dock;
+pub mod fps;
 pub mod widgets;
 #[cfg(feature = "online")]
 pub mod boss_live;
@@ -428,14 +429,62 @@ fn boss_map_event(map: &crate::capture::boss_map::BossMap) -> Value {
 }
 
 /// Who is playing, as plugins with `events:character` see it.
+///
+/// With it, what the game says of them: combat power and gear score, and the
+/// Odyle energy once the game has said it is theirs (`odyle_owner`: a login's
+/// list comes before the record naming who logged in). Each is null until
+/// known, and a change sends the event again.
 fn character(app: &tauri::AppHandle) -> Option<Value> {
     app.try_state::<AppState>().map(|s| {
         let p = s.data_storage.local_profile();
+        // Owner, energy, counts, times, shop limits, crafts, Kinah and Abyss
+        // Points from one moment: a login's list replaces them all at once.
+        let list = s.data_storage.entry_list();
+        let theirs = matches!((list.owner.as_deref(), p.name.as_deref()), (Some(o), Some(n)) if o.trim() == n.trim());
+        let odyle = list
+            .odyle_energy
+            .filter(|_| theirs)
+            .map(|(basic, charged)| serde_json::json!({ "basic": basic, "charged": charged }));
+        // The game's entry counts by id, as `[first, second]`, theirs the same
+        // way (they come in Odyle energy's list). Known ids: 1 Shugo
+        // Festival keys, 4 Nightmare, 8 Dimensional Invasion, 101 Daily
+        // Dungeon, 60000001 Odyle energy, 80000001 Ascension Trial; 0 the
+        // character's Daily Duty today, [completed, taken] (data_storage).
+        // The game's other ids are passed on too, unnamed: a2.js documents only
+        // the known ones. Started mid-session, the meter has only the entries
+        // that changed since, until the next login or transfer.
+        let content = (theirs && !list.counts.is_empty()).then(|| serde_json::json!(list.counts));
+        // The shop's weekly purchase limits by item id, `[bought, next reset
+        // ms]` (100134 Buy Odyle Energy, 100135 Buy Rift Stones), and the
+        // crafts made by recipe (32070001 Odyle Energy, server-wide; 32070002
+        // the character's): as the shop or crafting window last opened, or a
+        // purchase or craft since. Theirs the same way. Past its reset a
+        // limit is `[0, null]`: nothing bought, the next reset not known until
+        // the shop opens again. From the same snapshot as the owner.
+        let shop = (theirs && !list.shop_limits.is_empty()).then(|| serde_json::json!(list.shop_limits));
+        let crafts = (theirs && !list.crafts.is_empty()).then(|| serde_json::json!(list.crafts));
         serde_json::json!({
             "name": p.name,
             "serverId": p.server_id,
             "level": p.level,
             "class": p.class.map(|c| c.class_name().to_string()),
+            "combatPower": p.combat_power,
+            "gearScore": p.gear_score,
+            "odyleEnergy": odyle,
+            "contentCounts": content,
+            "shopLimits": shop,
+            "crafts": crafts,
+            // Kinah gained today and the Abyss Points this week with the
+            // week's limit, from login, 0 once their reset has passed.
+            // Theirs the same way, from the same snapshot.
+            "kinahToday": list.kinah_today.filter(|_| theirs),
+            "abyssPoints": list.abyss_points.filter(|_| theirs).map(|(p, l)| [p, l]),
+            // The entry list's time entries by id, `[time, seen at ms]`: the
+            // Abyss passages 10000001-10000003 each with its usage time left
+            // (ms) while it can still be run (a used one has none). The time
+            // is as the game last sent it: it counts down only while in use,
+            // and the game sends the change. Theirs the same way.
+            "contentTimes": Some(list.times).filter(|t| theirs && !t.is_empty()),
         })
     })
 }
@@ -555,6 +604,7 @@ impl PluginHost {
                 sync_game_hiding(&app);
                 let mut game_checked = Instant::now();
                 let mut ping: Option<i32> = None;
+                let mut fps_told: Option<Value> = None;
                 let mut map_seq = 0u64;
                 let mut abyss_seq = 0u64;
                 loop {
@@ -604,6 +654,16 @@ impl PluginHost {
                     if now_ping != ping {
                         ping = now_ping;
                         host.tell_all(&app, "ping", serde_json::json!({ "ms": now_ping }));
+                    }
+                    // The game's frame rate, while a plugin asks (fps.rs), to
+                    // plugins with "fps" when it changes.
+                    match fps::poll().map(fps::reading_json) {
+                        Some(now) if fps_told.as_ref() != Some(&now) => {
+                            host.tell_permitted(&app, "fps", "fps", now.clone());
+                            fps_told = Some(now);
+                        }
+                        Some(_) => {}
+                        None => fps_told = None,
                     }
                     // Whether AION2 is open, looked at every few seconds.
                     if game_checked.elapsed() >= GAME_CHECK {
@@ -977,6 +1037,24 @@ struct PromptTexts {
     perm_widgets: String,
     perm_character: String,
     perm_decoder: String,
+    perm_fps: String,
+}
+
+/// One text of the meter's interface in its language (English failing that),
+/// for a prompt the meter shows itself.
+pub(crate) fn ui_text(app: &tauri::AppHandle, section: &[&str], key: &str, fallback: &str) -> String {
+    let Some(state) = app.try_state::<AppState>() else { return fallback.to_string() };
+    let lang = state.settings.get("dpsMeter.language").unwrap_or_else(|| "en".into());
+    let lang = LANGUAGES.iter().find(|known| known.eq_ignore_ascii_case(&lang)).copied().unwrap_or("en");
+    let load = |lang: &str| -> Option<Value> {
+        let path = state.i18n_data_dir.as_ref()?.join("i18n").join("ui").join(format!("{lang}.json"));
+        serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+    };
+    [load(lang), load("en")]
+        .iter()
+        .flatten()
+        .find_map(|v| section.iter().fold(v, |v, s| &v[s])[key].as_str().map(str::to_string))
+        .unwrap_or_else(|| fallback.to_string())
 }
 
 #[cfg_attr(not(feature = "online"), allow(dead_code))]
@@ -1009,6 +1087,7 @@ fn prompt_texts(data_dir: Option<&Path>, lang: &str) -> PromptTexts {
         perm_widgets: perm("permWidgets", "Show small windows of its own, which you can move anywhere and lock in place"),
         perm_character: perm("permCharacter", "See your character's name, server, class and level"),
         perm_decoder: perm("permDecoder", "Read your own game data: {name}"),
+        perm_fps: perm("permFps", "Show the game's frame rate (on Windows, the meter asks to run as administrator for it)"),
     }
 }
 
@@ -1021,6 +1100,7 @@ fn describe_permission(t: &PromptTexts, permission: &str) -> String {
         "window" => t.perm_window.clone(),
         "widgets" => t.perm_widgets.clone(),
         "events:character" => t.perm_character.clone(),
+        "fps" => t.perm_fps.clone(),
         p => match p.strip_prefix("decoder:") {
             Some(name) => t.perm_decoder.replace("{name}", name),
             None => p.to_string(),
@@ -1194,6 +1274,9 @@ pub struct CatalogItem {
     pub source: String,
     /// The installed version, if any.
     pub installed: Option<String>,
+    /// A test plugin: Settings lists it only once installed, and installs it
+    /// by id ("Install a test plugin").
+    pub test: bool,
 }
 
 /// The reviewed plugins on offer, from the signed catalog.
@@ -1211,6 +1294,7 @@ pub async fn plugin_catalog(app: tauri::AppHandle) -> Result<Vec<CatalogItem>, S
             .plugins
             .into_iter()
             .map(|e| CatalogItem {
+                test: e.test,
                 installed: installed.get(&e.id).cloned(),
                 id: e.id,
                 name: e.name,
@@ -1253,7 +1337,8 @@ pub async fn plugin_install(app: tauri::AppHandle, id: String) -> Result<Plugins
         let host = host(&app)?;
         let http = app.try_state::<AppState>().ok_or("no app state")?.http.clone();
         let catalog = catalog::fetch(&http).await?;
-        let entry = catalog.plugins.iter().find(|e| e.id == id).ok_or("that plugin is not in the catalog")?;
+        let id = id.trim().to_lowercase();
+        let entry = catalog.plugins.iter().find(|e| e.id == id).ok_or("No plugin by that id in the catalog or the test catalog.")?;
         install_entry(&app, &host, entry).await?;
         Ok(view(&app, &host))
     }
@@ -1624,6 +1709,23 @@ pub fn plugin_window(app: tauri::AppHandle, window: tauri::WebviewWindow, plugin
     // itself stays when its tab is the dock's last and the dock the last way
     // back, as a window would.
     if window.label() == dock::LABEL {
+        if visible {
+            dock::note_raised(&app, &id);
+        } else if let Some(before) = dock::take_raised(&id) {
+            // Hiding after it showed itself: the dock as it was then. Its tab
+            // goes if it wasn't open, the dock if it was hidden, and the page
+            // goes back to the tab it was on (Hidden Cubes' alert ending
+            // left the dock up, on its first tab).
+            if !before.tab_was_shown {
+                remember_window(&app, &id, Some("hidden"));
+            }
+            dock::sync(&app, None);
+            if !before.dock_was_up {
+                dock::hide_now(&app);
+            }
+            let _ = app.emit_to(dock::LABEL, "dock-return", id.as_str());
+            return Ok(());
+        }
         if !visible && dock::shown_members(&app) == [id.clone()] && !crate::app::way_back_without(&app, dock::LABEL) {
             return Ok(());
         }
@@ -1669,6 +1771,7 @@ pub fn plugin_window_fit(app: tauri::AppHandle, window: tauri::WebviewWindow, pl
     // plugin at the dock's top meanwhile (pluginDock.js).
     if window.label() == dock::LABEL {
         if height.is_some() {
+            dock::note_raised(&app, &id);
             remember_window(&app, &id, Some("shown"));
             dock::sync(&app, Some(&id));
         }

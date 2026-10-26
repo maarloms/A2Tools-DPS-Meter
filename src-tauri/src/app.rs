@@ -299,6 +299,11 @@ fn auto_hide_now(app: &tauri::AppHandle) {
     if state.settings.get("dpsMeter.autoHideMeter").unwrap_or_default() != "true" || !meter_wanted(app) {
         return;
     }
+    // Hidden by a rule of its own (AION2 closed, solo, out of combat): the
+    // game coming to the front doesn't bring it back.
+    if HIDDEN_BY_RULE.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
     let Some(window) = app.get_webview_window("main") else { return };
     let front = platform::window_detector::is_aion2_foreground() || window.is_focused().unwrap_or(false);
     let hidden = !window.is_visible().unwrap_or(true)
@@ -309,6 +314,45 @@ fn auto_hide_now(app: &tauri::AppHandle) {
     } else if !front && !hidden {
         platform::window::minimize_off_top(&window);
     }
+}
+
+/// The meter hidden by the 500 ms check's own rules: AION2 closed, solo, or
+/// out of combat. Not the player hiding it (`meter_wanted`): it comes back
+/// by itself when the rule no longer holds.
+static HIDDEN_BY_RULE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// "Hide out of combat" (#106): seconds without combat before the meter
+/// hides; 0 is off.
+const HIDE_OUT_OF_COMBAT_KEY: &str = "dpsMeter.hideOutOfCombat";
+
+fn hide_out_of_combat_secs(settings: &Settings) -> u64 {
+    settings.get(HIDE_OUT_OF_COMBAT_KEY).and_then(|v| v.trim().parse().ok()).unwrap_or(0)
+}
+
+/// Whether `secs` seconds without combat have passed by `now_ms`, timed from
+/// `last_combat_ms` (clock ms): the later of the last damage the meter
+/// counted and when the wait began. 0 seconds is off.
+fn out_of_combat(last_combat_ms: i64, now_ms: i64, secs: u64) -> bool {
+    secs > 0 && now_ms.saturating_sub(last_combat_ms) >= i64::try_from(secs).unwrap_or(i64::MAX).saturating_mul(1000)
+}
+
+/// What keeps the meter up out of combat: Settings, History or a fight's
+/// Details open, or (`pointer` true) the mouse over the meter. The pointer
+/// isn't asked while the meter is hidden: on Linux it stays mapped where it
+/// was, and passing over the empty spot would bring it back.
+fn keeps_meter_up(app: &tauri::AppHandle, main: &tauri::WebviewWindow, pointer: bool) -> bool {
+    let tool_open = app.webview_windows().into_iter().any(|(label, w)| {
+        (TOOL_WINDOWS.contains(&label.as_str()) || label.starts_with("details-"))
+            && w.is_visible().unwrap_or(false)
+            && !platform::window::is_hidden_in_place(&w)
+    });
+    tool_open || (pointer && pointer_over_window(main))
+}
+
+fn pointer_over_window(window: &tauri::WebviewWindow) -> bool {
+    let Some((px, py)) = platform::window::cursor_position() else { return false };
+    let (Ok(at), Ok(size)) = (window.inner_position(), window.inner_size()) else { return false };
+    px >= at.x && px < at.x + size.width as i32 && py >= at.y && py < at.y + size.height as i32
 }
 
 /// Tell the main window whether to ignore the mouse: when locked, unless the
@@ -589,7 +633,7 @@ fn save_fight_records(app: &tauri::AppHandle, state: &AppState, records: Vec<Fig
     }
     crate::fork::cloud::on_fights_saved(app, &records); // fork
     #[cfg(feature = "online")]
-    if state.settings.get(share::AUTO_UPLOAD_KEY).as_deref() == Some("true") {
+    if share::auto_uploads(&state.settings) {
         let now = crate::clock::now_ms();
         for record in records.into_iter()
             .filter(|r| share::wants_auto_upload(&state.app_data_dir, r, now))
@@ -739,8 +783,28 @@ async fn account_status(
         crate::account::AccountState::SignedOut => None,
         crate::account::AccountState::Unavailable(why) => return Err(why),
     };
+    // Signed in with fights still uploaded as a guest on this PC (the claim
+    // at sign-in didn't get through): claimed now.
+    if who.is_some() && crate::account::guest::has_guest(&state.app_data_dir) {
+        crate::account::guest::merge_into_account(&state.http, &state.app_data_dir).await;
+    }
     *state.account_seen.lock() = Some(who.clone());
     Ok(who)
+}
+
+#[cfg(feature = "online")]
+/// Whether this PC has fights uploaded without an account, not claimed yet.
+#[tauri::command]
+fn guest_status(state: tauri::State<'_, AppState>) -> serde_json::Value {
+    serde_json::json!({ "hasGuest": crate::account::guest::has_guest(&state.app_data_dir) })
+}
+
+#[cfg(feature = "online")]
+/// A code that claims this PC's guest fights at a2tools.app/claim.
+#[tauri::command]
+async fn guest_claim_code(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let (code, expires_at) = crate::account::guest::claim_code(&state.http, &state.app_data_dir).await?;
+    Ok(serde_json::json!({ "code": code, "expiresAt": expires_at, "url": format!("{}/claim", crate::account::base_url()) }))
 }
 
 #[cfg(feature = "online")]
@@ -788,8 +852,14 @@ async fn account_begin_link(
     let app_data_dir = state.app_data_dir.clone();
     tauri::async_runtime::spawn(async move {
         let outcome = crate::account::poll_until_decided(&http, &grant, &app_data_dir).await;
+        // Fights uploaded without an account on this PC become the account's.
+        let claimed = if outcome.is_ok() && crate::account::guest::has_guest(&app_data_dir) {
+            crate::account::guest::merge_into_account(&http, &app_data_dir).await.unwrap_or(0)
+        } else {
+            0
+        };
         let payload = match &outcome {
-            Ok(()) => serde_json::json!({ "connected": true }),
+            Ok(()) => serde_json::json!({ "connected": true, "claimed": claimed }),
             Err(why) => serde_json::json!({ "connected": false, "error": why }),
         };
         if let Err(e) = app.emit("account-changed", payload) {
@@ -1253,6 +1323,19 @@ fn set_language(app: tauri::AppHandle, state: tauri::State<'_, AppState>, langua
 fn set_debug_logging(state: tauri::State<'_, AppState>, enabled: bool) {
     logging::logger::set_debug_enabled(enabled, &state.app_data_dir);
     state.settings.set("dpsMeter.debugLoggingEnabled", if enabled { "true" } else { "false" });
+}
+
+/// Settings' "Run as administrator": on restarts the meter elevated (false
+/// when Windows' prompt was refused); off takes effect at the next start.
+#[tauri::command]
+async fn set_run_as_admin(app: tauri::AppHandle, enabled: bool) -> Result<bool, String> {
+    if !enabled {
+        if let Some(state) = app.try_state::<AppState>() {
+            state.settings.set("dpsMeter.runAsAdmin", "false");
+        }
+        return Ok(true);
+    }
+    tokio::task::spawn_blocking(move || restart_as_admin(&app)).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1756,6 +1839,18 @@ async fn account_begin_link() -> Result<serde_json::Value, String> {
 #[cfg(not(feature = "online"))]
 #[tauri::command]
 fn account_sign_out() {}
+
+#[cfg(not(feature = "online"))]
+#[tauri::command]
+fn guest_status() -> serde_json::Value {
+    serde_json::json!({ "hasGuest": false })
+}
+
+#[cfg(not(feature = "online"))]
+#[tauri::command]
+async fn guest_claim_code() -> Result<serde_json::Value, String> {
+    Err(NOT_IN_THIS_BUILD.into())
+}
 
 #[cfg(not(feature = "online"))]
 #[tauri::command]
@@ -3145,6 +3240,59 @@ fn decode_replay_hex(hex: &str) -> Option<Vec<u8>> {
 // ===== APP SETUP =====
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// The identifier the settings live under (tauri.conf.json), for reading
+/// `dpsMeter.runAsAdmin` before Tauri starts.
+const IDENTIFIER: &str = "com.a2tools.dps-meter";
+/// The argument a meter restarting itself as administrator passes: its own
+/// process id, to wait for (it holds the one-meter lock until it has closed).
+const AFTER_ARG: &str = "--after";
+
+/// Before anything starts: a meter started by one restarting itself as
+/// administrator waits for that one to close; one set to run as
+/// administrator (for the game's frame rate) and not yet starts itself again
+/// elevated and ends. Refused, it runs on as it is.
+fn elevate_at_start() {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(pid) = args.iter().position(|a| a == AFTER_ARG).and_then(|i| args.get(i + 1)?.parse::<u32>().ok()) {
+        tracing::info!("Started as administrator: waiting for the meter before to close");
+        platform::admin::wait_for_exit(pid, std::time::Duration::from_secs(20));
+        return;
+    }
+    if !platform::admin::wants_admin(IDENTIFIER) || platform::admin::is_admin() {
+        return;
+    }
+    match platform::admin::relaunch_elevated(&[]) {
+        Ok(true) => {
+            tracing::info!("Set to run as administrator: started again elevated");
+            std::process::exit(0);
+        }
+        Ok(false) => tracing::info!("Set to run as administrator, but the prompt was refused: running as is"),
+        Err(e) => tracing::info!("Set to run as administrator, but could not start elevated: {e}"),
+    }
+}
+
+/// Run as administrator from now on (`dpsMeter.runAsAdmin`), and restart so
+/// now: the new meter is started elevated, then this one closes. Ok(false)
+/// when Windows' prompt was refused (nothing changes then).
+pub(crate) fn restart_as_admin(app: &tauri::AppHandle) -> Result<bool, String> {
+    if platform::admin::is_admin() {
+        if let Some(state) = app.try_state::<AppState>() {
+            state.settings.set("dpsMeter.runAsAdmin", "true");
+        }
+        return Ok(true);
+    }
+    let pid = std::process::id().to_string();
+    if !platform::admin::relaunch_elevated(&[AFTER_ARG.to_string(), pid])? {
+        return Ok(false);
+    }
+    if let Some(state) = app.try_state::<AppState>() {
+        state.settings.set("dpsMeter.runAsAdmin", "true");
+    }
+    tracing::info!("Restarting as administrator");
+    app.exit(0);
+    Ok(true)
+}
+
 pub fn run() {
     // Before anything starts a thread: it may set environment variables.
     let process_note = platform::process::prepare();
@@ -3156,6 +3304,7 @@ pub fn run() {
     if let Some(note) = process_note {
         tracing::info!("{note}");
     }
+    elevate_at_start();
 
     let mut context = tauri::generate_context!();
     if platform::window_startup::loads_hidden()
@@ -3238,6 +3387,7 @@ pub fn run() {
                 for id in crate::plugins::dock::members(window.app_handle()) {
                     crate::plugins::widgets::close_all(window.app_handle(), &id);
                     crate::plugins::boss_live::forget_plugin(window.app_handle(), &id);
+                    crate::plugins::fps::forget_plugin(&id);
                 }
             }
             if let tauri::WindowEvent::Destroyed = event
@@ -3250,6 +3400,7 @@ pub fn run() {
                 if !crate::plugins::dock::members(window.app_handle()).iter().any(|m| m == id) {
                     crate::plugins::widgets::close_all(window.app_handle(), id);
                     crate::plugins::boss_live::forget_plugin(window.app_handle(), id);
+                    crate::plugins::fps::forget_plugin(id);
                 }
                 // The meter hidden and its last plugin window closed: nothing
                 // would be left on screen, so the meter comes back.
@@ -3339,7 +3490,17 @@ pub fn run() {
                 ping_tracker.clone(),
             );
 
+            // A new install (no settings yet): fights upload without an account
+            // unless the player signs in or says no (the account card asks once).
+            let new_install = !app_data_dir.join("settings.json").exists();
             let settings = Settings::new(app_data_dir.clone());
+            #[cfg(feature = "online")]
+            if new_install {
+                settings.set(crate::account::guest::GUEST_UPLOAD_KEY, "true");
+                settings.set("dpsMeter.newInstall", "true");
+            }
+            #[cfg(not(feature = "online"))]
+            let _ = new_install;
             if let Some(ms) = settings.get(ALL_TARGETS_WINDOW_KEY).and_then(|v| v.trim().parse::<i64>().ok()) {
                 dps_calculator.set_all_targets_window_ms(ms);
             }
@@ -3631,6 +3792,15 @@ pub fn run() {
                 let mut last_ping: Option<u64> = None;
                 // The meter hidden because AION2 is closed (Settings).
                 let mut hidden_closed = false;
+                // Hide while AION2 is closed or while solo, as last checked.
+                let mut closed_or_solo = false;
+                // Out of combat (#106): the setting last seen, and when the
+                // wait began (the meter started, the setting changed, the
+                // player showed the meter, or a Settings/History/Details
+                // window or the mouse kept it up).
+                let mut combat_secs: u64 = 0;
+                let mut combat_wait_from = crate::clock::now_ms();
+                let mut was_wanted = true;
                 // The other windows hidden with the meter (auto-hide), and how
                 // many ticks nothing of ours or the game has been in front.
                 let mut hidden_with_meter: std::collections::HashSet<String> = Default::default();
@@ -3667,33 +3837,75 @@ pub fn run() {
                         }
 
                         // --- Hide while AION2 is closed, or while solo (every 2 s) ---
+                        // --- or out of combat (every tick) ---
                         // Hidden as the game closes or the party breaks up (or
                         // the option is turned on then), shown as it opens or a
                         // party forms: in between, the keybind can still bring
                         // the meter back. Solo is fewer than two in the party,
                         // as the game last told (Hirai, 2026-10-22).
-                        if tick_count % 4 == 0 && !crate::fork::meter_closed() { // fork: closed beside the timer stays closed
-                            let on = |key: &str| state.settings.get(key).as_deref() == Some("true");
+                        // Out of combat: hidden that many seconds after the
+                        // last damage the meter counted, back with the next
+                        // hit; no keybind needed (#106, a headless stream).
+                        let on = |key: &str| state.settings.get(key).as_deref() == Some("true");
+                        if tick_count % 4 == 0 {
                             let closed = on("dpsMeter.hideWhenGameClosed") && !platform::window_detector::find_aion2_window();
                             let solo = on("dpsMeter.hideWhenSolo") && state.data_storage.get_party_members().len() < 2;
-                            let want = meter_wanted(&handle) && (closed || solo);
-                            if want != hidden_closed {
-                                if let Some(window) = handle.get_webview_window("main") {
-                                    if want {
-                                        platform::window::minimize_off_top(&window);
-                                    } else {
-                                        show_meter_again(&handle, &window);
-                                    }
+                            closed_or_solo = closed || solo;
+                        }
+                        let now_ms = crate::clock::now_ms();
+                        let secs = hide_out_of_combat_secs(&state.settings);
+                        if secs != combat_secs {
+                            combat_secs = secs;
+                            combat_wait_from = now_ms;
+                        }
+                        let wanted = meter_wanted(&handle) && !crate::fork::meter_closed(); // fork: closed beside the timer stays closed
+                        if wanted && !was_wanted {
+                            // Shown by the player out of combat: not hidden
+                            // again at once.
+                            combat_wait_from = now_ms;
+                        }
+                        was_wanted = wanted;
+                        let main = handle.get_webview_window("main");
+                        if combat_secs > 0
+                            && let Some(window) = &main
+                            && keeps_meter_up(&handle, window, !hidden_closed)
+                        {
+                            combat_wait_from = now_ms;
+                        }
+                        let last_combat = state.data_storage.last_damage_ms().unwrap_or(i64::MIN).max(combat_wait_from);
+                        let idle = tick_count > 20 && out_of_combat(last_combat, now_ms, combat_secs);
+                        let want = wanted && (closed_or_solo || idle);
+                        if want != hidden_closed {
+                            if let Some(window) = &main {
+                                if want {
+                                    platform::window::minimize_off_top(window);
+                                } else if wanted
+                                    && !(on("dpsMeter.autoHideMeter")
+                                        && !platform::window_detector::is_aion2_foreground()
+                                        && !window.is_focused().unwrap_or(false))
+                                {
+                                    // Hidden by the player meanwhile, it stays
+                                    // so; with another program in front and
+                                    // "Hide when AION2 isn't focused" on, the
+                                    // check below brings it back with the game.
+                                    show_meter_again(&handle, window);
                                 }
-                                hidden_closed = want;
                             }
+                            hidden_closed = want;
+                            HIDDEN_BY_RULE.store(want, std::sync::atomic::Ordering::Relaxed);
                         }
 
                         // --- Auto-hide when AION2 loses focus (every tick) ---
-                        let auto_hide = tick_count > 20
-                            && !hidden_closed
+                        // The meter's own hiding waits while it is hidden
+                        // anyway (by the player, AION2 closed, solo, or out
+                        // of combat); the rest below doesn't: Ping's icon
+                        // stayed over the browser with the meter hidden while
+                        // solo (Hirai).
+                        let others_auto_hide = tick_count > 20
                             && state.settings.get("dpsMeter.autoHideMeter")
-                                .unwrap_or_default() == "true"
+                                .unwrap_or_default() == "true";
+                        let auto_hide = others_auto_hide
+                            && !hidden_closed
                             && meter_wanted(&handle);
                         if auto_hide && !crate::fork::meter_closed() { // fork: closed beside the timer
                             if let Some(window) = handle.get_webview_window("main") {
@@ -3724,6 +3936,8 @@ pub fn run() {
                                     }
                                 }
                             }
+                        }
+                        if others_auto_hide {
                             // The rest go and come back with it: gone while
                             // another program is in front, back with the game
                             // or any of the meter's windows (Settings in use
@@ -3792,7 +4006,7 @@ pub fn run() {
                         // fighting or not: a meter left open after the
                         // connection came back catches up on its own.
                         #[cfg(feature = "online")]
-                        if state.settings.get(share::AUTO_UPLOAD_KEY).as_deref() == Some("true") {
+                        if share::auto_uploads(&state.settings) {
                             let now = crate::clock::now_ms();
                             for id in share::auto_upload_retries_due(&state.app_data_dir, now) {
                                 if let Ok(record) = state.fight_history.load_fight(&id) {
@@ -3939,6 +4153,9 @@ pub fn run() {
             crate::plugins::widgets::plugin_widget_post,
             crate::plugins::widgets::plugin_widget_drag,
             crate::plugins::boss_live::plugin_boss_follow,
+            crate::plugins::fps::plugin_fps_watch,
+            set_run_as_admin,
+            crate::plugins::fps::plugin_fps_admin,
             crate::plugins::widgets::plugin_widget_area,
             crate::plugins::widgets::plugin_widget_where,
             crate::plugins::widgets::plugin_widget_place,
@@ -3968,6 +4185,8 @@ pub fn run() {
             stream_overlay_new_key,
             account_begin_link,
             account_sign_out,
+            guest_status,
+            guest_claim_code,
             get_settings,
             update_settings,
             get_ping,
@@ -4036,6 +4255,21 @@ pub fn run() {
 mod tests {
     #[cfg_attr(not(feature = "online"), allow(unused_imports))]
     use super::*;
+
+    /// "Hide out of combat" (#106): hidden once the seconds have passed since
+    /// the last hit (or the wait began), never while off.
+    #[test]
+    fn the_meter_hides_after_the_seconds_out_of_combat() {
+        assert!(!out_of_combat(10_000, 19_999, 10));
+        assert!(out_of_combat(10_000, 20_000, 10));
+        assert!(out_of_combat(10_000, 200_000, 120));
+        assert!(!out_of_combat(10_000, 129_999, 120));
+        // Off.
+        assert!(!out_of_combat(0, i64::MAX, 0));
+        // No damage yet and no wait begun: no overflow.
+        assert!(out_of_combat(i64::MIN, 0, 30));
+        assert!(!out_of_combat(0, 0, u64::MAX));
+    }
 
     /// Locked, the window ignores the mouse except over the lock button, and
     /// while a card is open: a one-time popup at start under a lock left on
