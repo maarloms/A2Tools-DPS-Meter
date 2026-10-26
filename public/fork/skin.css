@@ -1077,3 +1077,11 @@
 :root.forkSkin .forkDummyRun.isCurrent { background: color-mix(in srgb, var(--fork-accent) 18%, transparent); }
 :root.forkSkin .forkDummySpark polyline { stroke: var(--fork-accent); }
 :root.forkSkin .forkDummySelect option { background: rgb(var(--hud-bg)); }
+
+/* Support dialog (2.0.79): no ExitLag sponsor card and no "More ways to
+   donate on a2tools.app" link in the fork, whatever the theme (Marlon,
+   26.10.2026). The rest of the dialog stays upstream's. */
+.supportModal .supportSponsor,
+.supportModal .supportMore {
+  display: none !important;
+}
