@@ -3496,7 +3496,7 @@ pub fn run() {
             let settings = Settings::new(app_data_dir.clone());
             #[cfg(feature = "online")]
             if new_install {
-                settings.set(crate::account::guest::GUEST_UPLOAD_KEY, "true");
+                // fork: a new install doesn't upload without an account (guestUpload stays off, fork/privacy.rs)
                 settings.set("dpsMeter.newInstall", "true");
             }
             #[cfg(not(feature = "online"))]
@@ -3605,7 +3605,7 @@ pub fn run() {
             }
             #[cfg(feature = "online")]
             crate::presence::spawn(app.handle().clone());
-            crate::fork::privacy::seed_off_by_default(&app.state::<AppState>().settings); // fork: boss timers, A2 tag and Supply Requests start off
+            crate::fork::privacy::seed_off_by_default(&app.state::<AppState>().settings); // fork: data sync (boss timers + Supply Requests), A2 tag and guest uploads start off
             #[cfg(feature = "online")]
             crate::boss_report::spawn(app.handle().clone());
             #[cfg(feature = "online")]
