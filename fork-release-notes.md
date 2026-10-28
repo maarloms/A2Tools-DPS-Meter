@@ -1,26 +1,30 @@
 **Neu**
-- Außerhalb des Kampfes ausblenden: Unter Einstellungen → Meter-Einstellungen → „Außerhalb des Kampfes ausblenden“ lässt sich eine Zeit wählen (Standard: Aus). Warst du so lange nicht im Kampf, blendet sich das Meter aus und erscheint mit dem nächsten Treffer von selbst wieder. Solange Einstellungen, Verlauf oder Details offen sind oder die Maus über dem Meter ist, bleibt es sichtbar. Ein neben dem Event-Timer geschlossenes Meter bleibt geschlossen.
-- Test-Plugins: Unter Einstellungen → Plugins gibt es jetzt einen Bereich „Test-Plugins“ mit frühen Plugin-Versionen zum Ausprobieren. Sie sind signiert wie die anderen Plugins und werden erst installiert, wenn du es willst.
-- Mehr Daten für Plugins: Plugins, denen du es erlaubst, sehen jetzt zu deinem Charakter u. a. Kampfkraft, Ausrüstungswert, Odyle-Energie, Inhalts-Zähler (z. B. tägliche Dungeons), Shop-Limits, Herstellungen, heute erhaltenes Kinah und Abyss-Punkte der Woche. Das bleibt auf deinem PC: Plugins haben keinen Internetzugriff.
-- Als Administrator ausführen (Windows): Unter Einstellungen → Erweitert lässt sich das Meter als Administrator starten. Das ist nur nötig, wenn ein Plugin die Bildrate (FPS) des Spiels anzeigen soll; Windows fragt dann bei jedem Start nach. Standardmäßig aus.
-
-**Geändert**
-- Ein einziger Sync-Schalter: Die bisherigen Schalter „Feldboss-Timer teilen“ und „Versorgungsaufträge teilen“ sind zu einem Schalter zusammengefasst: Einstellungen → Erweitert → „Nützliche Daten mit A2Tools synchronisieren“. Er ist standardmäßig aus. Wichtig: Wer bisher das Teilen der Boss-Timer eingeschaltet hatte, muss den neuen Schalter selbst wieder einschalten.
-- Bosskämpfe ohne Konto hochladen: Neu in A2Tools ist ein Schalter, der Bosskämpfe öffentlich und ohne Konto auf a2tools.app hochlädt. Im Fork ist er immer aus, auch bei einer Neuinstallation; du findest ihn unter Einstellungen → A2 Tools-Konto, wenn du ihn nutzen möchtest.
+- Update-Prüfung jetzt direkt in der App: Das Meter fragt selbst bei den Fork-Releases auf GitHub nach einer neuen Version (beim Start, danach alle 6 Stunden und über den Knopf in den Einstellungen). „Jetzt installieren“ lädt nur Installer aus den Releases dieses Forks und installiert sie nur, wenn die Prüfsumme stimmt; sonst bricht es mit einer Meldung ab. Das Patchnotes-Fenster und der grüne Update-Knopf bleiben wie gewohnt.
+- Meter bleibt fest an: Unter Einstellungen → Meter-Einstellungen lässt sich wählen, welcher Rand des Meters stehen bleibt, wenn Zeilen dazukommen oder wegfallen (Oben, Mitte oder Unten).
+- Kampfverlauf: Die gruppierten Ansichten sind übersichtlicher, mit Bestzeit, Höchstwert und „Alle aufklappen“/„Alle zuklappen“.
+- Plugins: „Plugins auto-aktualisieren“ unter Einstellungen → Plugins installiert Plugin-Updates beim Start im Hintergrund (Standard: Aus). Ein Update, das neue Rechte verlangt, wartet weiter auf dein Ja. Im Update-Hinweis steht jetzt, was in der neuen Plugin-Version neu ist.
+- Plugins können mit deiner Erlaubnis nach deinem Tod sehen, welcher Spieler dich getötet hat und wer geholfen hat, und Bildschirmfotos ihres eigenen Fensters machen.
+- Installer: Fehlt Npcap, bietet eine neue Seite im Installer an, es nach dem Setup herunterzuladen und zu öffnen (Haken ist gesetzt; Npcap-Setup wie gewohnt durchklicken).
 
 **Behoben**
-- Plugin-Fenster und Widgets blenden sich jetzt auch dann mit einem nicht fokussierten Spiel aus, wenn das Meter selbst gerade ausgeblendet ist (z. B. solo oder von dir ausgeblendet); vorher blieben sie über anderen Programmen stehen.
-- Buff-Zeitleiste: Buffs, die bisher nur als Nummer (z. B. #122400071) erschienen, tragen jetzt den Namen ihres Skills.
-- Verlauf: Der Link eines hochgeladenen Kampfes ist anklickbar.
+- Erfassung nach Paketlücken: Fehlen unterwegs Pakete, liest das Meter die Daten des Servers jetzt in der richtigen Reihenfolge weiter, statt danach Treffer zu verlieren.
+- Boss-Erkennung: Bekommt ein neu erscheinender Gegner die Nummer eines zuvor besiegten, wird er jetzt mit seinem eigenen Namen erkannt.
+- „Außerhalb des Kampfes ausblenden“ zeigt die Sekunden an statt „{seconds}“.
+- Skill-Icons: Jeder Klassenskill hat jetzt sein eigenes Icon.
+- Ein geschlossenes Plugin-Widget bleibt geschlossen, wenn die Maus darüber fährt; ausgeschaltete Plugins öffnen keine Icons mehr.
+
+**Geändert**
+- Datenschutz: Die Einstellungen haben einen eigenen Bereich „Datenschutz“. Dort stehen jetzt „Bosskämpfe anonym teilen“ und „Nützliche Daten mit A2Tools synchronisieren“; beide bleiben im Fork aus, bis du sie selbst einschaltest. Die Frage zum Teilen, die A2Tools beim Start zeigt, erscheint im Fork nicht. Der Text dort sagt jetzt, was der Fork selbst sendet: „Gruppe teilen“ schickt Live-DPS und Kämpfe mit Charakternamen an den eingetragenen Gruppenserver, „Diagnose senden“ nur auf Knopfdruck Logs und die letzten Kämpfe.
+- Wer „Bosskämpfe anonym teilen“ selbst eingeschaltet hatte: A2Tools lädt jetzt erst hoch, wenn danach gefragt wurde. Den Schalter einmal aus- und wieder einschalten, sonst wird nichts mehr hochgeladen.
+- Abyss-Bosse (Kaira, Tamasa, Argo, Nahma): Mit eingeschaltetem „Nützliche Daten mit A2Tools synchronisieren“ werden auch ihre Kills und HP geteilt.
 
 **Sonstiges**
-- Basis jetzt A2Tools 2.0.79.
-- Der neue Sponsor-Hinweis (ExitLag) und der Link „Weitere Spendenmöglichkeiten auf a2tools.app“ werden im Unterstützen-Fenster des Forks nicht angezeigt.
-- Ein Fehler aus A2Tools 2.0.78 (das Meter-Fenster endete direkt unter der Boss-HP-Leiste und wuchs nicht mehr mit den Zeilen) war im Fork nie enthalten; ein neuer Test stellt sicher, dass das Fenster mit den Zeilen wächst.
+- Basis jetzt A2Tools 2.0.83.
+- Sicherheit: Mehrere Punkte aus einer Sicherheitsprüfung von A2Tools sind übernommen (Links, Plugin-Fenster dürfen nur noch ihre eigenen Befehle nutzen, Discord-Antworten begrenzt). Die Update-Prüfung von A2Tools selbst ist im Fork abgeschaltet, damit nie das Original-Meter angeboten wird.
 - „Gruppe teilen“, Puppen-Test, HPS, Event-Timer und alle bisherigen Fork-Funktionen bleiben erhalten. „Logs an den Entwickler senden“ bleibt im Fork abgeschaltet; der Party-A2-Tag bleibt aus, bis du ihn selbst einschaltest.
 
 **Installation (neu)**
-1. `AION2-DPS-Meter_3.0.30_x64.msi` herunterladen und ausführen. Windows SmartScreen warnt, weil der Installer nicht signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
-2. Npcap: Fehlt es, bietet das Meter beim ersten Start an, es herunterzuladen und zu installieren (Standardoptionen übernehmen, danach Meter neu starten).
+1. `AION2-DPS-Meter_3.0.31_x64.msi` herunterladen und ausführen. Windows SmartScreen warnt, weil der Installer nicht signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
+2. Npcap: Fehlt es, bietet der Installer an, es nach dem Setup herunterzuladen (Haken gesetzt lassen, Npcap-Setup mit den Standardoptionen durchklicken). Sonst fragt das Meter beim ersten Start danach.
 3. Meter starten, im Spiel einloggen. Updates kommen danach automatisch (Meldung beim Start).
 4. Einstellungen → „Gruppe teilen“: Einladungslink einfügen.
