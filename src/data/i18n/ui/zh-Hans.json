@@ -895,6 +895,7 @@
     "shareHint": "首领战结束后会加入 a2tools.app 的公开记录和排行榜。所有名字都会隐藏，包括你的。无需账号。",
     "signedIn": "已登录：首领战会上传到你的 A2 Tools 账号（见 A2 Tools 账号）。",
     "never": "绝不发送：聊天、电脑名称、角色的完整名字。“发送日志给开发者”（高级）只在你按下时才发送。",
+    "forkNever": "Never sent to a2tools.app: chat, your PC's name, your character's full name. \"Group sharing\" sends live DPS and fights, with character names, to the group server you entered; \"Send diagnostics\" sends logs (meter.log, debug.log), your settings without the secret and recent fights there, only when you press it. This version has no \"Send Logs to Dev\".",
     "policy": "完整隐私政策"
   }
 }

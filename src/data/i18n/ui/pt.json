@@ -895,6 +895,7 @@
     "shareHint": "Ao fim de uma luta contra chefe, ela entra nos registros públicos e rankings do a2tools.app. Todos os nomes ficam ocultos, inclusive o seu. Não precisa de conta.",
     "signedIn": "Conectado: suas lutas contra chefes vão para a sua conta A2 Tools (veja Conta A2 Tools).",
     "never": "Nunca enviado: o chat, o nome do seu PC, o nome completo do seu personagem. Enviar registros ao dev (Avançado) só envia quando você aperta.",
+    "forkNever": "Never sent to a2tools.app: chat, your PC's name, your character's full name. \"Group sharing\" sends live DPS and fights, with character names, to the group server you entered; \"Send diagnostics\" sends logs (meter.log, debug.log), your settings without the secret and recent fights there, only when you press it. This version has no \"Send Logs to Dev\".",
     "policy": "Política de privacidade completa"
   }
 }

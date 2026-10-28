@@ -895,6 +895,7 @@
     "shareHint": "Al terminar un combate de jefe, se suma a los registros públicos y clasificaciones de a2tools.app. Todos los nombres van ocultos, también el tuyo. No hace falta cuenta.",
     "signedIn": "Sesión iniciada: tus combates de jefes se suben a tu cuenta de A2 Tools (ver Cuenta de A2 Tools).",
     "never": "Nunca se envía: el chat, el nombre de tu PC, el nombre completo de tu personaje. Enviar registros al desarrollador (Avanzado) solo envía cuando lo pulsas.",
+    "forkNever": "Never sent to a2tools.app: chat, your PC's name, your character's full name. \"Group sharing\" sends live DPS and fights, with character names, to the group server you entered; \"Send diagnostics\" sends logs (meter.log, debug.log), your settings without the secret and recent fights there, only when you press it. This version has no \"Send Logs to Dev\".",
     "policy": "Política de privacidad completa"
   }
 }

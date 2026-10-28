@@ -895,6 +895,7 @@
     "shareHint": "À la fin d'un combat de boss, il rejoint les journaux publics et les classements d'a2tools.app. Tous les noms sont masqués, le vôtre aussi. Aucun compte nécessaire.",
     "signedIn": "Connecté : vos combats de boss sont envoyés sur votre compte A2 Tools (voir Compte A2 Tools).",
     "never": "Jamais envoyés : le chat, le nom de votre PC, le nom complet de votre personnage. Envoyer les journaux au dev (Avancé) n'envoie que lorsque vous appuyez.",
+    "forkNever": "Never sent to a2tools.app: chat, your PC's name, your character's full name. \"Group sharing\" sends live DPS and fights, with character names, to the group server you entered; \"Send diagnostics\" sends logs (meter.log, debug.log), your settings without the secret and recent fights there, only when you press it. This version has no \"Send Logs to Dev\".",
     "policy": "Politique de confidentialité complète"
   }
 }

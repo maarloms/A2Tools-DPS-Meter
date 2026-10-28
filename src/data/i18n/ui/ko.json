@@ -895,6 +895,7 @@
     "shareHint": "보스 전투가 끝나면 a2tools.app의 공개 로그와 리더보드에 올라갑니다. 내 이름을 포함해 모든 이름이 가려집니다. 계정은 필요 없습니다.",
     "signedIn": "로그인됨: 보스 전투는 A2 Tools 계정으로 업로드됩니다(A2 Tools 계정 참고).",
     "never": "절대 전송되지 않음: 채팅, PC 이름, 캐릭터의 전체 이름. 개발자에게 로그 보내기(고급)는 직접 누를 때만 로그를 보냅니다.",
+    "forkNever": "Never sent to a2tools.app: chat, your PC's name, your character's full name. \"Group sharing\" sends live DPS and fights, with character names, to the group server you entered; \"Send diagnostics\" sends logs (meter.log, debug.log), your settings without the secret and recent fights there, only when you press it. This version has no \"Send Logs to Dev\".",
     "policy": "개인정보 처리방침 전문"
   }
 }

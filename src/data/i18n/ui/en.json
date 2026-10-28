@@ -895,6 +895,7 @@
     "shareHint": "When a boss fight ends it joins a2tools.app's public logs and leaderboards. Every name is hidden, yours too. No account needed.",
     "signedIn": "Signed in: your boss fights upload to your A2 Tools account (see A2 Tools Account).",
     "never": "Never sent: chat, your PC's name, your character's full name. Send Logs to Dev (Advanced) sends logs only when you press it.",
+    "forkNever": "Never sent to a2tools.app: chat, your PC's name, your character's full name. \"Group sharing\" sends live DPS and fights, with character names, to the group server you entered; \"Send diagnostics\" sends logs (meter.log, debug.log), your settings without the secret and recent fights there, only when you press it. This version has no \"Send Logs to Dev\".",
     "policy": "Full privacy policy"
   }
 }

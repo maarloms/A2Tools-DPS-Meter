@@ -105,9 +105,37 @@ test('the guest upload switch stays in Settings', () => {
 test('the A2-tag and account popups, which would save their answer, are never opened', () => {
   assert.match(core, /maybeShowPartyPromo\(\) \{/);
   assert.doesNotMatch(core, /this\.maybeShowPartyPromo\(/);
-  // The account card would keep guest uploads on for a new install.
-  assert.match(core, /async maybeShowAccountPromo\(\) \{/);
+  // The sharing question (2.0.80, account/guest.rs `uploads`): its choice
+  // starts at "share" and its notice keeps sharing on; it also writes
+  // sharingAsked. The fork never shows it (Marlon, 27.10.2026).
+  assert.match(core, /async maybeShowSharing\(\) \{/);
+  assert.doesNotMatch(core, /this\.maybeShowSharing\(/);
+  for (const name of ['showSharingChoice', 'showSharingNotice']) {
+    assert.match(core, new RegExp(`\\n  ${name}\\(asked\\) \\{`));
+    // Called only from maybeShowSharing.
+    assert.equal(core.split(`this.${name}(`).length - 1, 1, name);
+    const caller = core.indexOf(`this.${name}(`);
+    assert.ok(caller > core.indexOf('async maybeShowSharing() {') && caller < core.indexOf('\n  showSharingChoice(asked) {'), name);
+  }
+  // The account card of 2.0.79 is gone; should it come back, never opened.
   assert.doesNotMatch(core, /this\.maybeShowAccountPromo\(/);
+});
+
+test('sharingAsked is set only by the Settings switch turned on (or the unused question)', () => {
+  const sets = [...core.matchAll(/safeSetSetting\(this\.storageKeys\.sharingAsked, "true"\)/g)].map((m) => m.index);
+  assert.equal(sets.length, 2, String(sets));
+  // The guest upload switch, only when turned on.
+  assert.ok(guestWiring.includes('if (on) this.safeSetSetting(this.storageKeys.sharingAsked, "true");'), guestWiring);
+  const question = [core.indexOf('async maybeShowSharing() {'), core.indexOf('\n  showSharingChoice(asked) {')];
+  assert.equal(sets.filter((at) => at > question[0] && at < question[1]).length, 1);
+  // Upstream's notice is the only page that asks the backend to delete
+  // earlier guest uploads (guest_stop_sharing -> DELETE /api/guest/logs).
+  const stops = [...core.matchAll(/"guest_stop_sharing"/g)].map((m) => m.index);
+  assert.equal(stops.length, 1);
+  assert.ok(stops[0] > core.indexOf('\n  showSharingNotice(asked) {'));
+  for (const file of ['../public/src/js/tauriBridge.js', '../index.html', '../public/fork/cloud.js']) {
+    assert.doesNotMatch(readFileSync(new URL(file, import.meta.url), 'utf8'), /guest_stop_sharing|sharingAsked/, file);
+  }
 });
 
 test('a new install does not turn guest uploads on', () => {
@@ -125,4 +153,21 @@ test('the backend writes the off default before the senders start', () => {
     const at = app.indexOf(sender);
     assert.ok(at > seed, `${sender} after the seed`);
   }
+});
+
+test('the privacy section says what the fork sends (3.0.31)', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /<div class="privacyNever" data-i18n="privacy\.forkNever">/);
+  assert.doesNotMatch(html, /data-i18n="privacy\.never"/, "upstream's sentence names Send Logs to Dev");
+  for (const lang of ['de', 'en', 'es', 'fr', 'ja', 'ko', 'pt', 'ru', 'zh-Hans', 'zh-Hant']) {
+    const ui = JSON.parse(readFileSync(new URL(`../src/data/i18n/ui/${lang}.json`, import.meta.url), 'utf8'));
+    assert.equal(typeof ui.privacy.forkNever, 'string', lang);
+  }
+  const de = JSON.parse(readFileSync(new URL('../src/data/i18n/ui/de.json', import.meta.url), 'utf8')).privacy.forkNever;
+  assert.match(de, /„Gruppe teilen“ sendet .*Charakternamen/);
+  assert.match(de, /„Diagnose senden“ .*meter\.log/);
+  assert.match(de, /„Logs an Entwickler senden“ gibt es in dieser Version nicht/);
+  const en = JSON.parse(readFileSync(new URL('../src/data/i18n/ui/en.json', import.meta.url), 'utf8')).privacy.forkNever;
+  assert.match(en, /"Group sharing" sends .*character names/);
+  assert.match(en, /no "Send Logs to Dev"/);
 });

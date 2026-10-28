@@ -18,7 +18,12 @@
 //!   "Upload boss fights without an account", public on a2tools.app.
 //!   Upstream turns it on for a new install and asks once with its account
 //!   card; the fork shows no such card, so a new install doesn't turn it on
-//!   (app.rs, `// fork:`) and it is written "false" here.
+//!   (app.rs, `// fork:`) and it is written "false" here. From 2.0.80
+//!   uploads also need `dpsMeter.sharingAsked` (`guest::uploads`), set by
+//!   upstream's sharing question or the switch turned on; the fork never
+//!   shows the question and sets nothing for players who had it on
+//!   (Marlon, 27.10.2026): for them the switch still shows on, but nothing
+//!   uploads until it is turned off and on again.
 //!
 //! Upstream's loops treat a missing value as on (`!= "false"`), so a missing
 //! value is written as "false" once, before they start. A value the user set
@@ -238,16 +243,29 @@ mod tests {
     /// it "true" by itself (upstream's new-install default is the fork's
     /// `// fork:` in app.rs), the guest is made only on an upload that checked
     /// the switch, and the fork seeds it "false". The claim calls need a guest
-    /// key, which only such an upload makes. A new path, POST or caller fails
-    /// here, to be checked before a release.
+    /// key, which only such an upload makes. From 2.0.80 the switch is
+    /// `guest::uploads` (also `sharingAsked`, which no backend code sets), and
+    /// DELETE /api/guest/logs deletes earlier guest uploads only after "Stop
+    /// sharing" (`guest_stop_sharing`, the only writer of the pending flag).
+    /// A new path, POST or caller fails here, to be checked before a release.
     #[test]
     #[cfg(feature = "online")]
     fn guest_uploads_only_with_the_switch() {
         let guest = code_of(include_str!("../account/guest.rs"));
-        assert_eq!(api_paths(&guest), ["/api/guest", "/api/guest/claim-code", "/api/guest/merge"]);
+        assert_eq!(api_paths(&guest), ["/api/guest", "/api/guest/claim-code", "/api/guest/logs", "/api/guest/merge"]);
         assert_eq!(guest.matches(".post(").count(), 3);
-        assert_eq!(guest.matches(".get(").count(), 0);
-        assert_eq!(guest.matches(".send()").count(), 3);
+        assert_eq!(guest.matches(".delete(").count(), 1);
+        // No GET; the two `settings.get(` are the switch's (uploads()).
+        assert_eq!(guest.matches(".get(").count(), guest.matches("settings.get(").count());
+        assert_eq!(guest.matches("settings.get(").count(), 2);
+        assert_eq!(guest.matches(".send()").count(), 4);
+        // The switch (2.0.80): "true", and asked about sharing – which only
+        // the switch turned on in Settings or upstream's sharing question
+        // (never shown in the fork, tests/fork-privacy-defaults.test.mjs)
+        // writes.
+        let uploads = body(&guest, "pub fn uploads(");
+        assert!(uploads.contains("settings.get(GUEST_UPLOAD_KEY).as_deref() == Some(\"true\")\n        && settings.get(SHARING_ASKED_KEY).as_deref() == Some(\"true\")"), "{uploads}");
+        assert!(!uploads.contains("||"), "{uploads}");
         // The guest is made in token(), which keeps its key (guest.dat).
         let token = body(&guest, "pub async fn token(");
         assert!(token.contains("/api/guest\""));
@@ -257,17 +275,38 @@ mod tests {
         assert!(merge.find("secret::load_guest(app_data_dir) else { return None }").unwrap() < merge.find(".send()").unwrap());
         let claim = body(&guest, "pub async fn claim_code(");
         assert!(claim.find("secret::load_guest(app_data_dir) else {").unwrap() < claim.find(".send()").unwrap());
+        // DELETE /api/guest/logs (2.0.80) deletes this PC's guest uploads:
+        // only with a guest key kept.
+        let delete = body(&guest, "pub async fn delete_uploads(");
+        assert!(delete.find("secret::load_guest(app_data_dir) else { return Some(0) }").unwrap() < delete.find(".send()").unwrap());
+        assert!(delete.contains("/api/guest/logs"));
 
         let mut token_calls = Vec::new();
+        let mut delete_calls = Vec::new();
         for p in sources().iter().filter(|p| !p.ends_with("fork/privacy.rs") && !p.ends_with("account/guest.rs")) {
             // The whole file: share/mod.rs has a test module before the upload.
             let code = std::fs::read_to_string(p).unwrap().replace("\r\n", "\n");
             // Nothing turns the switch on by itself.
-            for set in ["GUEST_UPLOAD_KEY, \"true\"", "\"dpsMeter.guestUpload\", \"true\""] {
-                assert!(!code.contains(set), "{p:?} sets guest uploads on");
+            for set in [
+                "GUEST_UPLOAD_KEY, \"true\"",
+                "\"dpsMeter.guestUpload\", \"true\"",
+                "SHARING_ASKED_KEY, \"true\"",
+                "\"dpsMeter.sharingAsked\", \"true\"",
+            ] {
+                assert!(!code.contains(set), "{p:?} sets guest uploads on: {set}");
             }
             for (at, _) in code.match_indices("guest::token(") {
                 token_calls.push((p.clone(), code[..at].to_string()));
+            }
+            for (at, _) in code.match_indices("guest::delete_uploads(") {
+                delete_calls.push((p.clone(), code[..at].to_string()));
+            }
+            // The deletion is set pending only by "Stop sharing".
+            if code.contains("DELETE_PENDING_KEY, \"true\"") {
+                assert!(p.ends_with("app.rs"), "{p:?} sets the deletion pending");
+                assert_eq!(code.matches("DELETE_PENDING_KEY, \"true\"").count(), 1);
+                let stop = body(&code, "fn guest_stop_sharing(app");
+                assert!(stop.contains("DELETE_PENDING_KEY, \"true\""), "{stop}");
             }
             // A merge only where this PC holds a guest key.
             for (at, _) in code.match_indices("guest::merge_into_account(") {
@@ -281,7 +320,14 @@ mod tests {
         let (file, before) = &token_calls[0];
         assert!(file.ends_with("share/mod.rs") || file.ends_with("share\\mod.rs"), "{file:?}");
         let arm = &before[before.rfind("crate::account::secret::Stored::Missing").expect("the signed-out arm")..];
-        assert!(arm.contains("if settings.get(crate::account::guest::GUEST_UPLOAD_KEY).as_deref() == Some(\"true\") =>"), "{arm}");
+        assert!(arm.contains("if crate::account::guest::uploads(settings) =>"), "{arm}");
+        // The deletion is sent from one place: the loop that runs while it is
+        // pending (after "Stop sharing", which the fork never shows).
+        assert_eq!(delete_calls.len(), 1, "{:?}", delete_calls.iter().map(|c| &c.0).collect::<Vec<_>>());
+        let (file, before) = &delete_calls[0];
+        assert!(file.ends_with("app.rs"), "{file:?}");
+        let pending = &before[before.rfind("fn spawn_guest_delete(").expect("the deletion loop")..];
+        assert!(pending.contains("if state.settings.get(crate::account::guest::DELETE_PENDING_KEY).as_deref() != Some(\"true\") {\n                return;\n            }"), "{pending}");
         // The new-install block upstream turned it on in is the fork's.
         let app = include_str!("../app.rs").replace("\r\n", "\n");
         let at = app.find("            if new_install {\n").expect("the new-install block");

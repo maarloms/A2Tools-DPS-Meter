@@ -1215,7 +1215,8 @@
                     </span>
                   </label>
                 </div>
-                <div class="privacyNever" data-i18n="privacy.never">Never sent: chat, your PC's name, your character's full name. Send Logs to Dev (Advanced) sends logs only when you press it.</div>
+                <!-- fork: what the fork itself sends (Group sharing, diagnostics) and no Send Logs to Dev -->
+                <div class="privacyNever" data-i18n="privacy.forkNever">Never sent to a2tools.app: chat, your PC's name, your character's full name. "Group sharing" sends live DPS and fights, with character names, to the group server you entered; "Send diagnostics" sends logs (meter.log, debug.log), your settings without the secret and recent fights there, only when you press it. This version has no "Send Logs to Dev".</div>
                 <div class="privacyLinks"><button class="settingsAction privacyPolicyBtn" type="button" data-i18n="privacy.policy">Full privacy policy</button></div>
               </section>
               <section class="settingsSection" id="settingsSection-advanced" role="tabpanel" aria-labelledby="settingsTab-advanced" data-section="advanced" hidden>

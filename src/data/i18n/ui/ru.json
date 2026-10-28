@@ -895,6 +895,7 @@
     "shareHint": "Когда бой с боссом заканчивается, он попадает в открытые логи и рейтинги a2tools.app. Все имена скрыты, включая ваше. Аккаунт не нужен.",
     "signedIn": "Вы вошли: бои с боссами загружаются в ваш аккаунт A2 Tools (см. Аккаунт A2 Tools).",
     "never": "Никогда не отправляется: чат, имя ПК, полное имя персонажа. «Отправить логи разработчику» (Дополнительно) отправляет их только по нажатию.",
+    "forkNever": "Never sent to a2tools.app: chat, your PC's name, your character's full name. \"Group sharing\" sends live DPS and fights, with character names, to the group server you entered; \"Send diagnostics\" sends logs (meter.log, debug.log), your settings without the secret and recent fights there, only when you press it. This version has no \"Send Logs to Dev\".",
     "policy": "Полная политика конфиденциальности"
   }
 }

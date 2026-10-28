@@ -895,6 +895,7 @@
     "shareHint": "Nach einem Bosskampf kommt er in die öffentlichen Logs und Bestenlisten von a2tools.app. Alle Namen sind verborgen, auch deiner. Kein Konto nötig.",
     "signedIn": "Angemeldet: Deine Bosskämpfe werden in dein A2-Tools-Konto hochgeladen (siehe A2 Tools Konto).",
     "never": "Nie gesendet: Chat, der Name deines PCs, der volle Name deines Charakters. Logs an Entwickler senden (Erweitert) sendet nur, wenn du es drückst.",
+    "forkNever": "Nie an a2tools.app gesendet: Chat, der Name deines PCs, der volle Name deines Charakters. „Gruppe teilen“ sendet Live-DPS und Kämpfe mit Charakternamen an den eingetragenen Gruppenserver; „Diagnose senden“ schickt dorthin nur auf Knopfdruck Logs (meter.log, debug.log), die Einstellungen ohne Passwort und die letzten Kämpfe. „Logs an Entwickler senden“ gibt es in dieser Version nicht.",
     "policy": "Vollständige Datenschutzerklärung"
   }
 }

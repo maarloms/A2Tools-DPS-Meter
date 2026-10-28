@@ -895,6 +895,7 @@
     "shareHint": "ボス戦が終わると a2tools.app の公開ログとランキングに載ります。あなたの名前も含め、すべての名前が伏せられます。アカウントは不要です。",
     "signedIn": "サインイン中：ボス戦は A2 Tools アカウントにアップロードされます（A2 Tools アカウントを参照）。",
     "never": "送信しないもの：チャット、PCの名前、キャラクターのフルネーム。開発者にログを送信（詳細設定）は押したときだけログを送ります。",
+    "forkNever": "Never sent to a2tools.app: chat, your PC's name, your character's full name. \"Group sharing\" sends live DPS and fights, with character names, to the group server you entered; \"Send diagnostics\" sends logs (meter.log, debug.log), your settings without the secret and recent fights there, only when you press it. This version has no \"Send Logs to Dev\".",
     "policy": "プライバシーポリシー全文"
   }
 }
