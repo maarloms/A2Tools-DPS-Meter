@@ -14,8 +14,9 @@
 //!   nothing: no capture library, no screenshots, no hotkeys, no stored token.
 //!
 //! OS-neutral helpers that only *support* platform code (the screenshot rect
-//! maths and PNG encoder, hotkey-label parsing) live beside this file and
-//! re-export the OS half, so callers have one path either way.
+//! maths and PNG encoder, hotkey-label parsing, the meter anchor's placement
+//! maths) live beside this file and re-export the OS half, so callers have one
+//! path either way.
 //!
 //! The folder is `win32`, not `windows`: a local module named `windows` would
 //! shadow the `windows` crate the Windows code is written against.
@@ -34,6 +35,7 @@ mod os;
 
 pub mod hotkeys;
 pub mod kwin_rules;
+pub mod meter_anchor;
 pub mod procfs;
 pub mod screenshot;
 
@@ -42,6 +44,17 @@ pub use os::{
 };
 
 pub use os::atomic_file;
+
+/// Which web process a window's page shares, where the OS gives each window
+/// its own unless told otherwise (Linux: `window::share_process`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessGroup {
+    /// The meter and its own windows: Settings, History, Details.
+    Meter,
+    /// The plugin dock, plugin windows and their widgets, apart from the
+    /// meter's, so a busy plugin never stalls the meter.
+    Plugins,
+}
 
 /// The game's frame rate, as `fps::game_fps` reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

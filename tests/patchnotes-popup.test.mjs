@@ -146,7 +146,7 @@ function setupPopup({ releases = LIST, fetchFails = false, canInstall = true, in
       core: {
         invoke: async (cmd, args) => {
           calls.push([cmd, args]);
-          if (cmd === "fetch_url") {
+          if (cmd === "fork_release_list") {
             if (fetchFails) throw new Error("offline");
             return JSON.stringify(releases);
           }
@@ -178,11 +178,7 @@ function setupPopup({ releases = LIST, fetchFails = false, canInstall = true, in
   return { api: window.ForkPatchnotes, calls, listeners, opened, store, popup, buttons, button, text, docHandlers };
 }
 
-const UPDATE = {
-  msiUrl: "https://example.com/a.msi", archUrl: "", debUrl: "", rpmUrl: "",
-  msiSha256: "ab".repeat(32), archSha256: "", debSha256: "", rpmSha256: "",
-};
-const offerArgs = (extra = {}) => ({ current: "3.0.19", latest: "3.0.20", notes: "", update: UPDATE, ...extra });
+const offerArgs = (extra = {}) => ({ current: "3.0.19", latest: "3.0.20", notes: "", ...extra });
 
 test("offer: notes since the installed version, install with progress", async () => {
   const s = setupPopup();
@@ -195,11 +191,12 @@ test("offer: notes since the installed version, install with progress", async ()
   assert.ok(!html.includes("<h3>v3.0.21") && !html.includes("<h3>v3.0.18"), html);
   assert.ok(!html.includes("Installation"), "Installation section dropped");
   assert.deepEqual(s.buttons().map((b) => b.textContent), ["Später", "Jetzt installieren"]);
-  assert.deepEqual(s.calls.find((c) => c[0] === "fork_update_can_install")[1], { update: UPDATE });
+  // The backend installs what its own check found: the page hands over nothing.
+  assert.equal(s.calls.find((c) => c[0] === "fork_update_can_install")[1], undefined);
 
   s.button("Jetzt installieren").click();
   await settle();
-  assert.deepEqual(s.calls.find((c) => c[0] === "fork_install_update")[1], { update: UPDATE });
+  assert.equal(s.calls.find((c) => c[0] === "fork_install_update")[1], undefined);
   assert.equal(s.popup().querySelector(".forkPatchnotesProgress").hidden, false);
   assert.ok(s.buttons().every((b) => b.disabled), "no closing while downloading");
   s.docHandlers[0]({ key: "Escape", stopPropagation() {} });
@@ -231,7 +228,7 @@ test("offer: a failed install says so and offers retry and the download page", a
 
 test("offer: where the app cannot install itself, the button opens the release page", async () => {
   const s = setupPopup({ canInstall: false });
-  s.api.offer(offerArgs({ update: {} }));
+  s.api.offer(offerArgs());
   await settle();
   s.button("Download-Seite öffnen").click();
   await settle();
@@ -375,8 +372,12 @@ async function runCheckRelease({ withPopup, onAvailable, manifest = { version: "
       core: {
         invoke: async (cmd, args) => {
           calls.push([cmd, args]);
-          if (cmd === "fetch_url") {
-            return JSON.stringify({ msiUrl: "https://x/a.msi", msiSha256: "ab".repeat(32), notes: "**Neu**\n- x", ...manifest });
+          // fork/update.rs: latest.json against the installed 3.0.19.
+          if (cmd === "fork_check_update") {
+            const newer = Number(manifest.version.split(".")[2]) > 19; // 3.0.x
+            return newer
+              ? { state: "update", current: "3.0.19", latest: manifest.version, notes: "**Neu**\n- x", canInstall: true }
+              : { state: "current", current: "3.0.19", latest: manifest.version };
           }
           return false;
         },
@@ -388,7 +389,7 @@ async function runCheckRelease({ withPopup, onAvailable, manifest = { version: "
   if (withPopup) window.ForkPatchnotes = { offer: (info) => { offers.push(info); return true; } };
   (0, eval)(CHECK_SOURCE);
   window.ReleaseChecker.start(onAvailable);
-  for (let i = 0; i < 50 && !calls.some((c) => c[0] === "show_update_window") && !offers.length && !intervals.length; i++) {
+  for (let i = 0; i < 50 && !offers.length && !intervals.length; i++) {
     await new Promise((r) => setTimeout(r, 100));
   }
   // Let the first run finish (onAvailable comes after the offer).
@@ -409,17 +410,32 @@ test("checkRelease hands the update with its notes to the popup", async () => {
   assert.equal(offers[0].current, "v3.0.19");
   assert.equal(offers[0].latest, "v3.0.20");
   assert.equal(offers[0].notes, "**Neu**\n- x");
-  assert.equal(offers[0].update.msiUrl, "https://x/a.msi");
-  assert.equal(offers[0].update.msiSha256, "ab".repeat(32));
-  assert.equal(calls.some((c) => c[0] === "show_update_window"), false);
+  assert.equal(offers[0].update, undefined, "no package or hash through the page");
+  assert.deepEqual(calls.map((c) => c[0]), ["fork_check_update"]);
+  assert.equal(calls[0][1], undefined, "the check takes nothing from the page either");
 });
 
-test("checkRelease falls back to the native dialog without the popup", async () => {
-  const { calls } = await runCheckRelease({ withPopup: false });
-  const dialog = calls.find((c) => c[0] === "show_update_window");
-  assert.ok(dialog);
-  assert.equal(dialog[1].latest, "v3.0.20");
-  assert.equal(dialog[1].msiSha256, "ab".repeat(32));
+test("without the popup there is no native dialog and never upstream's check", async () => {
+  const available = [];
+  const { calls } = await runCheckRelease({ withPopup: false, onAvailable: (v) => available.push(v) });
+  assert.deepEqual(calls.map((c) => c[0]), ["fork_check_update"]);
+  assert.deepEqual(available, []);
+  assert.deepEqual(await window.ReleaseChecker.checkNow(), { state: "update", latest: "v3.0.20" });
+});
+
+test("no page asks upstream's update check or hands the backend a package", () => {
+  // check_for_update would offer taengu's CDN; fetch_url and show_update_window
+  // are gone (2.0.80). fork/update.rs keeps the manifest itself.
+  const pages = [
+    "../public/src/js/checkRelease.js", "../public/src/js/core.js", "../public/src/js/tauriBridge.js",
+    "../public/fork/patchnotes.js", "../index.html",
+  ].map((p) => readFileSync(new URL(p, import.meta.url), "utf8"));
+  for (const page of pages) {
+    assert.doesNotMatch(page, /["'](check_for_update|fetch_url|show_update_window)["']/);
+    assert.doesNotMatch(page, /fork_install_update"\s*,/);
+    assert.doesNotMatch(page, /cdn\.a2tools\.app\/latest/);
+  }
+  assert.match(CHECK_SOURCE, /invoke\("fork_check_update"\)/);
 });
 
 test("at start the popup comes up and the title's button opens it again", async () => {
@@ -427,6 +443,7 @@ test("at start the popup comes up and the title's button opens it again", async 
   const { calls, offers } = await runCheckRelease({ withPopup: true, onAvailable: (v) => available.push(v) });
   assert.equal(offers.length, 1);
   assert.deepEqual(available, ["v3.0.20"]);
+  assert.equal(calls.some((c) => c[0] === "check_for_update"), false);
   // The button: the popup again, nothing native; it stays until installing.
   assert.equal(await window.ReleaseChecker.offer(), false);
   assert.equal(offers.length, 2);

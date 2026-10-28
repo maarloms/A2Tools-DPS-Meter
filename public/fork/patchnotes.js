@@ -1,10 +1,11 @@
 // Fork: release notes as a popup in the meter window.
 //  - offer(): an update is out (checkRelease.js). Shows the notes of every
 //    release since the installed one, "Jetzt installieren" with a progress
-//    bar (fork/update.rs) and "Später".
+//    bar (fork/update.rs installs what its own check found) and "Später".
 //  - "Was ist neu": once after an update, the notes of what was installed.
-// The release list comes from the GitHub API through the backend's fetch_url
-// (no CSP entry needed); without it, latest.json's notes stand in.
+// The release list comes from the GitHub API through the backend
+// (fork_release_list, a fixed address; no CSP entry needed); without it,
+// latest.json's notes stand in.
 // Console, for trying it out: ForkPatchnotes.demo() / ForkPatchnotes.demoWhatsNew().
 (() => {
   if (window.ForkPatchnotes) return;
@@ -27,7 +28,7 @@
   const releaseList = () =>
     (listPromise ||= releases().then(async (r) => {
       try {
-        return r.parseReleaseList(await invoke("fetch_url", { url: r.RELEASES_API }));
+        return r.parseReleaseList(await invoke("fork_release_list"));
       } catch (e) {
         console.warn("[Patchnotes] release list:", e);
         return null;
@@ -159,14 +160,14 @@
   // ---------------------------------------------------------------- offer
 
   /**
-   * An update is available. `info`: { current, latest, notes, update }, where
-   * `update` holds the manifest's msiUrl/…/msiSha256/… (checkRelease.js).
+   * An update is available. `info`: { current, latest, notes } (checkRelease.js).
+   * What gets installed is the update the backend's own check found
+   * (fork/update.rs); the page hands over no URL or checksum.
    * Returns true: the popup handles it, the native dialog is not needed.
    */
   function offer(info) {
     const current = v(info?.current);
     const latest = v(info?.latest);
-    const update = info?.update || {};
     const demo = !!info?.demo;
     const m = open("offer", t("Update verfügbar", "Update available"), `${current} → ${latest}`);
     m.progress.hidden = true;
@@ -177,7 +178,7 @@
 
     let canInstall = false;
     const page = releases().then((r) => r.releasePage(latest));
-    (demo ? Promise.resolve(true) : invoke("fork_update_can_install", { update }))
+    (demo ? Promise.resolve(true) : invoke("fork_update_can_install"))
       .catch(() => false)
       .then((ok) => {
         canInstall = !!ok;
@@ -216,7 +217,7 @@
       let unlisten = null;
       try {
         unlisten = await tauri.event.listen("download-progress", ({ payload }) => show(payload));
-        await invoke("fork_install_update", { update });
+        await invoke("fork_install_update");
         m.status.textContent = t("Installation startet – das Meter wird beendet …", "Installer starting – the meter will close …");
       } catch (e) {
         m.progress.classList.add("isError");

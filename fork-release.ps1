@@ -1,6 +1,8 @@
 # Fork release: builds the MSI and publishes it with latest.json as a GitHub
 # release on maarloms/A2Tools-DPS-Meter. The app's update check
-# (public/src/js/checkRelease.js) reads releases/latest/download/latest.json.
+# (src-tauri/src/fork/update.rs) reads releases/latest/download/latest.json
+# (version, msiUrl, msiSha256, notes) and installs only a package from this
+# repository's releases/download/ whose SHA-256 matches msiSha256.
 #
 #   1. Raise "version" in src-tauri/tauri.conf.json
 #   2. .\fork-release.ps1 -Notes "Was ist neu"

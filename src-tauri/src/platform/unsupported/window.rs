@@ -37,6 +37,15 @@ pub fn set_size(window: &tauri::WebviewWindow, size: tauri::Size) {
     let _ = window.set_size(size);
 }
 
+/// Size and move a window (`meter_anchor::resize`).
+pub fn set_size_and_position(window: &tauri::WebviewWindow, size: tauri::Size, pos: tauri::PhysicalPosition<i32>) {
+    let _ = window.set_size(size);
+    let _ = window.set_position(tauri::Position::Physical(pos));
+}
+
+/// Linux only: there tao's edge band and the pinned size need it.
+pub fn resizable_edges(_window: &tauri::WebviewWindow, _min: tauri::LogicalSize<f64>) {}
+
 pub fn release_size(_window: &tauri::WebviewWindow, _min: tauri::LogicalSize<f64>) {}
 
 pub fn primary_button_down() -> Option<bool> {
@@ -69,6 +78,20 @@ pub fn hide_in_place(window: &tauri::WebviewWindow) {
 
 /// The meter places its own windows here.
 pub fn places_own_windows() -> bool {
+    true
+}
+
+/// The edge the overlay keeps: the meter moves it itself here
+/// (`meter_anchor::resize`), KWin only on KDE Wayland.
+pub fn set_main_anchor(_anchor: crate::platform::meter_anchor::Anchor) {}
+
+/// Whether the overlay's next resize keeps its edge: for KWin on KDE Wayland
+/// only; here `resize_window` moves it itself.
+pub async fn anchor_next_resize(_anchored: bool) {}
+
+/// Whether Settings offers "Meter stays fixed at": always here, where the
+/// meter places its own windows.
+pub fn meter_anchor_available() -> bool {
     true
 }
 
@@ -121,3 +144,14 @@ pub fn click_through_by_region() -> bool {
 pub fn widget_click_through(_window: &tauri::WebviewWindow, _ignore: bool, _keep: Option<(&[(f64, f64, f64, f64)], f64)>) -> bool {
     false
 }
+
+/// Linux only (see the Linux version): here pages already share processes.
+pub fn share_process<'a, R: tauri::Runtime, M: tauri::Manager<R>>(
+    builder: tauri::WebviewWindowBuilder<'a, R, M>,
+    _group: crate::platform::ProcessGroup,
+) -> tauri::WebviewWindowBuilder<'a, R, M> {
+    builder
+}
+
+/// Linux only (see the Linux version).
+pub fn joined(_window: &tauri::WebviewWindow, _group: crate::platform::ProcessGroup) {}

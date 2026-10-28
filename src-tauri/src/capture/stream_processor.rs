@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 
 use crate::combat::data_storage::{DataStorage, DutyOffer, NoDamageHit};
+use crate::combat::death_recap::{self, Killer};
 use crate::entity::damage_packet::ParsedDamagePacket;
 use crate::entity::job_class::JobClass;
 use crate::entity::special_damage::{self, SpecialDamage};
@@ -941,6 +942,14 @@ impl StreamProcessor {
         let records = ownership_records(data);
         for r in &records {
             let (summon_id, owner_id, name) = (r.summon_id, r.owner_id, &r.name);
+            // You, killed by the player it names: not a loot record.
+            let me = self.data_storage.local_player_id();
+            if me == Some(summon_id as i64) && me != Some(owner_id as i64) {
+                self.data_storage.append_nickname(owner_id, name);
+                self.data_storage.note_player_server(name, r.server_id);
+                self.note_death(data, r);
+                continue;
+            }
             if self.data_storage.is_confirmed_summon(summon_id) {
                 self.data_storage.append_summon(owner_id, summon_id);
             }
@@ -958,6 +967,26 @@ impl StreamProcessor {
         !records.is_empty()
     }
 
+    /// A death recap, from the kill record that names you (`r`), the legion
+    /// after its name: `<len u8> <utf8>`, none when 0.
+    fn note_death(&self, data: &[u8], r: &Ownership) {
+        let legion = data.get(r.field.end).and_then(|&len| {
+            let field = data.get(r.field.end + 1..r.field.end + 1 + len as usize)?;
+            let legion = std::str::from_utf8(field).ok()?;
+            (!legion.is_empty() && legion.chars().count() <= 24 && !legion.chars().any(char::is_control))
+                .then(|| legion.to_string())
+        });
+        let killer = Killer { id: r.owner_id, name: r.name.clone(), server_id: r.server_id, legion };
+        let at = self.override_timestamp.unwrap_or_else(crate::clock::now_ms);
+        let Some(mut recap) = self.data_storage.died(killer, at) else { return };
+        for skill in &mut recap.skills {
+            let name = self.skill_lookup.get_skill_name(self.normalize_skill_id(skill.id));
+            skill.name = (!name.is_empty()).then_some(name);
+        }
+        tracing::info!("death recap: killed by {} after {} hits", recap.killer.name, recap.hits);
+        self.data_storage.push_death_recap(recap);
+    }
+
     // ===== EMBEDDED 40 36 SCAN =====
 
     fn scan_for_embedded_40_36(&mut self, data: &[u8]) {
@@ -971,7 +1000,14 @@ impl StreamProcessor {
                 if real_id > 1_000_000 {
                     real_id = (real_id & 0x3FFF) | 0x4000;
                 }
-                if !self.data_storage.is_mob(real_id) {
+                // Already read (this spawn's own frame), unless it names
+                // another NPC: the game reuses entity ids, and Ritualist
+                // Garshim (2100077) spawned as 29091, an id a mob (2920174)
+                // had before, so the meter never knew him and showed none of
+                // his fight (2026-10-27).
+                let id_len = read_varint(data, i + 2).length.max(0) as usize;
+                let named = spawn_mob_code(data, i + 2 + id_len).map(|(code, _)| code);
+                if !self.data_storage.is_mob(real_id) || (named.is_some() && named != self.data_storage.mob_code(real_id)) {
                     self.parse_summon_spawn_at(data, i + 2);
                 }
             }
@@ -1186,9 +1222,11 @@ impl StreamProcessor {
     /// than hunting for the literal `0x07` that older builds happened to put in
     /// the `mask2` slot.
     fn parse_player_spawn_name(&self, data: &[u8], offset_after_opcode: usize) {
-        let Some((actor_id, sanitized, _)) = player_spawn_at(data, offset_after_opcode) else {
+        let Some((actor_id, sanitized, field)) = player_spawn_at(data, offset_after_opcode) else {
             return;
         };
+        let profile = death_recap::Profile { name: Some(sanitized.clone()), ..death_recap::profile(&data[field.end..]) };
+        self.data_storage.note_player_profile(actor_id, profile);
         // 45/44 36 player spawn is an authoritative id↔name source.
         self.data_storage.note_low_id_entity(actor_id);
         self.data_storage.note_player_spawn(actor_id);
@@ -1474,52 +1512,34 @@ impl StreamProcessor {
 
     /// The NPC code this record names, if it names one.
     fn extract_and_register_mob_type(&self, packet: &[u8], start_offset: usize, real_actor_id: i32) -> Option<i32> {
-        let mut scan_offset = start_offset;
-        let max_scan = std::cmp::min(packet.len().saturating_sub(2), start_offset + 60);
+        let (mob_type_id, scan_offset) = spawn_mob_code(packet, start_offset)?;
+        self.data_storage.append_mob(real_actor_id, mob_type_id);
 
-        while scan_offset < max_scan {
-            if packet[scan_offset] == 0x00
-                && (packet[scan_offset + 1] == 0x40 || packet[scan_offset + 1] == 0x00)
-                && packet[scan_offset + 2] == 0x02
-            {
-                if scan_offset >= start_offset + 3 {
-                    let b1 = packet[scan_offset - 3] as i32;
-                    let b2 = packet[scan_offset - 2] as i32;
-                    let b3 = packet[scan_offset - 1] as i32;
-                    let mob_type_id = b1 | (b2 << 8) | (b3 << 16);
-                    self.data_storage.append_mob(real_actor_id, mob_type_id);
-
-                    // Register boss entities from NPC DB
-                    if self.npc_lookup.is_boss(mob_type_id) {
-                        self.data_storage.register_boss(real_actor_id);
-                    }
-                    if self.npc_lookup.is_training_dummy(mob_type_id) {
-                        self.data_storage.register_training_dummy(real_actor_id);
-                    }
-
-                    // Try to extract HP
-                    let mut hp_scan = scan_offset + 3;
-                    let hp_end = std::cmp::min(packet.len().saturating_sub(2), hp_scan + 64);
-                    while hp_scan < hp_end {
-                        if packet[hp_scan] == 0x01 {
-                            let current_hp = read_varint(packet, hp_scan + 1);
-                            if current_hp.length > 0 && current_hp.value > 0 {
-                                let max_hp = read_varint(packet, hp_scan + 1 + current_hp.length as usize);
-                                if max_hp.length > 0 && max_hp.value >= current_hp.value {
-                                    self.data_storage.append_mob_hp(real_actor_id, max_hp.value);
-                                    break;
-                                }
-                            }
-                        }
-                        hp_scan += 1;
-                    }
-                    return Some(mob_type_id);
-                }
-                break;
-            }
-            scan_offset += 1;
+        // Register boss entities from NPC DB
+        if self.npc_lookup.is_boss(mob_type_id) {
+            self.data_storage.register_boss(real_actor_id);
         }
-        None
+        if self.npc_lookup.is_training_dummy(mob_type_id) {
+            self.data_storage.register_training_dummy(real_actor_id);
+        }
+
+        // Try to extract HP
+        let mut hp_scan = scan_offset + 3;
+        let hp_end = std::cmp::min(packet.len().saturating_sub(2), hp_scan + 64);
+        while hp_scan < hp_end {
+            if packet[hp_scan] == 0x01 {
+                let current_hp = read_varint(packet, hp_scan + 1);
+                if current_hp.length > 0 && current_hp.value > 0 {
+                    let max_hp = read_varint(packet, hp_scan + 1 + current_hp.length as usize);
+                    if max_hp.length > 0 && max_hp.value >= current_hp.value {
+                        self.data_storage.append_mob_hp(real_actor_id, max_hp.value);
+                        break;
+                    }
+                }
+            }
+            hp_scan += 1;
+        }
+        Some(mob_type_id)
     }
 
     // ===== ACTOR NAME BINDING =====
@@ -2770,10 +2790,15 @@ fn parse_party_roster_at(data: &[u8], at: usize) -> Option<Roster> {
         if nick_len > 40 || o + nick_len > data.len() {
             break;
         }
-        let nickname = match std::str::from_utf8(&data[o..o + nick_len]) {
-            Ok(s) => s.to_string(),
+        // Letters and digits only, as every other name the parser keeps:
+        // the roster's field was taken as it came (security audit M8).
+        let nickname: String = match std::str::from_utf8(&data[o..o + nick_len]) {
+            Ok(s) => s.chars().filter(|c| c.is_alphanumeric()).collect(),
             Err(_) => break,
         };
+        if nickname.is_empty() {
+            break;
+        }
         let name_field = o..o + nick_len;
         o += nick_len;
         if o + 12 > data.len() {
@@ -3237,6 +3262,28 @@ fn ownership_records(data: &[u8]) -> Vec<Ownership> {
 /// Every spawn opcode (40/41/44/45 36) in `data` that
 /// `StreamProcessor::scan_for_embedded_40_36` reads: (where, the opcode's
 /// first byte, entity id).
+/// The NPC code a `40/41 36` spawn names, and where its `00 (40|00) 02`
+/// anchor sits: the three bytes before that anchor, within 60 bytes of
+/// `start_offset` (just past the entity id).
+fn spawn_mob_code(packet: &[u8], start_offset: usize) -> Option<(i32, usize)> {
+    let max_scan = std::cmp::min(packet.len().saturating_sub(2), start_offset + 60);
+    let mut scan_offset = start_offset;
+    while scan_offset < max_scan {
+        if packet[scan_offset] == 0x00
+            && (packet[scan_offset + 1] == 0x40 || packet[scan_offset + 1] == 0x00)
+            && packet[scan_offset + 2] == 0x02
+        {
+            if scan_offset < start_offset + 3 {
+                return None;
+            }
+            let code = packet[scan_offset - 3] as i32 | (packet[scan_offset - 2] as i32) << 8 | (packet[scan_offset - 1] as i32) << 16;
+            return Some((code, scan_offset));
+        }
+        scan_offset += 1;
+    }
+    None
+}
+
 fn embedded_spawns(data: &[u8]) -> Vec<(usize, u8, i32)> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -4170,6 +4217,23 @@ mod tests {
         assert_eq!(taken, 1_258);
         // Nothing of it is taken for the monster's own damage.
         assert!(!storage.get_combat_snapshot_light()[&47573].actors.contains_key(&47573));
+    }
+
+    /// Ritualist Garshim (2100077) spawned, inside a bundle of other records,
+    /// as entity 29091, which an ordinary mob (2920174) had had before. The
+    /// embedded-spawn scan passed over ids already known as mobs, so the meter
+    /// kept the old code and never showed his fight (2026-10-27).
+    #[test]
+    fn a_spawn_reusing_a_mobs_id_names_the_new_npc() {
+        let (storage, mut p) = processor();
+        storage.append_mob(29091, 2_920_174);
+        // His spawn as the bundle carried it, after another record's bytes.
+        let data = hex("111D37860C2F03E5D502ED90F3910A4736FC2E01000A473690750100BF014136A3E3010420006D0B20000002C5ACD1C6D4E19B460064904649E7034273170180D0A54C80D0A54C640000006400000200025F");
+        p.scan_for_embedded_40_36(&data);
+        assert_eq!(storage.mob_code(29091), Some(2_100_077));
+        // The same spawn read again (its own frame, then the scan) changes nothing.
+        p.scan_for_embedded_40_36(&data);
+        assert_eq!(storage.mob_code(29091), Some(2_100_077));
     }
 
     /// A Training Scarecrow's live HP (2026-10-07, entity 25839, whose spawn

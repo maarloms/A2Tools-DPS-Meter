@@ -1,139 +1,62 @@
 (() => {
-  // fork: our own releases on GitHub (see fork-release.ps1), not upstream's CDN.
-  const CDN_MANIFEST = "https://github.com/maarloms/A2Tools-DPS-Meter/releases/latest/download/latest.json";
-  const START_DELAY = 800,
-    RETRY = 500,
-    LIMIT = 5;
+  const START_DELAY = 800;
 
-  const parseVersion = (v) => {
-    const cleaned = String(v || "").trim().replace(/^v/i, "");
-    const [base, prerelease] = cleaned.split("-", 2);
-    const [a = 0, b = 0, c = 0] = String(base || "")
-      .split(".")
-      .map(Number);
-    return {
-      base,
-      prerelease: Boolean(prerelease),
-      value: a * 1e6 + b * 1e3 + c,
-    };
+  // fork: the version with a "v" in front, as the popup and Settings show it.
+  const v = (s) => {
+    const x = String(s ?? "").trim();
+    return x && !/^v/i.test(x) ? "v" + x : x;
   };
 
-  // fork: what the patch-notes popup gets for an update found by `check`.
-  const forkOffer = (args, notes) => ({
-    current: args.current,
-    latest: args.latest,
-    notes,
-    update: {
-      msiUrl: args.msiUrl, archUrl: args.archUrl, debUrl: args.debUrl, rpmUrl: args.rpmUrl,
-      msiSha256: args.msiSha256, archSha256: args.archSha256, debSha256: args.debSha256, rpmSha256: args.rpmSha256,
-    },
-  });
-
-  // One check: "installing" (accepted in the update window), "update" (one
-  // is out: declined, or this install's package manager updates it),
-  // "current" or "failed". `latest`: the newest version, when known.
-  // `ask` false: no window; "offer" when this install can take the update,
-  // kept for `offer` (the green button in the meter's title).
+  // One check, done by the meter. fork: the fork's own releases on GitHub
+  // (fork/update.rs `fork_check_update`: latest.json against this install's
+  // version; it keeps the manifest, so the popup's install takes no URL or
+  // hash from the page). Upstream's `check_for_update` (taengu's CDN) is
+  // never asked. "update" (one is out), "current" or "failed"; `latest`: the
+  // newest version, when known. `ask` false: at start and every 6 hours;
+  // "offer" when the patch-notes popup took it, for `offer` (the green
+  // button in the meter's title).
   const check = async ({ ask = true } = {}) => {
-    // Wait for the bridge AND for the async version fetch to complete
-    for (
-      let i = 0;
-      i < LIMIT && !(
-        window.dpsData?.getVersion &&
-        window.javaBridge?.openBrowser &&
-        String(window.dpsData.getVersion() || "").trim()
-      );
-      i++
-    ) {
-      await new Promise((r) => setTimeout(r, RETRY));
-    }
-    if (!(window.dpsData?.getVersion && window.javaBridge?.openBrowser)) {
-      return { state: "failed" };
-    }
-
-    const rawCurrent = String(window.dpsData.getVersion() || "").trim();
-    const current = rawCurrent.startsWith("v") ? rawCurrent : "v" + rawCurrent;
-    console.log("[A2Tools] Update check: current =", current);
-
-    let result;
+    const invoke = window.__TAURI__?.core?.invoke;
+    if (!invoke) return { state: "failed" };
+    let found;
     try {
-      const raw = await window.__TAURI__.core.invoke("fetch_url", { url: CDN_MANIFEST });
-      const m = JSON.parse(raw);
-      console.log("[A2Tools] Update manifest:", JSON.stringify(m));
-      const v = m.version?.startsWith("v") ? m.version : "v" + m.version;
-      // One package per platform; the backend picks the one it can install.
-      result = { latest: v, msi: m.msiUrl || "", arch: m.archUrl || "", deb: m.debUrl || "", rpm: m.rpmUrl || "" };
-      // SHA-256 of each package: the backend installs a download only when it matches.
-      result.hashes = { msi: m.msiSha256 || "", arch: m.archSha256 || "", deb: m.debSha256 || "", rpm: m.rpmSha256 || "" };
-      result.notes = typeof m.notes === "string" ? m.notes : ""; // fork: for the patch-notes popup
+      found = await invoke("fork_check_update");
     } catch (e) {
       console.error("[A2Tools] Update check failed:", e);
       return { state: "failed" };
     }
-
-    const latest = result.latest;
-    const latestInfo = parseVersion(latest);
-    const currentInfo = parseVersion(current);
-    const hasUpdate =
-      latestInfo.value > currentInfo.value ||
-      (latestInfo.value === currentInfo.value &&
-        currentInfo.prerelease &&
-        !latestInfo.prerelease);
-
-    if (!hasUpdate) return { state: "current", latest };
-
-    console.log("[A2Tools] Update available:", current, "->", latest);
-    const args = {
-      current,
-      latest,
-      msiUrl: result.msi,
-      archUrl: result.arch,
-      debUrl: result.deb,
-      rpmUrl: result.rpm,
-      msiSha256: result.hashes.msi,
-      archSha256: result.hashes.arch,
-      debSha256: result.hashes.deb,
-      rpmSha256: result.hashes.rpm,
-    };
+    const latest = found?.latest ? v(found.latest) : undefined;
+    if (found?.state !== "update") return { state: found?.state === "current" ? "current" : "failed", latest };
+    console.log("[A2Tools] Update available:", found.current, "->", latest);
+    // fork: what the patch-notes popup (public/fork/patchnotes.js) shows.
+    const info = { current: v(found.current), latest, notes: typeof found.notes === "string" ? found.notes : "" };
     if (!ask) {
       // fork: at start the patch-notes popup comes up right away, as up to
       // 3.0.27 (Marlon, 23.10.2026); the green button in the title stays
-      // and opens it again. Without the popup: upstream's button, which
-      // asks with the native dialog.
+      // and opens it again.
       // fork: the 6-hour re-check pops the popup up only once per version
       // (Marlon, 25.10.2026); after that the same `latest` just keeps the
       // button, which opens it again.
-      const info = forkOffer(args, result.notes);
       if (window.ForkPatchnotes?.offer && (forkShownFor === latest || window.ForkPatchnotes.offer(info))) {
         forkShownFor = latest;
         pendingFork = info;
         return { state: "offer", latest };
       }
-      const offered = await window.__TAURI__.core.invoke("show_update_window", { ...args, ask: false });
-      if (!offered) return { state: "update", latest };
-      pending = args;
-      return { state: "offer", latest };
-    }
-    // fork: the patch-notes popup (public/fork/patchnotes.js) asks instead
-    // of the native dialog, which stays the fallback. It installs itself, so
-    // Settings hears "update" (one is out) while the popup is open.
-    if (window.ForkPatchnotes?.offer?.(forkOffer(args, result.notes))) {
-      forkShownFor = latest;
       return { state: "update", latest };
     }
-    const accepted = await window.__TAURI__.core.invoke("show_update_window", args);
-    return { state: accepted ? "installing" : "update", latest };
+    // fork: Settings' check asks with the popup too. It installs itself, so
+    // Settings hears "update" (one is out) while the popup is open.
+    if (window.ForkPatchnotes?.offer?.(info)) forkShownFor = latest;
+    return { state: "update", latest };
   };
 
   let once = false;
-  // The update found at start, for the title's button to offer.
-  let pending = null;
-  let pendingFork = null; // fork: the same, for the patch-notes popup
+  let pendingFork = null; // fork: the update found by the background check, for the title's button
   let forkShownFor = null; // fork: the version the popup already came up for
 
-  // At start nothing pops up: an update this install can take shows the
-  // green button in the meter's title (`onAvailable`), which asks. Then
-  // again every 6 hours, for a meter left running for days.
+  // An update shows the patch-notes popup and the green button in the
+  // meter's title (`onAvailable`), which opens it again. Then again every
+  // 6 hours, for a meter left running for days.
   const RECHECK_MS = 6 * 60 * 60 * 1000;
   const start = (onAvailable) => {
     const run = async () => {
@@ -152,16 +75,11 @@
     }, START_DELAY);
   };
 
-  // The button: the update window for the update found at start. True when
-  // it is installing.
+  // The button: the patch-notes popup again. fork: it installs itself and
+  // closes the meter then, so the button stays until that happens (false).
   const offer = async () => {
-    // fork: the patch-notes popup again; it installs itself and closes the
-    // meter then, so the button stays until that happens.
-    if (pendingFork && window.ForkPatchnotes?.offer?.(pendingFork)) return false;
-    if (!pending) return false;
-    const accepted = await window.__TAURI__.core.invoke("show_update_window", pending);
-    if (accepted) pending = null;
-    return accepted;
+    if (pendingFork) window.ForkPatchnotes?.offer?.(pendingFork);
+    return false;
   };
 
   // Settings' check: whenever asked, with what it found.
