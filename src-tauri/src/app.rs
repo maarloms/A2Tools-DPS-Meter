@@ -1630,6 +1630,7 @@ async fn check_for_update(app: tauri::AppHandle, state: tauri::State<'_, AppStat
 /// signature-checked like the update manifest (`update_check`).
 #[tauri::command]
 async fn release_notes(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    crate::fork::update::upstream_release_notes()?; // fork: no What's new from cdn.a2tools.app
     crate::update_check::fetch_changelog(&state.http).await
 }
 

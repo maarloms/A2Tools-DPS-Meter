@@ -62,6 +62,15 @@ pub fn upstream_check() -> Result<(), String> {
     Err("this build checks the fork's own releases (fork_check_update)".into())
 }
 
+/// Upstream's `release_notes` (Settings → What's new, app.rs) would read
+/// taengu's notes from cdn.a2tools.app: never in the fork (Marlon,
+/// 02.11.2026). Its tab is hidden (index.html `fork:`); the fork's own
+/// notes are the patch-notes popup's (`fork_release_list`).
+#[cfg_attr(not(feature = "online"), allow(dead_code))]
+pub fn upstream_release_notes() -> Result<(), String> {
+    Err("this build shows the fork's own release notes (patch notes)".into())
+}
+
 /// A package of the fork's releases, over https, with a plain path.
 pub fn allowed_package_url(url: &str) -> bool {
     url.strip_prefix(DOWNLOAD_PREFIX).is_some_and(|path| {
@@ -140,7 +149,9 @@ pub async fn fork_check_update(app: tauri::AppHandle, state: tauri::State<'_, cr
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status()));
     }
-    let body = response.bytes().await.map_err(|e| e.to_string())?;
+    // Stops reading at the cap, before the whole body is in memory
+    // (upstream's update_check::read_capped, 2.0.84+).
+    let body = crate::update_check::read_capped(response, MAX_MANIFEST).await?;
     let manifest = parse_manifest(&body)?;
     let current = app.package_info().version.to_string();
     Ok(remember(&FOUND, manifest, &current))
@@ -194,10 +205,9 @@ pub async fn fork_release_list(state: tauri::State<'_, crate::app::AppState>) ->
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status()));
     }
-    let body = response.bytes().await.map_err(|e| e.to_string())?;
-    if body.len() > MAX_RELEASE_LIST {
-        return Err("the release list is too big".into());
-    }
+    let body = crate::update_check::read_capped(response, MAX_RELEASE_LIST)
+        .await
+        .map_err(|e| format!("the release list: {e}"))?;
     Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
@@ -254,6 +264,28 @@ mod tests {
             assert!(!url.contains("a2tools.app") && !url.contains("taengu"), "{url}");
         }
         assert!(upstream_check().is_err());
+        assert!(upstream_release_notes().is_err());
+    }
+
+    /// Both downloads stop at their cap while reading (upstream's
+    /// `read_capped`), not once the whole body is in memory.
+    #[test]
+    fn the_forks_downloads_stop_at_their_cap() {
+        let src = include_str!("update.rs").replace("\r\n", "\n");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        assert!(!code.contains(&[".bytes()", ".await"].concat()), "a body read whole");
+        assert!(code.contains("read_capped(response, MAX_MANIFEST)"));
+        assert!(code.contains("read_capped(response, MAX_RELEASE_LIST)"));
+    }
+
+    /// Settings → What's new stays off: upstream's `release_notes` stops
+    /// at the fork's guard before it fetches anything from cdn.a2tools.app.
+    #[test]
+    fn upstreams_release_notes_are_off() {
+        let app = include_str!("../app.rs").replace("\r\n", "\n");
+        let at = app.find("async fn release_notes(state").expect("upstream's online release_notes");
+        let head: String = app[at..].lines().take(3).collect::<Vec<_>>().join("\n");
+        assert!(head.contains("crate::fork::update::upstream_release_notes()?;"), "{head}");
     }
 
     #[test]
