@@ -1,30 +1,24 @@
 **Neu**
-- Update-Prüfung jetzt direkt in der App: Das Meter fragt selbst bei den Fork-Releases auf GitHub nach einer neuen Version (beim Start, danach alle 6 Stunden und über den Knopf in den Einstellungen). „Jetzt installieren“ lädt nur Installer aus den Releases dieses Forks und installiert sie nur, wenn die Prüfsumme stimmt; sonst bricht es mit einer Meldung ab. Das Patchnotes-Fenster und der grüne Update-Knopf bleiben wie gewohnt.
-- Meter bleibt fest an: Unter Einstellungen → Meter-Einstellungen lässt sich wählen, welcher Rand des Meters stehen bleibt, wenn Zeilen dazukommen oder wegfallen (Oben, Mitte oder Unten).
-- Kampfverlauf: Die gruppierten Ansichten sind übersichtlicher, mit Bestzeit, Höchstwert und „Alle aufklappen“/„Alle zuklappen“.
-- Plugins: „Plugins auto-aktualisieren“ unter Einstellungen → Plugins installiert Plugin-Updates beim Start im Hintergrund (Standard: Aus). Ein Update, das neue Rechte verlangt, wartet weiter auf dein Ja. Im Update-Hinweis steht jetzt, was in der neuen Plugin-Version neu ist.
-- Plugins können mit deiner Erlaubnis nach deinem Tod sehen, welcher Spieler dich getötet hat und wer geholfen hat, und Bildschirmfotos ihres eigenen Fensters machen.
-- Installer: Fehlt Npcap, bietet eine neue Seite im Installer an, es nach dem Setup herunterzuladen und zu öffnen (Haken ist gesetzt; Npcap-Setup wie gewohnt durchklicken).
+- Neue Menüs am Meter: Ein Klick auf die Ziel-Taste (TARGET/GROUP/BOSS/TRAIN/ALL) öffnet jetzt ein Menü mit allen Modi und kurzer Erklärung; Mausrad oder Rechtsklick auf die Taste schaltet wie bisher weiter. GROUP ist mit dabei. Die Werte-Taste öffnet ebenso ein Menü: Dort wählst du, wonach sortiert wird und welche Werte zusätzlich in den Zeilen stehen (Schaden pro Sekunde, Gesamtschaden, Erlittener Schaden, Heilung, Stagger).
+- Im Werte-Menü lassen sich außerdem einschalten: Boss-Stagger % auf der HP-Leiste des Bosses, Kampfkraft und Ausrüstungswert neben den Namen, der Todeszähler (eine kleine Zahl hinter dem Namen, wie oft jemand im Kampf gestorben ist) und „Farben je Wert“.
+- Fußleiste: Ein Klick auf Kampfzeit, Gruppensumme oder Odyle-Energie öffnet ein Menü, in dem du festlegst, was die Fußleiste zeigt (Geschätzte Kill-Zeit, Gruppensumme, Odyle-Energie, Ping). Diese Schalter standen vorher in den Einstellungen.
+- Kampfverlauf: zeigt jetzt Gruppen-DPS und deine eigene DPS, lässt sich filtern und sortieren und markiert deine Bestwerte.
+- Todesübersicht: Beim Gegner, der dich getötet hat, stehen jetzt auch Ausrüstungswert und Kampfkraft.
 
 **Behoben**
-- Erfassung nach Paketlücken: Fehlen unterwegs Pakete, liest das Meter die Daten des Servers jetzt in der richtigen Reihenfolge weiter, statt danach Treffer zu verlieren.
-- Boss-Erkennung: Bekommt ein neu erscheinender Gegner die Nummer eines zuvor besiegten, wird er jetzt mit seinem eigenen Namen erkannt.
-- „Außerhalb des Kampfes ausblenden“ zeigt die Sekunden an statt „{seconds}“.
-- Skill-Icons: Jeder Klassenskill hat jetzt sein eigenes Icon.
-- Ein geschlossenes Plugin-Widget bleibt geschlossen, wenn die Maus darüber fährt; ausgeschaltete Plugins öffnen keine Icons mehr.
-
-**Geändert**
-- Datenschutz: Die Einstellungen haben einen eigenen Bereich „Datenschutz“. Dort stehen jetzt „Bosskämpfe anonym teilen“ und „Nützliche Daten mit A2Tools synchronisieren“; beide bleiben im Fork aus, bis du sie selbst einschaltest. Die Frage zum Teilen, die A2Tools beim Start zeigt, erscheint im Fork nicht. Der Text dort sagt jetzt, was der Fork selbst sendet: „Gruppe teilen“ schickt Live-DPS und Kämpfe mit Charakternamen an den eingetragenen Gruppenserver, „Diagnose senden“ nur auf Knopfdruck Logs und die letzten Kämpfe.
-- Wer „Bosskämpfe anonym teilen“ selbst eingeschaltet hatte: A2Tools lädt jetzt erst hoch, wenn danach gefragt wurde. Den Schalter einmal aus- und wieder einschalten, sonst wird nichts mehr hochgeladen.
-- Abyss-Bosse (Kaira, Tamasa, Argo, Nahma): Mit eingeschaltetem „Nützliche Daten mit A2Tools synchronisieren“ werden auch ihre Kills und HP geteilt.
+- Meter-Fenster: Schiebt Windows das Meter hinter das Spiel, kommt es wieder nach vorn. Einstellungen, Kampfverlauf und Details springen nach vorn, wenn du ihre Taste drückst.
+- Die Fensterhöhe des Meters wird nur noch zusammen mit einer neuen Position gespeichert; der Ziehgriff ändert nur noch die Breite.
+- FPS-Anzeige unter Windows 11 funktioniert wieder.
+- Plugin-Widgets: Wieder geöffnete Widgets bleiben versteckt, solange das Spiel nicht im Vordergrund ist; die Plugin-Leiste liegt nur dann oben, wenn Spiel oder Meter vorne sind.
 
 **Sonstiges**
-- Basis jetzt A2Tools 2.0.83.
-- Sicherheit: Mehrere Punkte aus einer Sicherheitsprüfung von A2Tools sind übernommen (Links, Plugin-Fenster dürfen nur noch ihre eigenen Befehle nutzen, Discord-Antworten begrenzt). Die Update-Prüfung von A2Tools selbst ist im Fork abgeschaltet, damit nie das Original-Meter angeboten wird.
-- „Gruppe teilen“, Puppen-Test, HPS, Event-Timer und alle bisherigen Fork-Funktionen bleiben erhalten. „Logs an den Entwickler senden“ bleibt im Fork abgeschaltet; der Party-A2-Tag bleibt aus, bis du ihn selbst einschaltest.
+- Basis jetzt A2Tools 2.0.87.
+- Sicherheit: Viele Härtungen aus der Sicherheitsprüfung von A2Tools sind übernommen: Downloads (Updates, Npcap, Plugins) werden schon beim Herunterladen auf ihre Größe begrenzt, Npcap wird nur noch aus dem eigenen Ordner bzw. System32 geladen und sein Installer muss von Nmap stammen, die Erfassung begrenzt, was manipulierter Netzwerkverkehr auslösen kann, und installierte Plugins werden bei jedem Start gegen ihren signierten Katalog geprüft. Auch die Update-Prüfung dieses Forks liest Antworten jetzt mit Größenbremse.
+- Der neue Einstellungs-Tab „Neuigkeiten“ von A2Tools ist im Fork ausgeblendet; er zeigt nur die Notizen des Original-Meters. Die Neuerungen dieses Forks stehen weiter im Patchnotes-Fenster.
+- „Bosskämpfe anonym teilen“, „Nützliche Daten mit A2Tools synchronisieren“ und der Party-A2-Tag bleiben aus, bis du sie selbst einschaltest. „Gruppe teilen“, Puppen-Test, HPS, Event-Timer und alle bisherigen Fork-Funktionen bleiben erhalten.
 
 **Installation (neu)**
-1. `AION2-DPS-Meter_3.0.31_x64.msi` herunterladen und ausführen. Windows SmartScreen warnt, weil der Installer nicht signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
+1. `AION2-DPS-Meter_3.0.32_x64.msi` herunterladen und ausführen. Windows SmartScreen warnt, weil der Installer nicht signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
 2. Npcap: Fehlt es, bietet der Installer an, es nach dem Setup herunterzuladen (Haken gesetzt lassen, Npcap-Setup mit den Standardoptionen durchklicken). Sonst fragt das Meter beim ersten Start danach.
 3. Meter starten, im Spiel einloggen. Updates kommen danach automatisch (Meldung beim Start).
 4. Einstellungen → „Gruppe teilen“: Einladungslink einfügen.
