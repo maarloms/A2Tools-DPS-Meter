@@ -105,8 +105,10 @@
   color: color-mix(in srgb, var(--title) 75%, transparent);
 }
 
-/* Damage · DPS · share (fork/meterstats.js). Damage is secondary, so it
-   sits smaller and dimmer in front of the DPS figure. */
+/* Companion figure · main figure · extra columns · share (fork/meterstats.js).
+   The main figure is upstream's own (the value menu's pick, in its data-metric
+   colour from styles.css); the companion (damage beside DPS, healing beside
+   HPS) is secondary, so it sits smaller and dimmer in front of it. */
 .list .item .dps .dpsTotal:empty { display: none; }
 :root.forkSkin .list .item .dps { gap: 8px; }
 :root.forkSkin .list .item .dps .dpsTotal {
@@ -118,6 +120,23 @@
 }
 :root.forkSkin .list .item .dps .dpsContribution { min-width: 38px; }
 :root.forkSkin .meter.slim .list .item .dps .dpsTotal { font-size: 10.5px; min-width: 36px; }
+/* The companion in the colour of the figure it belongs to (damage beside DPS,
+   healing beside HPS), dimmed like the rest of it; the stat colours switch
+   in the value menu turns it off. */
+:root.forkSkin body:not(.noStatColours) .list .item .dps:has(> [data-metric="dps"]) .dpsTotal { color: color-mix(in srgb, var(--metric-totalDamage) 85%, transparent); }
+:root.forkSkin body:not(.noStatColours) .list .item .dps:has(> [data-metric="hps"]) .dpsTotal { color: color-mix(in srgb, var(--metric-totalHeal) 85%, transparent); }
+/* Extra columns (upstream's .dpsExtra spans carry data-metric and their colour):
+   tighter and with the skin's text shadow so they sit on the bar like the main
+   figure. */
+:root.forkSkin .list .item .dps .dpsExtra { gap: 8px; font-size: 12.5px; opacity: 1; }
+:root.forkSkin .list .item .dps .dpsExtra > span { font-variation-settings: "wght" 500, "wdth" 87.5; }
+:root.forkSkin .meter.slim .list .item .dps .dpsExtra { font-size: 11px; gap: 6px; }
+/* Deaths after the name: upstream's red badge in the skin's corner radius. */
+:root.forkSkin .list .item .deathCount {
+  border-radius: var(--rounded-xs);
+  background: color-mix(in srgb, #e0503c 22%, rgba(0, 0, 0, 0.55));
+  border-color: color-mix(in srgb, #ff7878 65%, transparent);
+}
 
 /* ---------------- stats strip ---------------- */
 
@@ -172,6 +191,29 @@
   background: rgba(0, 0, 0, 0.45);
 }
 :root.forkSkin .forkStat.hasHp .forkStatHp { display: block; }
+/* Boss stagger % (upstream's "Boss stagger %" menu item; the HP bar it
+   normally sits on is hidden here): top right of the boss HP cell. */
+:root.forkSkin .forkStatStag {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-style: normal;
+  font-family: var(--hud-tech);
+  font-variant-numeric: tabular-nums;
+  font-variation-settings: "wght" 700, "wdth" 80;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  color: var(--hud-num, #fff);
+  white-space: nowrap;
+  pointer-events: none;
+}
+:root.forkSkin body:not(.noStatColours) .forkStatStag { color: var(--metric-stagger); }
+.forkStatStag:empty { display: none; }
+/* "Party total" off in the footer menu: only the boss HP stays. */
+:root.forkSkin .forkStats.noTotals:not([hidden]) { grid-template-columns: minmax(0, 1fr); }
+:root.forkSkin .forkStats.noTotals .forkStat:not([data-k="hp"]) { display: none; }
+:root.forkSkin .forkStats.noTotals .forkStat + .forkStat { border-left: 0; }
 :root.forkSkin .forkStatHp > i {
   display: block;
   height: 100%;
@@ -189,6 +231,24 @@
   border-top: 1px solid var(--panel-border);
   border-radius: 0 0 var(--rounded-lg) var(--rounded-lg);
 }
+
+/* Footer menu (click the timer area), value menu (DPS button) and target menu
+   (TARGET button): upstream's card in the skin's panel look. They open in the
+   meter's flow above the footer, so the window grows with them. */
+:root.forkSkin .metricMenu {
+  border-color: var(--panel-border);
+  border-radius: var(--rounded-sm);
+  background: rgba(var(--hud-bg), 0.98);
+  box-shadow: var(--fork-glow, 0 0 0 transparent), 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+:root.forkSkin .metricMenuHead { color: color-mix(in srgb, var(--title) 60%, transparent); border-bottom-color: var(--fork-field-border); }
+:root.forkSkin .metricMenuItem { border-radius: var(--rounded-xs); }
+:root.forkSkin .metricMenuSep { background: var(--fork-field-border); }
+:root.forkSkin .meterFooter .footerInfo { border-radius: var(--rounded-xs); }
+:root.forkSkin .meterFooter .footerInfo:hover,
+:root.forkSkin .meterFooter .footerInfo.isOpen { background: var(--fork-band); }
+:root.forkSkin .footerBtns .footerBtn { border-radius: var(--rounded-xs); }
+:root.forkSkin .footerBtns .footerBtn.isOpen { border-color: color-mix(in srgb, var(--fork-accent) 60%, transparent); }
 
 /* ---------------- settings ---------------- */
 
