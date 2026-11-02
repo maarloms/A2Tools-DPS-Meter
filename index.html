@@ -69,6 +69,7 @@
           <div class="bossHpFill"></div>
           <span class="bossHpText">
             <span class="bossHpPct"></span>
+            <span class="bossHpStag"></span>
             <span class="bossHpAmt"></span>
           </span>
         </div>
@@ -468,6 +469,7 @@
                 <button class="settingsNavItem" type="button" role="tab" id="settingsTab-plugins" aria-controls="settingsSection-plugins" aria-selected="false" tabindex="-1" data-section="plugins"><i data-lucide="puzzle" aria-hidden="true"></i><span data-i18n="settings.plugins.title">Plugins</span></button>
                 <button class="settingsNavItem" type="button" role="tab" id="settingsTab-privacy" aria-controls="settingsSection-privacy" aria-selected="false" tabindex="-1" data-section="privacy"><i data-lucide="shield" aria-hidden="true"></i><span data-i18n="privacy.title">Privacy</span></button>
                 <button class="settingsNavItem" type="button" role="tab" id="settingsTab-advanced" aria-controls="settingsSection-advanced" aria-selected="false" tabindex="-1" data-section="advanced"><i data-lucide="sliders-horizontal" aria-hidden="true"></i><span data-i18n="settings.advanced">Advanced</span></button>
+                <button class="settingsNavItem" type="button" role="tab" id="settingsTab-changelog" aria-controls="settingsSection-changelog" aria-selected="false" tabindex="-1" data-section="changelog"><i data-lucide="sparkles" aria-hidden="true"></i><span data-i18n="changelog.title">What's new</span></button>
               </div>
               <div class="settingsVersionRow">
                 <button class="settingsFooterValue settingsVersionLink" type="button" data-i18n-aria-label="settings.version" aria-label="Version"><span class="settingsVersionValue">-</span></button>
@@ -629,18 +631,6 @@
                   </div>
                   <div class="settingsRow settingsRowSelect">
                     <div class="settingsInfo">
-                      <div class="settingsLabel" data-i18n="settings.partyStat.label" title="The number beside each player's name, in the meter and in Details. Only your own party's members have one." data-i18n-title="settings.tips.partyStat">Beside player names</div>
-                    </div>
-                    <div class="settingsDropdownWrapper partyStatDropdownWrapper">
-                      <button class="settingsDropdownBtn partyStatDropdownBtn" type="button">
-                        <span class="settingsDropdownText">-</span>
-                        <span class="settingsDropdownCaret" aria-hidden="true">▾</span>
-                      </button>
-                      <div class="settingsDropdownMenu partyStatDropdownMenu" role="menu"></div>
-                    </div>
-                  </div>
-                  <div class="settingsRow settingsRowSelect">
-                    <div class="settingsInfo">
                       <div class="settingsLabel" data-i18n="settings.playerLimit.label" title="How many player rows the meter shows; the rest are left out." data-i18n-title="settings.tips.playerLimit">Max players shown</div>
                     </div>
                     <div class="settingsDropdownWrapper playerLimitDropdownWrapper playerLimitNarrow">
@@ -716,48 +706,6 @@
                       <div class="settingsDropdownMenu detailsMonitorDropdownMenu" role="menu"></div>
                     </div>
                   </div>
-                  <label class="settingsToggle">
-                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showPing">Show ping</span>
-                    <span class="settingsToggleControl">
-                      <input type="checkbox" class="showPingCheckbox" />
-                      <span class="settingsToggleTrack" aria-hidden="true"></span>
-                    </span>
-                  </label>
-                  <label class="settingsToggle">
-                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showOdyle" title="Below the meter, your Odyle energy as the game shows it: basic (+charged). It updates at login, after a server transfer and when the energy changes. Until then, for example after restarting the meter, the last value seen shows dimmed." data-i18n-title="settings.tips.showOdyle">Show Odyle energy</span>
-                    <span class="settingsToggleControl">
-                      <input type="checkbox" class="showOdyleCheckbox" />
-                      <span class="settingsToggleTrack" aria-hidden="true"></span>
-                    </span>
-                  </label>
-                  <label class="settingsToggle">
-                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showTtk" title="Beside the battle timer, an estimate of how long the whole boss fight will take." data-i18n-title="settings.tips.showTtk">Show time to kill estimate</span>
-                    <span class="settingsToggleControl">
-                      <input type="checkbox" class="showTtkCheckbox" />
-                      <span class="settingsToggleTrack" aria-hidden="true"></span>
-                    </span>
-                  </label>
-                  <label class="settingsToggle">
-                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showHealModes" title="The DPS/DMG button on the meter also cycles through healing per second and total healing." data-i18n-title="settings.tips.showHealModes">Show healing in the DPS/DMG button</span>
-                    <span class="settingsToggleControl">
-                      <input type="checkbox" class="showHealModesCheckbox" checked />
-                      <span class="settingsToggleTrack" aria-hidden="true"></span>
-                    </span>
-                  </label>
-                  <label class="settingsToggle">
-                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showStaggerMode" title="The DPS/DMG button on the meter also shows the stagger each player took off the boss's gauge." data-i18n-title="settings.tips.showStaggerMode">Show stagger in the DPS/DMG button</span>
-                    <span class="settingsToggleControl">
-                      <input type="checkbox" class="showStaggerModeCheckbox" />
-                      <span class="settingsToggleTrack" aria-hidden="true"></span>
-                    </span>
-                  </label>
-                  <label class="settingsToggle">
-                    <span class="settingsToggleLabel settingsLabel" data-i18n="settings.showTotalDps" title="A bar under the rows with the party's combined DPS and damage." data-i18n-title="settings.tips.showTotalDps">Show party total</span>
-                    <span class="settingsToggleControl">
-                      <input type="checkbox" class="showTotalDpsCheckbox" />
-                      <span class="settingsToggleTrack" aria-hidden="true"></span>
-                    </span>
-                  </label>
                   <label class="settingsToggle">
                     <span class="settingsToggleLabel settingsLabel" data-i18n="settings.roundDps" title="13,412 shows as 13k." data-i18n-title="settings.tips.roundDps">Shorten DPS to thousands (13k)</span>
                     <span class="settingsToggleControl">
@@ -1178,6 +1126,7 @@
                       <h3 class="hotkeyConsentTitle" id="pluginConsentTitle"></h3>
                       <p class="pluginConsentIntro"></p>
                       <ul class="pluginConsentList"></ul>
+                      <p class="pluginConsentNote" data-i18n="settings.plugins.consentNetwork">Like any web page, a plugin may be able to reach the internet.</p>
                       <div class="hotkeyConsentActions">
                         <button class="settingsAction pluginConsentCancel" type="button" data-i18n="settings.plugins.consentCancel">Cancel</button>
                         <button class="settingsAction hotkeyConsentConfirm pluginConsentConfirm" type="button"></button>
@@ -1218,6 +1167,13 @@
                 <!-- fork: what the fork itself sends (Group sharing, diagnostics) and no Send Logs to Dev -->
                 <div class="privacyNever" data-i18n="privacy.forkNever">Never sent to a2tools.app: chat, your PC's name, your character's full name. "Group sharing" sends live DPS and fights, with character names, to the group server you entered; "Send diagnostics" sends logs (meter.log, debug.log), your settings without the secret and recent fights there, only when you press it. This version has no "Send Logs to Dev".</div>
                 <div class="privacyLinks"><button class="settingsAction privacyPolicyBtn" type="button" data-i18n="privacy.policy">Full privacy policy</button></div>
+              </section>
+              <section class="settingsSection" id="settingsSection-changelog" role="tabpanel" aria-labelledby="settingsTab-changelog" data-section="changelog" hidden>
+                <h2 class="settingsSectionTitle" data-i18n="changelog.title">What's new</h2>
+                <p class="settingsHint changelogIntro" data-i18n="changelog.intro">The latest releases, newest first.</p>
+                <div class="changelogStatus settingsHint" role="status"></div>
+                <div class="changelogList"></div>
+                <button class="linkButton changelogAllLink" type="button" data-i18n="changelog.allReleases">All releases on GitHub</button>
               </section>
               <section class="settingsSection" id="settingsSection-advanced" role="tabpanel" aria-labelledby="settingsTab-advanced" data-section="advanced" hidden>
                 <h2 class="settingsSectionTitle" data-i18n="settings.advanced">Advanced</h2>
@@ -1398,6 +1354,10 @@
         <div class="historyPanel" role="dialog" aria-modal="true">
           <div class="historyHeader">
             <div class="historyTitle" data-i18n="history.title">Battle History</div>
+            <div class="historyTabs" role="tablist">
+              <button class="historyTab" type="button" role="tab" data-tab="fights" data-i18n="history.tabFights">Fights</button>
+              <button class="historyTab" type="button" role="tab" data-tab="bests" data-i18n="history.tabBests">Personal bests</button>
+            </div>
             <div class="historyViewToggle" role="group" aria-label="History view">
               <button class="historyViewBtn historyViewDungeon" type="button" data-view="dungeon" title="Group by dungeon">
                 <i data-lucide="castle"></i>
@@ -1418,7 +1378,8 @@
             <div class="closeX historyClose">×</div>
           </div>
           <div class="historyFilters">
-            <select class="historyFilterBoss historyFilterSelect" aria-label="Filter by boss"></select>
+            <input class="historyFilterSearch historyFilterSelect" type="search" data-i18n-placeholder="history.search" placeholder="Boss or dungeon…" />
+            <select class="historyFilterCharacter historyFilterSelect" aria-label="Character"></select>
             <div class="historyFilterPlayer historyClassDropdown">
               <div class="historyClassDropdownTrigger historyFilterSelect">
                 <span class="historyClassDropdownLabel"></span>
@@ -1426,7 +1387,15 @@
               </div>
               <div class="historyClassDropdownMenu"></div>
             </div>
-            <select class="historyFilterDate historyFilterSelect" aria-label="Filter by date"></select>
+            <select class="historyFilterDifficulty historyFilterSelect" aria-label="Difficulty"></select>
+            <select class="historyBestsSort historyFilterSelect" aria-label="Order"></select>
+          </div>
+          <div class="historyFilters historyFilters2">
+            <select class="historyFilterPeriod historyFilterSelect" aria-label="Period"></select>
+            <label class="historySortLabel"><span data-i18n="history.sort">Sort</span>
+              <select class="historyFilterSort historyFilterSelect"></select>
+            </label>
+            <label class="historyKillsOnly"><input type="checkbox" class="historyKillsOnlyBox" /> <span data-i18n="history.killsOnly">Kills only</span></label>
           </div>
           <div class="historyBody">
             <div class="historyEmpty" data-i18n="history.empty" style="display:none">No boss fights recorded yet.</div>
@@ -1435,6 +1404,8 @@
         </div>
         <div class="list"></div>
         <div class="meterFooter">
+          <!-- The footer's displays: a click opens their menu (core.js bindFooterMenu). -->
+          <div class="footerInfo" role="button" tabindex="0" aria-haspopup="menu" data-no-drag="true">
           <div class="battleTime">
             <div class="status"></div>
             <div class="tick"></div>
@@ -1447,6 +1418,11 @@
             <span class="meterTotalDps"></span>
             <span class="meterTotalSep">/</span>
             <span class="meterTotalDmg"></span>
+          </div>
+          <div class="odyleDisplay" role="status" aria-label="Odyle Energy" data-i18n-aria-label="settings.odyleEnergy">
+            <img src="/src/assets/odyle.png" class="odyleIcon" alt="" />
+            <span class="odyleText"><span class="odyleBasic"></span><span class="odyleCharged"></span></span>
+          </div>
           </div>
           <div class="footerBtns">
             <button
@@ -1467,10 +1443,6 @@
                 class="collapseIcon"
                 data-lucide="arrow-up-wide-narrow"></i>
             </div>
-          </div>
-          <div class="odyleDisplay" role="status" aria-label="Odyle Energy" data-i18n-aria-label="settings.odyleEnergy">
-            <img src="/src/assets/odyle.png" class="odyleIcon" alt="" />
-            <span class="odyleText"><span class="odyleBasic"></span><span class="odyleCharged"></span></span>
           </div>
           <div class="pingDisplay">
             <i data-lucide="wifi" class="pingIcon"></i>
@@ -1557,7 +1529,7 @@
         <div class="discordPromoTitle" id="partyPromoTitle" data-i18n="partyPromo.title">New: see A2Tools users in your party</div>
         <div class="discordPromoText" data-i18n="partyPromo.text">Party members who also use A2Tools get a small A2 tag beside their name, and you get one beside yours on their meter.</div>
         <label class="discordPromoToggle">
-          <input type="checkbox" class="partyPromoCheckbox" checked />
+          <input type="checkbox" class="partyPromoCheckbox" />
           <span data-i18n="settings.partyPresence">Show A2Tools users in my party</span>
         </label>
         <div class="discordPromoHint" data-i18n="partyPromo.hint">Anyone in your party who uses A2Tools will be able to see that you use a third-party meter. Only hashes of character names and servers are sent. You can change this any time in Settings.</div>
@@ -1745,5 +1717,6 @@
     <script src="/src/js/core.js?v=2076a"></script>
     <script src="/src/js/pluginIcons.js"></script>
     <script src="/src/js/pluginSettings.js"></script>
+    <script src="/src/js/changelog.js"></script>
   </body>
 </html>

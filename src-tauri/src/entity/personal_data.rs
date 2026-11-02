@@ -42,6 +42,9 @@ pub struct PersonalData {
     pub hps: f64,
     #[serde(default)]
     pub heal_amount: f64,
+    /// Damage received during the shown fight, for the meter's Damage taken mode.
+    #[serde(default)]
+    pub damage_received: i64,
     /// Stagger taken off the shown targets' gauges in the fight
     /// (`combat::stagger`), for the meter's Stagger mode.
     #[serde(default)]
@@ -51,6 +54,14 @@ pub struct PersonalData {
     /// out when there is none.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub stagger_skills: HashMap<i32, i64>,
+    /// Times this player died in the fight, a badge after the name when
+    /// above 0. Left out when 0, as nearly every row is.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub deaths: i32,
+}
+
+fn is_zero(n: &i32) -> bool {
+    *n == 0
 }
 
 impl PersonalData {
@@ -69,8 +80,10 @@ impl PersonalData {
             is_others: false,
             hps: 0.0,
             heal_amount: 0.0,
+            damage_received: 0,
             stagger: 0,
             stagger_skills: HashMap::new(),
+            deaths: 0,
         }
     }
 
@@ -89,8 +102,10 @@ impl PersonalData {
             is_others: false,
             hps: 0.0,
             heal_amount: 0.0,
+            damage_received: 0,
             stagger: 0,
             stagger_skills: HashMap::new(),
+            deaths: 0,
         }
     }
 
@@ -106,6 +121,7 @@ impl PersonalData {
     pub fn merge_from(&mut self, other: &PersonalData) {
         self.amount += other.amount;
         self.heal_amount += other.heal_amount;
+        self.damage_received += other.damage_received;
         self.stagger += other.stagger;
         for (&skill, &value) in &other.stagger_skills {
             *self.stagger_skills.entry(skill).or_default() += value;

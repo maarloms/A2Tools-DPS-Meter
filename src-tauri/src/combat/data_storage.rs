@@ -785,6 +785,10 @@ struct Inner {
     /// and comes back with the next self record: a fight saved in between is
     /// still yours, on your server. See `fight_server_id`.
     self_server: u16,
+    /// The character `self_server` was stated for: another one the game
+    /// names (a switch, named by loot before its own self record) forgets
+    /// it, so it does not inherit the last one's server (#133).
+    self_server_owner: Option<String>,
     /// The class and level your own self record last stated, with the name it
     /// was for, so a character switch does not carry the last one's over.
     self_profile: Option<(String, Option<JobClass>, Option<u32>)>,
@@ -908,6 +912,7 @@ impl DataStorage {
                 loot_identity: LootIdentity::default(),
                 player_servers: HashMap::new(),
                 self_server: 0,
+                self_server_owner: None,
                 self_profile: None,
                 self_gear_score: None,
                 self_combat_power: None,
@@ -983,6 +988,12 @@ impl DataStorage {
     /// The stagger gauge an entity's spawn carries (its starting value).
     pub fn note_stagger_spawn(&self, entity: i32, max: u32, rest: u32) {
         self.stagger.lock().note_spawn(entity, max, rest);
+    }
+
+    /// How far `entity`'s stagger gauge is worn down, 0-100, if it has one.
+    pub fn stagger_pct(&self, entity: i32) -> Option<f64> {
+        let (max, rest) = self.stagger.lock().gauge(entity)?;
+        (max > 0).then(|| f64::from(max.saturating_sub(rest)) * 100.0 / f64::from(max))
     }
 
     /// A gauge update (`05 E0 .. 03 01`), at the current time.
@@ -1448,11 +1459,39 @@ impl DataStorage {
         self.inner.read().player_servers.get(name.trim()).copied().unwrap_or(0)
     }
 
+    /// The server to file `name` under in a saved fight, as the game's
+    /// records state it. You: your self record's, the game's word on where you
+    /// are, and Some(0), unknown, when none has come this session, never a
+    /// guess (#128). Anyone else: what a self or loot record stated, None when
+    /// nothing has, for the caller's roster value. Both come before the
+    /// roster's, the top bits of an id a character moved to another server
+    /// keeps, so it names the old one.
+    pub fn stated_server(&self, name: &str) -> Option<u16> {
+        let name = name.trim();
+        let inner = self.inner.read();
+        if inner.local_character_name.as_deref().map(str::trim) == Some(name) {
+            return Some(inner.self_server);
+        }
+        inner.player_servers.get(name).copied()
+    }
+
+    /// The server a saved fight is filed under: your self record's, 0
+    /// (unknown) when none has come this session. Not `fight_server_id`,
+    /// whose fallbacks (your roster entry, the connected host's server, the
+    /// party's majority) guess, and guessed wrong for a moved character or in
+    /// a cross-server dungeon (#128). The game sends the record on every zone
+    /// you enter.
+    pub fn self_record_server(&self) -> u16 {
+        self.inner.read().self_server
+    }
+
     /// Your home server, as your own self record states it; 0 for a record
     /// that states none (a tutorial character), which forgets the last one.
     pub fn note_self_server(&self, server_id: u16) {
         if server_id == 0 || crate::capture::servers::exists(server_id) {
-            self.inner.write().self_server = server_id;
+            let mut inner = self.inner.write();
+            inner.self_server = server_id;
+            inner.self_server_owner = inner.local_character_name.as_deref().map(|n| n.trim().to_string());
         }
     }
 
@@ -1550,9 +1589,13 @@ impl DataStorage {
 
     /// The local player's own server as the game stated it (a self or loot
     /// record), 0 when it hasn't yet. Unlike `fight_server_id`, never a
-    /// guess from the party or the connection.
+    /// guess from the party or the connection. The self record's first: a
+    /// loot record states a moved character's old server (#133).
     pub fn own_server(&self) -> u16 {
         let inner = self.inner.read();
+        if inner.self_server != 0 {
+            return inner.self_server;
+        }
         let local = inner.local_character_name.as_deref().map(str::trim);
         if let Some(&server) = local.and_then(|n| inner.player_servers.get(n)) {
             return server;
@@ -1927,6 +1970,7 @@ impl DataStorage {
                     actor_data.damage_received += dmg;
                     actor_data.hits_received += 1;
                     actor_data.received.note(pdp.specials());
+                    self.damage_generation.fetch_add(1, Ordering::Relaxed);
                 }
             }
             return;
@@ -3420,6 +3464,12 @@ fn set_game_identity(inner: &mut Inner, id: i64, name: Option<String>) {
     inner.loot_identity.stats_streak = None;
     inner.local_identity_from_game = true;
     inner.local_player_id = Some(id);
+    // Another character: the last one's self record is not this one's.
+    let named = name.as_deref().map(str::trim).filter(|n| !n.is_empty());
+    if named.is_some() && inner.self_server_owner.as_deref().is_some_and(|o| Some(o) != named) {
+        inner.self_server = 0;
+        inner.self_server_owner = None;
+    }
     inner.local_character_name = name;
 }
 
@@ -4305,8 +4355,10 @@ mod tests {
             s.append_damage(hit(200, t, 1_000 + i as i64, 500, false));
         }
         let taken = |s: &DataStorage, t: i32| s.get_combat_snapshot_light()[&t].actors[&100].damage_received;
+        let before_hit = s.damage_generation();
         s.append_damage(with_skill(hit(810, 100, 3_000, 300, false), 1_200_001));
         assert_eq!(taken(&s, 810), 300, "on the fight with the mob that hit you");
+        assert!(s.damage_generation() > before_hit, "incoming damage refreshes the live meter");
 
         // A mob you never hit: the fight you were in last.
         s.append_mob(900, 1);
@@ -4718,6 +4770,44 @@ mod tests {
         s.note_party_left();
         assert!(s.take_combat_reset_requested(), "an open-world party: someone else on the meter");
     }
+    #[test]
+    fn a_moved_character_is_filed_under_the_server_its_records_state() {
+        // An Israphel player whose id was made on Nemon (#128).
+        let s = DataStorage::new();
+        s.set_local_identity_from_game(7, Some("Arid".into()));
+        // No self record yet: you are on no known server, not a guessed one.
+        s.note_player_server("Arid", 2109);
+        assert_eq!(s.stated_server("Arid"), Some(0));
+        assert_eq!(s.self_record_server(), 0);
+        s.note_self_server(2101);
+        // A later loot record must not move you back.
+        s.note_player_server("Arid", 2109);
+        assert_eq!(s.stated_server("Arid"), Some(2101));
+        assert_eq!(s.self_record_server(), 2101);
+        // Someone else: what a loot record stated, else nothing (the roster's).
+        s.note_player_server("Other", 1102);
+        assert_eq!(s.stated_server("Other"), Some(1102));
+        assert_eq!(s.stated_server("Nobody"), None);
+        // Live profiles and reports too, not only saved fights.
+        assert_eq!(s.own_server(), 2101);
+    }
+
+    #[test]
+    fn a_switch_named_by_loot_does_not_inherit_the_last_server() {
+        let s = DataStorage::new();
+        s.set_local_identity_from_game(7, Some("Arid".into()));
+        s.note_self_server(2101);
+        // A zone move drops the name; the same character keeps its server.
+        s.set_local_identity_from_game(8, Some("Arid".into()));
+        assert_eq!(s.self_record_server(), 2101);
+        // Another character, named by loot before its own self record.
+        s.set_local_identity_from_game(9, Some("Alt".into()));
+        assert_eq!(s.self_record_server(), 0);
+        assert_eq!(s.stated_server("Alt"), Some(0));
+        s.note_self_server(1102);
+        assert_eq!(s.own_server(), 1102);
+    }
+
 }
 
 #[cfg(test)]

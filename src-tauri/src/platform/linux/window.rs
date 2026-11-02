@@ -18,7 +18,11 @@ use x11_dl::xlib;
 /// the resize "glitched all over" (2026-10-17). KWin already resized the
 /// meter's other windows this way.
 pub fn compositor_resize_supported(window: &tauri::WebviewWindow) -> bool {
-    if !super::process::is_gnome() && !super::process::is_kde() {
+    // Hyprland too: resized by the app instead, a floating window keeps its
+    // centre, so the meter jumped left as its corner was pressed (the window
+    // grew for the drag) and back on release (#102). Its own resize keeps
+    // the edge that isn't dragged.
+    if !super::process::is_gnome() && !super::process::is_kde() && !super::process::is_hyprland() {
         return false;
     }
     use gtk::prelude::*;
@@ -296,6 +300,15 @@ pub fn start_drag(window: &tauri::WebviewWindow) {
     let _ = window.start_dragging();
 }
 
+/// A tool window behind others, brought in front (see the Windows one). The
+/// compositor decides whether it takes focus.
+pub fn bring_forward(window: &tauri::WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_focus();
+}
+
 /// Show a window on top without taking focus from the game. A plain show
 /// maps the window and the window manager activates it as a new window
 /// (KWin did, under XWayland, for each plugin alert), so GTK is told first
@@ -363,9 +376,10 @@ pub fn hide_without_focus(window: &tauri::WebviewWindow) {
 /// Here a window can be built hidden and shown later as it is.
 pub const HIDE_AFTER_BUILD: bool = false;
 
-/// The windows `hide_in_place` has hidden, by label.
-fn hidden_in_place() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
-    static HIDDEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+/// The windows `hide_in_place` has hidden, by label, each with whether it
+/// stayed out of the taskbar before.
+fn hidden_in_place() -> &'static std::sync::Mutex<std::collections::HashMap<String, bool>> {
+    static HIDDEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> = std::sync::OnceLock::new();
     HIDDEN.get_or_init(Default::default)
 }
 
@@ -401,15 +415,14 @@ pub fn hide_in_place(window: &tauri::WebviewWindow) {
             return None;
         }
         gtk_window.set_opacity(0.0);
-        Some(())
+        Some(gtk_window.skips_taskbar_hint())
     })
-    .flatten()
-    .is_some();
-    if !concealed {
+    .flatten();
+    let Some(skipped_taskbar) = concealed else {
         hide_without_focus(window);
         return;
-    }
-    hidden_in_place().lock().unwrap_or_else(|p| p.into_inner()).insert(window.label().to_string());
+    };
+    hidden_in_place().lock().unwrap_or_else(|p| p.into_inner()).insert(window.label().to_string(), skipped_taskbar);
     click_through_except(window, true, None);
     let _ = window.set_skip_taskbar(true);
 }
@@ -417,12 +430,14 @@ pub fn hide_in_place(window: &tauri::WebviewWindow) {
 /// Show a window `hide_in_place` hid, where it is; false if it was not hidden
 /// that way (then it is shown as usual).
 pub fn reveal_in_place(window: &tauri::WebviewWindow) -> bool {
-    let was = hidden_in_place().lock().unwrap_or_else(|p| p.into_inner()).remove(window.label());
-    if !was {
+    let Some(skipped_taskbar) = hidden_in_place().lock().unwrap_or_else(|p| p.into_inner()).remove(window.label()) else {
         return false;
-    }
+    };
     click_through_except(window, false, None);
-    let _ = window.set_skip_taskbar(false);
+    // Back as it was: a widget went into the taskbar and Alt+Tab once shown
+    // again, and Alt+Tab then gave it the focus, the game's cursor gone and
+    // its clicks not going through (Hirai, KDE, 2026-10-31).
+    let _ = window.set_skip_taskbar(skipped_taskbar);
     let target = window.clone();
     super::dialog::on_gtk_thread(move || {
         use gtk::prelude::*;
@@ -465,7 +480,7 @@ pub async fn anchor_next_resize(anchored: bool) {
 
 /// Whether `hide_in_place` has this window hidden.
 pub fn is_hidden_in_place(window: &tauri::WebviewWindow) -> bool {
-    hidden_in_place().lock().unwrap_or_else(|p| p.into_inner()).contains(window.label())
+    hidden_in_place().lock().unwrap_or_else(|p| p.into_inner()).contains_key(window.label())
 }
 
 /// Hide the meter while the game is not in front. Kept mapped (see

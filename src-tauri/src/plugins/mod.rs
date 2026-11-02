@@ -205,6 +205,8 @@ pub fn sync_game_hiding(app: &tauri::AppHandle) {
 }
 /// Largest value one storage key may hold.
 const MAX_STORED: usize = 1024 * 1024;
+/// Most storage keys one plugin may keep (#131); the busiest keeps seven.
+const MAX_STORED_KEYS: usize = 256;
 /// How long a decoded event waits before it is stamped with the character and
 /// sent. At login the game sends some data (the pet list) a few records
 /// before the one that says which character is playing; the wait lets that
@@ -212,8 +214,14 @@ const MAX_STORED: usize = 1024 * 1024;
 /// plugins that are told the character (`events:character`) wait, and not
 /// for decoders marked `immediate`; the others get each event as it is read.
 const SETTLE: Duration = Duration::from_millis(500);
+/// How long the flusher gathers a burst of events into one message per window.
+const BATCH_WAIT: Duration = Duration::from_millis(40);
 /// Events kept per plugin for the run, replayed to its window when it opens.
 const MAX_LOGGED: usize = 20_000;
+/// And at most this much of them. Kept as full JSON trees, 20,000 events of
+/// a plugin reading every hit or spawn held tens of MB each, all run long,
+/// part of what made a Linux meter climb past 1 GB (2026-10-29).
+const MAX_LOGGED_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -307,6 +315,9 @@ fn set_disabled(app: &tauri::AppHandle, id: &str, off: bool) {
         ids.push(id.to_string());
     }
     state.settings.set(DISABLED_KEY, &serde_json::to_string(&ids).unwrap_or_default());
+    if let Ok(host) = host(app) {
+        host.set_off(app, id, off);
+    }
 }
 
 /// Turn a plugin on (it starts now and with every start of the meter) or off
@@ -396,13 +407,19 @@ pub struct PluginHost {
     pending: Mutex<Vec<Pending>>,
     /// Wakes the flusher when an event is queued.
     queued: Condvar,
-    log: Mutex<HashMap<String, VecDeque<Value>>>,
+    /// Each plugin's numbered events, as their JSON text (a `Value` tree took
+    /// several times the memory), and the bytes held.
+    log: Mutex<HashMap<String, (VecDeque<String>, usize)>>,
     seq: Mutex<u64>,
     run: String,
     flusher: AtomicBool,
     /// Plugins closed with their window's ×, this run: a reload (an install,
     /// Check for updates, a folder added) does not start them again.
     closed: Mutex<HashSet<String>>,
+    /// Plugins turned off (Settings): they stay loaded, listed with their
+    /// data, but nothing is decoded, queued or kept for them (talyaseen,
+    /// #137), as they ran on unseen and their replay log filled.
+    off: RwLock<HashSet<String>>,
 }
 
 impl Default for PluginHost {
@@ -417,6 +434,7 @@ impl Default for PluginHost {
             pending: Mutex::default(),
             queued: Condvar::new(),
             log: Mutex::default(),
+            off: RwLock::default(),
             seq: Mutex::new(0),
             run,
             flusher: AtomicBool::new(false),
@@ -602,6 +620,10 @@ impl PluginHost {
                 }),
             }
         }
+        #[cfg(feature = "online")]
+        if let Ok(dir) = plugins_dir(app) {
+            catalog::keep_serials_in(&dir);
+        }
         let installed = plugins_dir(app)
             .ok()
             .and_then(|dir| std::fs::read_dir(dir).ok())
@@ -615,7 +637,13 @@ impl PluginHost {
                 Ok(l) if loaded.iter().any(|x: &Loaded| x.manifest.id == l.manifest.id) => {
                     tracing::info!("Plugins: {} runs from its developer folder, not the installed copy", l.manifest.id);
                 }
-                Ok(l) => loaded.push(Loaded { reviewed: true, ..l }),
+                Ok(l) => match check_installed(app, &l) {
+                    Ok(()) => loaded.push(Loaded { reviewed: true, ..l }),
+                    Err(e) => {
+                        tracing::warn!("Plugins: installed {} {} held: {e}", l.manifest.id, l.manifest.version);
+                        errors.push(PluginInfo { reviewed: true, error: Some(e), ..info(&l) });
+                    }
+                },
                 Err(e) => tracing::warn!("Plugins: installed {} does not load: {e}", dir.display()),
             }
         }
@@ -623,6 +651,7 @@ impl PluginHost {
         tracing::info!("Plugins: {} loaded (developer mode {})", loaded.len(), if dev { "on" } else { "off" });
         *self.loaded.write().unwrap_or_else(|p| p.into_inner()) = loaded;
         *self.errors.write().unwrap_or_else(|p| p.into_inner()) = errors;
+        *self.off.write().unwrap_or_else(|p| p.into_inner()) = disabled(app).into_iter().collect();
 
         if !self.flusher.swap(true, Ordering::SeqCst) {
             let host = Arc::clone(self);
@@ -651,6 +680,17 @@ impl PluginHost {
                             pending = host.queued.wait_timeout(pending, wait).unwrap_or_else(|p| p.into_inner()).0;
                             ready = take_ready(&mut pending, Instant::now());
                         }
+                        ready
+                    };
+                    // Woken by the first of a burst (a zone loading sends
+                    // thousands): what follows within BATCH_WAIT goes with it.
+                    let ready = if ready.is_empty() {
+                        ready
+                    } else {
+                        std::thread::sleep(BATCH_WAIT);
+                        let mut more = take_ready(&mut host.pending.lock().unwrap_or_else(|p| p.into_inner()), Instant::now());
+                        let mut ready = ready;
+                        ready.append(&mut more);
                         ready
                     };
                     host.flush(&app, ready);
@@ -735,6 +775,35 @@ impl PluginHost {
         }
     }
 
+    /// Turn a plugin's events off or on: off, what waits for it and its
+    /// replay log go, and so do its live boss and frame-rate follows (its
+    /// window's going drops those, but one in the dock has none).
+    fn set_off(&self, app: &tauri::AppHandle, id: &str, off: bool) {
+        let mut set = self.off.write().unwrap_or_else(|p| p.into_inner());
+        if !off {
+            set.remove(id);
+            return;
+        }
+        set.insert(id.to_string());
+        drop(set);
+        self.pending.lock().unwrap_or_else(|p| p.into_inner()).retain(|p| p.plugin != id);
+        self.log.lock().unwrap_or_else(|p| p.into_inner()).remove(id);
+        boss_live::forget_plugin(app, id);
+        fps::forget_plugin(id);
+    }
+
+    /// The loaded plugins that are on, by id, with whatever `keep` picks.
+    fn on_ids(&self, keep: impl Fn(&Loaded) -> bool) -> Vec<String> {
+        let off = self.off.read().unwrap_or_else(|p| p.into_inner());
+        self.loaded
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .filter(|l| !off.contains(&l.manifest.id) && keep(l))
+            .map(|l| l.manifest.id.clone())
+            .collect()
+    }
+
     fn on_frame(&self, app: &tauri::AppHandle, packet: &[u8]) {
         let len = crate::capture::stream_processor::read_varint(packet, 0).length;
         if len <= 0 {
@@ -743,8 +812,9 @@ impl PluginHost {
         let at = len as usize;
         let Some(opcode) = packet.get(at..at + 2) else { return };
         let body = &packet[at + 2..];
+        let off = self.off.read().unwrap_or_else(|p| p.into_inner()).clone();
         let loaded = self.loaded.read().unwrap_or_else(|p| p.into_inner());
-        for plugin in loaded.iter() {
+        for plugin in loaded.iter().filter(|l| !off.contains(&l.manifest.id)) {
             for d in plugin.decoders.iter().filter(|d| d.opcode == opcode) {
                 let Some(data) = d.decode(body) else { continue };
                 // Only the player's own doings, for a decoder that asks so.
@@ -780,6 +850,11 @@ impl PluginHost {
             return;
         }
         let who = character(app);
+        // One message to each window per flush (`emit_plugins`): each emit is
+        // a script the page runs, with the event in its source, and a zone's
+        // load sent thousands, one by one, to every listening page: the
+        // plugin process went past 1.3 GB for those minutes (2026-10-29).
+        let mut batches: HashMap<String, Vec<Value>> = HashMap::new();
         for item in ready {
             let allowed = self
                 .with(&item.plugin, |l| l.manifest.permissions.iter().any(|p| p == "events:character"))
@@ -800,22 +875,27 @@ impl PluginHost {
                 "character": if allowed { who.clone() } else { None },
             });
             {
+                let text = event.to_string();
                 let mut log = self.log.lock().unwrap_or_else(|p| p.into_inner());
-                let list = log.entry(item.plugin.clone()).or_default();
-                list.push_back(event.clone());
-                while list.len() > MAX_LOGGED {
-                    list.pop_front();
+                let (list, bytes) = log.entry(item.plugin.clone()).or_default();
+                *bytes += text.len();
+                list.push_back(text);
+                while list.len() > MAX_LOGGED || *bytes > MAX_LOGGED_BYTES {
+                    let Some(gone) = list.pop_front() else { break };
+                    *bytes -= gone.len();
                 }
             }
-            emit_plugin(app, &item.plugin, event);
+            batches.entry(item.plugin.clone()).or_default().push(event);
+        }
+        for (plugin, events) in batches {
+            emit_plugins(app, &plugin, events);
         }
     }
 
     /// An unnumbered event to every loaded plugin (pluginHost.js hands it
     /// straight on).
     fn tell_all(&self, app: &tauri::AppHandle, event: &str, data: Value) {
-        let ids: Vec<String> =
-            self.loaded.read().unwrap_or_else(|p| p.into_inner()).iter().map(|l| l.manifest.id.clone()).collect();
+        let ids = self.on_ids(|_| true);
         for id in ids {
             let msg = serde_json::json!({ "plugin": id, "event": event, "data": data });
             emit_plugin(app, &id, msg);
@@ -825,14 +905,7 @@ impl PluginHost {
     /// A numbered event (see `flush`) to the plugins with a permission.
     /// `read_ms` is when it happened (unix ms).
     fn queue_permitted(&self, permission: &str, event: &str, read_ms: i64, data: Value) {
-        let ids: Vec<String> = self
-            .loaded
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .iter()
-            .filter(|l| l.manifest.permissions.iter().any(|p| p == permission))
-            .map(|l| l.manifest.id.clone())
-            .collect();
+        let ids = self.on_ids(|l| l.manifest.permissions.iter().any(|p| p == permission));
         let mut pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
         for plugin in ids {
             pending.push(Pending {
@@ -849,14 +922,7 @@ impl PluginHost {
 
     /// An unnumbered event to the plugins with a permission.
     fn tell_permitted(&self, app: &tauri::AppHandle, permission: &str, event: &str, data: Value) {
-        let ids: Vec<String> = self
-            .loaded
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .iter()
-            .filter(|l| l.manifest.permissions.iter().any(|p| p == permission))
-            .map(|l| l.manifest.id.clone())
-            .collect();
+        let ids = self.on_ids(|l| l.manifest.permissions.iter().any(|p| p == permission));
         for id in ids {
             let msg = serde_json::json!({ "plugin": id, "event": event, "data": data });
             emit_plugin(app, &id, msg);
@@ -867,14 +933,7 @@ impl PluginHost {
     /// an unnumbered event straight on).
     fn tell_character(&self, app: &tauri::AppHandle, who: Option<Value>) {
         let Some(who) = who else { return };
-        let ids: Vec<String> = self
-            .loaded
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .iter()
-            .filter(|l| l.manifest.permissions.iter().any(|p| p == "events:character"))
-            .map(|l| l.manifest.id.clone())
-            .collect();
+        let ids = self.on_ids(|l| l.manifest.permissions.iter().any(|p| p == "events:character"));
         for id in ids {
             let event = serde_json::json!({ "plugin": id, "event": "character", "data": who });
             emit_plugin(app, &id, event);
@@ -890,6 +949,73 @@ impl PluginHost {
     fn with<T>(&self, id: &str, f: impl FnOnce(&Loaded) -> T) -> Option<T> {
         self.loaded.read().unwrap_or_else(|p| p.into_inner()).iter().find(|l| l.manifest.id == id).map(f)
     }
+}
+
+/// An installed plugin checked against the signed catalog its install kept
+/// (`catalog::verify_installed`): until it passes, it is held, listed with
+/// why, and doesn't run. The offline build installs nothing and takes the
+/// folder as it is.
+fn check_installed(app: &tauri::AppHandle, l: &Loaded) -> Result<(), String> {
+    #[cfg(feature = "online")]
+    {
+        let root = plugins_dir(app)?;
+        catalog::verify_installed(&root, &l.dir, &l.manifest.id, &l.manifest.version).map_err(|e| match e {
+            catalog::Unverified::NoProof => {
+                "Not checked against the plugin catalog yet: it runs once it is, at start or on Check for updates.".to_string()
+            }
+            catalog::Unverified::Changed(why) => format!(
+                "Its files are not the reviewed ones ({why}), so it doesn't run: it is installed again from the catalog at start or on Check for updates."
+            ),
+        })
+    }
+    #[cfg(not(feature = "online"))]
+    {
+        let _ = (app, l);
+        Ok(())
+    }
+}
+
+/// Whether an installed plugin is held (`check_installed`).
+#[cfg(feature = "online")]
+fn held(p: &PluginInfo) -> bool {
+    p.reviewed && p.error.is_some()
+}
+
+/// The held plugins put right from `catalog`: one whose files are its
+/// version's there keeps that catalog and runs (every install before 2.0.87,
+/// once); one changed, or of a version the catalog has moved on from, is
+/// installed again from it, unless that asks for a permission it didn't
+/// have (then it's offered as an update). Whether any runs now.
+#[cfg(feature = "online")]
+async fn repair_held(app: &tauri::AppHandle, host: &Arc<PluginHost>, catalog: &catalog::Catalog) -> bool {
+    let (Ok(root), Some(state)) = (plugins_dir(app), app.try_state::<AppState>()) else { return false };
+    let mut changed = false;
+    for p in host.list().into_iter().filter(held) {
+        let Some(entry) = catalog.plugins.iter().find(|e| e.id == p.id) else { continue };
+        if entry.version == p.version && catalog::adopt(entry, &root).is_ok() {
+            tracing::info!("Plugins: {} {} checked against the catalog", p.id, p.version);
+            changed = true;
+            continue;
+        }
+        let asks_more = entry.permissions.iter().any(|x| !p.permissions.contains(x));
+        if catalog::newer(&p.version, &entry.version) || (entry.version != p.version && asks_more) {
+            continue;
+        }
+        match catalog::install(&state.http, entry, &root, || {}).await {
+            Ok(_) => {
+                tracing::info!("Plugins: {} {} installed again from the catalog", entry.id, entry.version);
+                changed = true;
+            }
+            Err(e) => tracing::info!("Plugins: {} could not be installed again: {e}", entry.id),
+        }
+    }
+    if changed {
+        host.reload(app);
+        refresh_windows(app, host);
+        restore_windows(app);
+        let _ = app.emit_to("settings", "plugins-changed", ());
+    }
+    changed
 }
 
 fn info(l: &Loaded) -> PluginInfo {
@@ -1039,7 +1165,8 @@ fn refresh_windows(app: &tauri::AppHandle, host: &PluginHost) {
 /// to install.
 #[cfg(feature = "online")]
 fn newer_entries(catalog: catalog::Catalog, host: &PluginHost) -> Vec<(PluginAvailable, catalog::Entry)> {
-    let installed: Vec<PluginInfo> = host.list().into_iter().filter(|p| p.reviewed && p.error.is_none()).collect();
+    // Held ones too: an update is how one asking for more comes back.
+    let installed: Vec<PluginInfo> = host.list().into_iter().filter(|p| p.reviewed).collect();
     installed
         .into_iter()
         .filter_map(|p| {
@@ -1061,9 +1188,10 @@ fn newer_entries(catalog: catalog::Catalog, host: &PluginHost) -> Vec<(PluginAva
 
 /// The catalog's newer versions of installed plugins.
 #[cfg(feature = "online")]
-async fn available_updates(app: &tauri::AppHandle, host: &PluginHost) -> Result<Vec<PluginAvailable>, String> {
+async fn available_updates(app: &tauri::AppHandle, host: &Arc<PluginHost>) -> Result<Vec<PluginAvailable>, String> {
     let http = app.try_state::<AppState>().ok_or("no app state")?.http.clone();
     let catalog = catalog::fetch(&http).await?;
+    repair_held(app, host, &catalog).await;
     Ok(newer_entries(catalog, host).into_iter().map(|(a, _)| a).collect())
 }
 
@@ -1183,7 +1311,7 @@ fn prompt_texts(data_dir: Option<&Path>, lang: &str) -> PromptTexts {
         perm_window: perm("permWindow", "Show and hide its own window, without taking focus from the game"),
         perm_widgets: perm("permWidgets", "Show small windows of its own, which you can move anywhere and lock in place"),
         perm_character: perm("permCharacter", "See your character's name, server, class and level"),
-        perm_decoder: perm("permDecoder", "Read your own game data: {name}"),
+        perm_decoder: perm("permDecoder", "Read selected game fields (may include other players): {name}"),
         perm_fps: perm("permFps", "Show the game's frame rate (on Windows, the meter asks to run as administrator for it)"),
         perm_death_recap: perm("permDeathRecap", "After a player kills you: who they were and the damage they did to you"),
         perm_screenshot: perm("permScreenshot", "Take screenshots of its own window, to the clipboard and your screenshot folder"),
@@ -1249,6 +1377,29 @@ fn update_prompt(t: &PromptTexts, updates: &[&PluginAvailable]) -> String {
 pub fn find_updates_at_start(app: &tauri::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        // A plugin held at load (installed before installs kept their
+        // catalog, mostly) is checked at once, not after the delay, and
+        // again every HELD_RETRY until the catalog answers: started
+        // offline, it runs soon after the connection is back, not at the
+        // next update check hours later.
+        let held_app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                let Ok(host) = host(&held_app) else { return };
+                let Some(state) = held_app.try_state::<AppState>() else { return };
+                if !host.list().iter().any(held) {
+                    return;
+                }
+                match catalog::fetch(&state.http).await {
+                    Ok(catalog) => {
+                        repair_held(&held_app, &host, &catalog).await;
+                        return;
+                    }
+                    Err(e) => tracing::info!("Plugins: held plugins not checked yet: {e}"),
+                }
+                tokio::time::sleep(HELD_RETRY).await;
+            }
+        });
         tokio::time::sleep(UPDATE_ALERT_DELAY).await;
         // At start, then every 6 hours for a meter left running for days.
         // Each check replaces what the title offers: updates installed from
@@ -1261,6 +1412,10 @@ pub fn find_updates_at_start(app: &tauri::AppHandle) {
         }
     });
 }
+
+/// How often a held plugin is checked again while the catalog can't be read.
+#[cfg(feature = "online")]
+const HELD_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// How often the plugin updates are looked for again after the first time.
 #[cfg(feature = "online")]
@@ -1280,6 +1435,7 @@ async fn find_updates(app: &tauri::AppHandle, at_start: bool) {
             return;
         }
     };
+    repair_held(app, &host, &catalog).await;
     let declined: HashMap<String, String> =
         state.settings.get(DECLINED_UPDATES_KEY).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
     let updates = updates_to_offer(newer_entries(catalog, &host), &declined);
@@ -1470,7 +1626,11 @@ async fn install_entry(app: &tauri::AppHandle, host: &Arc<PluginHost>, entry: &c
     let http = app.try_state::<AppState>().ok_or("no app state")?.http.clone();
     let dir = plugins_dir(app)?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    catalog::install(&http, entry, &dir).await?;
+    // Settings' button says "Installing…" once the download is done.
+    let phase = || {
+        let _ = app.emit_to("settings", "plugin-install-phase", serde_json::json!({ "id": entry.id, "phase": "installing" }));
+    };
+    catalog::install(&http, entry, &dir, phase).await?;
     tracing::info!("Plugins: installed {} {}", entry.id, entry.version);
     host.reload(app);
     refresh_windows(app, host);
@@ -1510,10 +1670,13 @@ pub fn plugin_uninstall(app: tauri::AppHandle, id: String) -> Result<PluginsView
     }
     remember_window(&app, &id, None);
     set_disabled(&app, &id, false);
-    let dir = plugins_dir(&app)?.join(&id);
+    let root = plugins_dir(&app)?;
+    let dir = root.join(&id);
     if dir.is_dir() {
         std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
     }
+    #[cfg(feature = "online")]
+    catalog::remove_proof(&root, &id);
     let host = host(&app)?;
     host.reload(&app);
     dock::sync(&app, None);
@@ -1986,8 +2149,13 @@ pub fn plugin_hello(app: tauri::AppHandle, window: tauri::WebviewWindow, plugin:
     }
     let host = host(&app)?;
     let manifest = host.with(&id, |l| l.manifest.clone()).ok_or("plugin not loaded")?;
-    let replay: Vec<Value> =
-        host.log.lock().unwrap_or_else(|p| p.into_inner()).get(&id).map(|l| l.iter().cloned().collect()).unwrap_or_default();
+    let replay: Vec<Value> = host
+        .log
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&id)
+        .map(|(l, _)| l.iter().filter_map(|t| serde_json::from_str(t).ok()).collect())
+        .unwrap_or_default();
     let character =
         if manifest.permissions.iter().any(|p| p == "events:character") { character(&app) } else { None };
     let reviewed = host.with(&id, |l| l.reviewed).unwrap_or(false);
@@ -2073,8 +2241,18 @@ pub fn set_plugin_theme(app: tauri::AppHandle, theme: Value) -> Result<(), Strin
 /// events sent to any window, and each keeps only its own plugins'
 /// (pluginHost.js, pluginDock.js).
 pub(crate) fn emit_plugin(app: &tauri::AppHandle, id: &str, event: Value) {
-    let target = if dock::docks(app, id) { dock::LABEL.to_string() } else { format!("plugin-{id}") };
-    let _ = app.emit_to(target, "plugin-event", event);
+    let _ = app.emit_to(plugin_target(app, id), "plugin-event", event);
+}
+
+/// Several numbered events of one plugin as one message ("plugin-events",
+/// an array the page hands on one by one, as "plugin-event"s).
+fn emit_plugins(app: &tauri::AppHandle, id: &str, events: Vec<Value>) {
+    let _ = app.emit_to(plugin_target(app, id), "plugin-events", events);
+}
+
+/// The window a plugin's page runs in: the dock, or its own.
+fn plugin_target(app: &tauri::AppHandle, id: &str) -> String {
+    if dock::docks(app, id) { dock::LABEL.to_string() } else { format!("plugin-{id}") }
 }
 
 /// Tell every open plugin window something every plugin may know, such as the
@@ -2209,6 +2387,9 @@ pub fn plugin_storage_set(app: tauri::AppHandle, window: tauri::WebviewWindow, p
     let file = data_file(&app, &id, &key)?;
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        if !file.exists() && std::fs::read_dir(dir).map_or(0, |d| d.count()) >= MAX_STORED_KEYS {
+            return Err(format!("at most {MAX_STORED_KEYS} storage keys"));
+        }
     }
     std::fs::write(file, value).map_err(|e| e.to_string())
 }
@@ -2562,9 +2743,9 @@ mod tests {
         let (a, b) = (available("a", "1.0.0", "1.1.0", &[]), available("b", "2.0", "2.1", &["storage", "decoder:pets"]));
         let two = update_prompt(&en, &[&a, &b]);
         assert!(two.starts_with("Plugin updates are available:"));
-        assert!(two.contains("Plugin b 2.0 → 2.1\n    The new version also asks to:\n    • Save its own data on this computer\n    • Read your own game data: pets"));
+        assert!(two.contains("Plugin b 2.0 → 2.1\n    The new version also asks to:\n    • Save its own data on this computer\n    • Read selected game fields (may include other players): pets"));
         let de = update_prompt(&prompt_texts(Some(&data), "de"), &[&b]);
-        assert!(de.contains("Jetzt aktualisieren?") && de.contains("Deine eigenen Spieldaten lesen: pets"), "{de}");
+        assert!(de.contains("Jetzt aktualisieren?") && de.contains("Ausgewählte Spieldaten lesen (können andere Spieler betreffen): pets"), "{de}");
     }
 
     /// What's new: each version's notes under its update, in the player's

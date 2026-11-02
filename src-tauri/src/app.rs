@@ -217,9 +217,11 @@ fn hides_with_meter(app: &tauri::AppHandle, label: &str, meter: bool) -> bool {
 /// Hide those of `hides_with_meter` that are up, noting each.
 fn hide_with_meter(app: &tauri::AppHandle, meter: bool, hidden: &mut std::collections::HashSet<String>) {
     for (label, window) in app.webview_windows() {
-        if !hides_with_meter(app, &label, meter) || hidden.contains(&label) {
+        if !hides_with_meter(app, &label, meter) {
             continue;
         }
+        // A plugin update can reopen a window whose label is already recorded.
+        // Check its current visibility so the next focus tick hides it again.
         if window.is_visible().unwrap_or(false) && !platform::window::is_hidden_in_place(&window) {
             platform::window::hide_in_place(&window);
             hidden.insert(label);
@@ -526,6 +528,15 @@ async fn get_details_context(app: tauri::AppHandle) -> Result<DetailsContext, St
 async fn get_fight_history(app: tauri::AppHandle) -> Result<Vec<FightSummary>, String> {
     crate::blocking::HISTORY.run(move || {
         app.state::<AppState>().fight_history.list_fights()
+    }).await
+}
+
+/// Every personal best (`history::personal_bests`), off the main thread as
+/// `get_fight_history` is.
+#[tauri::command]
+async fn get_personal_bests(app: tauri::AppHandle) -> Result<Vec<crate::history::personal_bests::Encounter>, String> {
+    crate::blocking::HISTORY.run(move || {
+        app.state::<AppState>().fight_history.personal_bests()
     }).await
 }
 
@@ -1615,6 +1626,14 @@ async fn check_for_update(app: tauri::AppHandle, state: tauri::State<'_, AppStat
 }
 
 #[cfg(feature = "online")]
+/// The last releases' notes, for Settings → What's new (#127): fetched and
+/// signature-checked like the update manifest (`update_check`).
+#[tauri::command]
+async fn release_notes(state: tauri::State<'_, AppState>) -> Result<serde_json::Value, String> {
+    crate::update_check::fetch_changelog(&state.http).await
+}
+
+#[cfg(feature = "online")]
 /// Offer the update `check_for_update` found. Not a command any more: the
 /// page used to call it with a URL and hash of its own (security audit H1).
 #[allow(clippy::too_many_arguments)]
@@ -1769,7 +1788,15 @@ pub(crate) async fn download_and_install_update(app: &tauri::AppHandle, url: &st
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status()));
     }
+    // At most MAX_PACKAGE (packages are under 24 MB), counted as it comes,
+    // since a server may give no length; and a download that fails leaves no
+    // partial file (talyaseen, #140).
+    const MAX_PACKAGE: u64 = 256 * 1024 * 1024;
+    let too_big = || format!("the update package is larger than {MAX_PACKAGE} bytes");
     let total_size = response.content_length().unwrap_or(0);
+    if total_size > MAX_PACKAGE {
+        return Err(too_big());
+    }
     let msi_path = update_download_path(&url_owned)?;
 
     let mut file = tokio::fs::File::create(&msi_path).await.map_err(|e| e.to_string())?;
@@ -1778,22 +1805,32 @@ pub(crate) async fn download_and_install_update(app: &tauri::AppHandle, url: &st
     let mut last_pct: u64 = 0;
     let mut hasher = Sha256::new();
 
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| e.to_string())?;
-        hasher.update(&chunk);
-        file.write_all(&chunk).await.map_err(|e| e.to_string())?;
-        downloaded += chunk.len() as u64;
-        if total_size > 0 {
-            let pct = (downloaded * 100 / total_size).min(100);
-            if pct != last_pct {
-                last_pct = pct;
-                let _ = app_clone.emit("download-progress", pct);
-                tracing::info!("Download: {}%", pct);
+    let saved: Result<(), String> = async {
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| e.to_string())?;
+            if downloaded + chunk.len() as u64 > MAX_PACKAGE {
+                return Err(too_big());
+            }
+            hasher.update(&chunk);
+            file.write_all(&chunk).await.map_err(|e| e.to_string())?;
+            downloaded += chunk.len() as u64;
+            if total_size > 0 {
+                let pct = (downloaded * 100 / total_size).min(100);
+                if pct != last_pct {
+                    last_pct = pct;
+                    let _ = app_clone.emit("download-progress", pct);
+                    tracing::info!("Download: {}%", pct);
+                }
             }
         }
+        file.flush().await.map_err(|e| e.to_string())
     }
-    file.flush().await.map_err(|e| e.to_string())?;
+    .await;
     drop(file);
+    if let Err(e) = saved {
+        let _ = tokio::fs::remove_file(&msi_path).await;
+        return Err(e);
+    }
 
     let actual: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
     if !package_hash_matches(expected_sha256, &actual) {
@@ -1920,14 +1957,11 @@ async fn fetch_supporter_roster(client: &reqwest::Client, etag: Option<&str>) ->
         .get(reqwest::header::ETAG)
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
-    let Ok(bytes) = response.bytes().await else {
-        return RosterFetch::Failed;
-    };
     // A roster for ten thousand supporters is about 80 KB; anything far past
     // that is not one of ours.
-    if bytes.len() > 8 * 1024 * 1024 {
+    let Ok(bytes) = crate::update_check::read_capped(response, 8 * 1024 * 1024).await else {
         return RosterFetch::Failed;
-    }
+    };
     match crate::supporters::Roster::parse(&bytes) {
         Some(roster) => RosterFetch::Fresh(roster, tag),
         None => RosterFetch::Failed,
@@ -2027,6 +2061,12 @@ async fn send_logs_to_dev() -> Result<serde_json::Value, String> {
 #[tauri::command]
 async fn check_for_update(ask: Option<bool>) -> Result<serde_json::Value, String> {
     let _ = ask;
+    Err(NOT_IN_THIS_BUILD.into())
+}
+
+#[cfg(not(feature = "online"))]
+#[tauri::command]
+async fn release_notes() -> Result<serde_json::Value, String> {
     Err(NOT_IN_THIS_BUILD.into())
 }
 
@@ -2418,6 +2458,39 @@ fn keep_on_top_while_ours(app: &tauri::AppHandle, label: &str, focused: bool) {
     });
 }
 
+/// A tool window `bring_forward` raised, without focus, stays on top only
+/// while the meter or the game is in front, as `keep_on_top_while_ours` keeps
+/// a focused one: that one is unpinned when it loses focus, which a window
+/// raised without it never does, so it floated over the app clicked next.
+/// Watched until another app takes the front (unpinned then), the window
+/// takes focus (its own handler from then), it closes, or 30 minutes pass.
+fn unpin_when_left(app: &tauri::AppHandle, label: &str) {
+    let app = app.clone();
+    let label = label.to_string();
+    std::thread::spawn(move || {
+        let mut ours = platform::window::front_is_ours_or_game();
+        for _ in 0..(30 * 60 * 4) {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            let Some(window) = app.get_webview_window(&label) else { return };
+            if window.is_focused().unwrap_or(false) {
+                return;
+            }
+            let now = platform::window::front_is_ours_or_game();
+            if ours && !now {
+                let handle = app.clone();
+                let label = label.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Some(window) = handle.get_webview_window(&label) {
+                        let _ = window.set_always_on_top(false);
+                    }
+                });
+                return;
+            }
+            ours = now;
+        }
+    });
+}
+
 /// Remember where tool window `label` is and its size. Called on every move
 /// and resize, and every 5 s as before: with only the timer, a window moved
 /// and closed within 5 s reopened where it had been (Battle History,
@@ -2648,9 +2721,10 @@ pub(crate) async fn open_settings_window(app: tauri::AppHandle) -> Result<(), St
         if !ready {
             return Ok(());
         }
-        let _ = existing.show();
-        let _ = existing.unminimize();
-        let _ = existing.set_always_on_top(true);
+        // In front of everything, even where focus is refused (Windows, from
+        // the overlay), then asked for the keyboard for its fields.
+        platform::window::bring_forward(&existing);
+        unpin_when_left(&app, "settings");
         let _ = existing.set_focus();
         // Already open (perhaps behind the game): check the account again.
         // A hidden one also resumes its form, without repeating page startup.
@@ -2893,19 +2967,20 @@ async fn request_details_view(
         if let Ok(mut pending) = PENDING_DETAILS_REQUEST.lock() {
             pending.remove(&label);
         }
-        // Raise it if it was put away, but do not steal focus from a window
-        // that is already on screen — the click came from an overlay sitting
-        // on top of a full-screen game, and pulling focus would tab out of it.
+        // Raise it if it was put away. One already on screen but behind
+        // other windows is brought in front without taking focus: the click
+        // came from an overlay on top of a full-screen game, and pulling focus
+        // would tab out of it (and Windows refuses it anyway: the overlay is
+        // never the program in front).
         let hidden = !window.is_visible().unwrap_or(true)
             || window.is_minimized().unwrap_or(false);
         if hidden {
             let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
-        } else if kind == "fight" {
-            // Re-asking for a fight that is already open means "show me that
-            // one", so bring it forward even though it was never hidden.
-            let _ = window.set_focus();
+        } else {
+            platform::window::bring_forward(&window);
+            unpin_when_left(&app, &label);
         }
         app.emit_to(&label, "details-request", payload)
             .map_err(|e| e.to_string())?;
@@ -4105,6 +4180,8 @@ pub fn run() {
                 // The other windows hidden with the meter (auto-hide), and how
                 // many ticks nothing of ours or the game has been in front.
                 let mut hidden_with_meter: std::collections::HashSet<String> = Default::default();
+                // The plugin dock's always-on-top as last set (see below).
+                let mut dock_on_top: Option<bool> = None;
                 let mut others_delay: u32 = 0;
                 let mut last_odyle: Option<((u32, u32), Option<String>)> = None;
                 loop {
@@ -4227,10 +4304,14 @@ pub fn run() {
                                 let hidden = !is_visible || is_minimized
                                     || platform::window::is_hidden_in_place(&window);
                                 if aion_fg || is_self_fg {
-                                    hide_delay = 0;
-                                    if hidden {
+                                    // Minimised off the top (hide_delay reached 3) and
+                                    // restored by Windows itself, it can be visible but
+                                    // below the game: raised again then too (talyaseen,
+                                    // #148). Not after a quick switch that never hid it.
+                                    if hidden || hide_delay >= 3 {
                                         show_meter_again(&handle, &window);
                                     }
+                                    hide_delay = 0;
                                 } else if !hidden {
                                     // Wait 3 ticks (1.5s) before hiding to avoid
                                     // flickering during alt-tab transitions
@@ -4264,18 +4345,39 @@ pub fn run() {
                             show_with_meter(&handle, &mut hidden_with_meter);
                         }
 
+                        // The plugin dock is on top only while the game or
+                        // one of the meter's windows is in front: with a
+                        // plugin in it that stays shown, it went on covering
+                        // the browser (2026-10-31). It stays where it is, and
+                        // comes back on top with the game. (On KDE a KWin rule
+                        // keeps plugin windows above, over fullscreen games,
+                        // whatever is asked here.)
+                        if tick_count > 20 {
+                            let front = platform::window::front_is_ours_or_game();
+                            if dock_on_top != Some(front) {
+                                if let Some(dock) = handle.get_webview_window(crate::plugins::dock::LABEL) {
+                                    let _ = dock.set_always_on_top(front);
+                                    dock_on_top = Some(front);
+                                }
+                            }
+                        }
+
                         // --- Save window position every ~5 seconds (every 10 ticks) ---
                         if tick_count % 10 == 0 {
                             if let Some(window) = handle.get_webview_window("main") {
                                 if let Ok(pos) = window.outer_position() {
                                     // Don't save minimized/hidden positions
                                     if pos.x > -10000 && pos.y > -10000 {
-                                        state.settings.set("window.x", &pos.x.to_string());
-                                        state.settings.set("window.y", &pos.y.to_string());
+                                        let moved_x = state.settings.set("window.x", &pos.x.to_string());
+                                        let moved_y = state.settings.set("window.y", &pos.y.to_string());
                                         // The anchored height, not the window's: a tooltip
                                         // open at the save would be taken for the meter's.
+                                        // Only with a moved position, which it goes with
+                                        // (the edge Settings → "Meter stays fixed at" keeps):
+                                        // the height follows the rows, and saving each
+                                        // change rewrote settings.json all fight long.
                                         let height = state.anchored_height.load(std::sync::atomic::Ordering::Relaxed);
-                                        if height > 0 {
+                                        if height > 0 && (moved_x || moved_y) {
                                             state.settings.set(WINDOW_HEIGHT_KEY, &height.to_string());
                                         }
                                     }
@@ -4486,6 +4588,7 @@ pub fn run() {
             get_details_context,
             get_fight_buffs,
             get_fight_history,
+            get_personal_bests,
             save_fight,
             load_fight,
             delete_fight,
@@ -4560,6 +4663,7 @@ pub fn run() {
             replay_file,
             test_auto_hide,
             check_for_update,
+            release_notes,
             build_features,
             dev_logs_preview,
             guest_stop_sharing,

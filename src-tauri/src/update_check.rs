@@ -17,8 +17,20 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use serde::Deserialize;
 use std::time::Duration;
 
+#[cfg(not(feature = "update-test"))]
 pub const MANIFEST_URL: &str = "https://cdn.a2tools.app/latest-v2.json";
+#[cfg(not(feature = "update-test"))]
 pub const SIGNATURE_URL: &str = "https://cdn.a2tools.app/latest-v2.json.sig";
+/// A build with `update-test` (never shipped) updates from a test manifest,
+/// signed with the same key, to try the updater on an installed build.
+#[cfg(feature = "update-test")]
+pub const MANIFEST_URL: &str = "https://cdn.a2tools.app/test/latest-v2.json";
+#[cfg(feature = "update-test")]
+pub const SIGNATURE_URL: &str = "https://cdn.a2tools.app/test/latest-v2.json.sig";
+/// The last releases' notes for Settings → What's new, made from the GitHub
+/// releases by `tools/changelog.mjs` and signed with the same key.
+pub const CHANGELOG_URL: &str = "https://cdn.a2tools.app/changelog-v2.json";
+pub const CHANGELOG_SIGNATURE_URL: &str = "https://cdn.a2tools.app/changelog-v2.json.sig";
 
 /// The update key's public half (Ed25519), made 2026-10-27. The private
 /// half is kept off the repository, on the publisher's PC.
@@ -31,6 +43,10 @@ const REQUIRE_SIGNATURE: bool = true;
 const TIMEOUT: Duration = Duration::from_secs(15);
 /// The manifest is a few hundred bytes; anything far bigger isn't it.
 const MAX_MANIFEST: usize = 64 * 1024;
+/// Five releases' notes in four languages are some 40 KB.
+const MAX_CHANGELOG: usize = 1024 * 1024;
+/// An Ed25519 signature in hex is 128 characters.
+const MAX_SIGNATURE: usize = 1024;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,11 +73,8 @@ pub struct Manifest {
 /// Fetch the manifest and check it: its signature (when there is one, or
 /// always once `REQUIRE_SIGNATURE`), then read it.
 pub async fn fetch(client: &reqwest::Client) -> Result<Manifest, String> {
-    let body = get(client, MANIFEST_URL).await?.ok_or("no update manifest")?;
-    if body.len() > MAX_MANIFEST {
-        return Err("the update manifest is too big".into());
-    }
-    match get(client, SIGNATURE_URL).await? {
+    let body = get(client, MANIFEST_URL, MAX_MANIFEST).await?.ok_or("no update manifest")?;
+    match get(client, SIGNATURE_URL, MAX_SIGNATURE).await? {
         Some(sig) => verify(UPDATE_PUBLIC_KEY_HEX, &body, String::from_utf8_lossy(&sig).trim())?,
         None if REQUIRE_SIGNATURE => return Err("the update manifest is not signed".into()),
         None => tracing::warn!("Update: the manifest has no signature (accepted in this version)"),
@@ -69,8 +82,27 @@ pub async fn fetch(client: &reqwest::Client) -> Result<Manifest, String> {
     serde_json::from_slice(&body).map_err(|e| format!("update manifest: {e}"))
 }
 
+/// The release notes for Settings, as the page shows them. Signed like the
+/// manifest, always: what they say about updating is read as ours.
+pub async fn fetch_changelog(client: &reqwest::Client) -> Result<serde_json::Value, String> {
+    // Debug builds can read a local copy first (A2T_CHANGELOG_URL, e.g. a
+    // test server's), still signed: release builds have only the CDN.
+    #[cfg(debug_assertions)]
+    let url = std::env::var("A2T_CHANGELOG_URL").ok();
+    #[cfg(not(debug_assertions))]
+    let url: Option<String> = None;
+    let (url, sig_url) = match &url {
+        Some(u) => (u.as_str(), format!("{u}.sig")),
+        None => (CHANGELOG_URL, CHANGELOG_SIGNATURE_URL.to_string()),
+    };
+    let body = get(client, url, MAX_CHANGELOG).await?.ok_or("no release notes")?;
+    let sig = get(client, &sig_url, MAX_SIGNATURE).await?.ok_or("the release notes are not signed")?;
+    verify(UPDATE_PUBLIC_KEY_HEX, &body, String::from_utf8_lossy(&sig).trim())?;
+    serde_json::from_slice(&body).map_err(|e| format!("release notes: {e}"))
+}
+
 /// A file's bytes, or None when it isn't there (404).
-async fn get(client: &reqwest::Client, url: &str) -> Result<Option<Vec<u8>>, String> {
+async fn get(client: &reqwest::Client, url: &str, cap: usize) -> Result<Option<Vec<u8>>, String> {
     let response = client.get(url).timeout(TIMEOUT).send().await.map_err(|e| e.to_string())?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
@@ -78,8 +110,24 @@ async fn get(client: &reqwest::Client, url: &str) -> Result<Option<Vec<u8>>, Str
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status()));
     }
-    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
-    Ok(Some(bytes.to_vec()))
+    read_capped(response, cap).await.map(Some)
+}
+
+/// A response's body, read only as far as `cap`: a file that is not ours
+/// (a bad mirror, a hijacked download) is refused before it is all in
+/// memory, not after (#131).
+pub(crate) async fn read_capped(mut response: reqwest::Response, cap: usize) -> Result<Vec<u8>, String> {
+    if response.content_length().is_some_and(|n| n > cap as u64) {
+        return Err(format!("larger than {cap} bytes"));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        if body.len() + chunk.len() > cap {
+            return Err(format!("larger than {cap} bytes"));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 /// Check `body`'s Ed25519 signature (hex) with `key_hex`.

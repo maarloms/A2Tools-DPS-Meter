@@ -42,20 +42,32 @@ const pickSettingChoice = (name, value) => {
   return allowed.includes(String(value)) ? String(value) : fallback;
 };
 
+// The footer menu's displays: the DpsApp field and setting key, its label.
+const FOOTER_DISPLAYS = [
+  ["showTtk", "footerMenu.ttk", "Time to kill estimate"],
+  ["showTotalDps", "footerMenu.partyTotal", "Party total"],
+  ["showOdyle", "footerMenu.odyle", "Odyle energy"],
+  ["showPing", "footerMenu.ping", "Ping"],
+];
+
+// The target mode menu, in the button's old cycle order: mode, the label the
+// button shows, and what it counts.
+const TARGET_MENU_MODES = [
+  ["lastHitByMe", "TARGET", "header.targetMode.lastHitByMe", "The enemy you hit last"],
+  ["groupTargets", "GROUP", "header.targetMode.groupTargets", "Your group's fights only"], // fork
+  ["bossTargets", "BOSS", "header.targetMode.bossTargets", "Bosses only"],
+  ["trainTargets", "TRAIN", "header.targetMode.trainTargets", "Training dummies"],
+  ["allTargets", "ALL", "header.targetMode.allTargets", "Every enemy, combined"],
+];
+
 // Settings whose change in the Settings window must redraw the meter, mapped to
 // the control that applies them. See DpsApp.applyRemoteSettingChange().
 const REMOTE_APPLIED_SETTING_CONTROLS = {
   "dpsMeter.roundDps": ".roundDpsCheckbox",
   "dpsMeter.showDpsSuffix": ".showDpsSuffixCheckbox",
-  "dpsMeter.showTotalDps": ".showTotalDpsCheckbox",
   "dpsMeter.pinMeToTop": ".pinMeToTopCheckbox",
   "dpsMeter.mainPlayerNamesBold": ".playerNamesBoldCheckbox",
   "dpsMeter.mainPlayerDpsBold": ".playerDpsBoldCheckbox",
-  "dpsMeter.showPing": ".showPingCheckbox",
-  "dpsMeter.showOdyle": ".showOdyleCheckbox",
-  "dpsMeter.showTtk": ".showTtkCheckbox",
-  "dpsMeter.showHealModes": ".showHealModesCheckbox",
-  "dpsMeter.showStaggerMode": ".showStaggerModeCheckbox",
   "dpsMeter.bossNameSize": ".bossNameSizeInput",
   "dpsMeter.showSupporterColors": ".showSupporterColorsCheckbox",
   "dpsMeter.barTextureOffset": ".textureOffsetCheckbox",
@@ -118,8 +130,10 @@ class DpsApp {
       showOdyle: "dpsMeter.showOdyle",
       odyleLast: "dpsMeter.odyleLast",
       showTtk: "dpsMeter.showTtk",
-      showHealModes: "dpsMeter.showHealModes",
-      showStaggerMode: "dpsMeter.showStaggerMode",
+      extraMetrics: "dpsMeter.extraMetrics",
+      showBossStagger: "dpsMeter.showBossStagger",
+      statColours: "dpsMeter.statColours",
+      showDeaths: "dpsMeter.showDeaths",
       showTotalDps: "dpsMeter.showTotalDps",
       roundDps: "dpsMeter.roundDps",
       autoDetectDevice: "dpsMeter.autoDetectDevice",
@@ -140,6 +154,7 @@ class DpsApp {
       autoUpload: "dpsMeter.autoUpload",
       guestUpload: "dpsMeter.guestUpload",
       sharingAsked: "dpsMeter.sharingAsked",
+      lastSeenVersion: "dpsMeter.lastSeenVersion",
       discordActivity: "dpsMeter.discordActivity",
       discordStat: "dpsMeter.discordStat",
       discordPromoShown: "dpsMeter.discordPromoShown",
@@ -164,6 +179,9 @@ class DpsApp {
     this.isCollapse = false;
     this._windowHidden = false;
     this.displayMode = "dps";
+    // Extra columns from the metric menu, loaded with the display mode.
+    this.extraMetrics = [];
+    this.showBossStagger = false;
     this.betaUi = true;
     this.theme = "aion2";
     this.availableThemes = [
@@ -349,8 +367,6 @@ class DpsApp {
       this.showPing = this.safeGetSetting(this.storageKeys.showPing) !== "false";
       this.showOdyle = this.safeGetSetting(this.storageKeys.showOdyle) === "true";
       this.showTtk = this.safeGetSetting(this.storageKeys.showTtk) !== "false";
-      this.showHealModes = this.safeGetSetting(this.storageKeys.showHealModes) !== "false";
-      this.showStaggerMode = this.safeGetSetting(this.storageKeys.showStaggerMode) === "true";
       this.showTotalDps = this.safeGetSetting(this.storageKeys.showTotalDps) !== "false";
       this.roundDps = this.safeGetSetting(this.storageKeys.roundDps) !== "false";
       this.showDpsSuffix = this.safeGetSetting(this.storageKeys.showDpsSuffix) !== "false";
@@ -509,10 +525,6 @@ class DpsApp {
     this.updateOdyle();
     // Time to kill beside the battle timer, for bosses; on unless turned off.
     this.showTtk = this.safeGetSetting(this.storageKeys.showTtk) !== "false";
-    // HPS and total heal in the DPS/DMG button's cycle; on unless turned off.
-    this.showHealModes = this.safeGetSetting(this.storageKeys.showHealModes) !== "false";
-    // Stagger in the same cycle, after healing; off unless turned on.
-    this.showStaggerMode = this.safeGetSetting(this.storageKeys.showStaggerMode) === "true";
     this.ttk = typeof createTtkEstimator === "function" ? createTtkEstimator() : null;
     // Ping is pushed immediately from PingTracker via window._dpsApp.updatePing().
     // A slow fallback poll handles edge cases (e.g. push not wired yet on startup).
@@ -667,8 +679,23 @@ class DpsApp {
     this.setupConsoleDebugging();
     this.bindNativeHotkeyBridge();
 
+    try {
+      const extras = JSON.parse(this.safeGetStorage(this.storageKeys.extraMetrics) || "[]");
+      this.extraMetrics = Array.isArray(extras) ? extras : [];
+    } catch {
+      this.extraMetrics = [];
+    }
+    this.showBossStagger = this.safeGetStorage(this.storageKeys.showBossStagger) === "true";
+    // Each metric in its own colour (styles.css); on unless turned off.
+    this.statColours = this.safeGetStorage(this.storageKeys.statColours) !== "false";
+    document.body.classList.toggle("noStatColours", !this.statColours);
+    // The death count badge (meter.js); off unless turned on.
+    this.showDeaths = this.safeGetStorage(this.storageKeys.showDeaths) === "true";
+    document.body.classList.toggle("noDeaths", !this.showDeaths);
     const storedDisplayMode = this.safeGetStorage(this.storageKeys.displayMode);
-    this.setDisplayMode(storedDisplayMode || this.displayMode, { persist: false });
+    // "both" was damage with DPS beside it: now damage, with DPS as an extra.
+    if (storedDisplayMode === "both" && !this.extraMetrics.includes("dps")) this.extraMetrics.push("dps");
+    this.setDisplayMode(storedDisplayMode || this.displayMode, { persist: storedDisplayMode === "both" });
 
     // History is a browser you leave open: picking a fight launches it into a
     // window of its own so several can be compared, and the list stays put.
@@ -1431,6 +1458,7 @@ class DpsApp {
       targetMaxHp,
       targetTotalDamage,
       targetCurrentHp,
+      targetStaggerPct,
       targetIsBoss,
       dungeonId,
       targetMobCode,
@@ -1633,7 +1661,7 @@ class DpsApp {
       }
       this.elBossName.classList.toggle("isAllTargets", targetMode === "allTargets");
     }
-    this.updateBossHpBar(targetMaxHp, targetTotalDamage, targetCurrentHp);
+    this.updateBossHpBar(targetMaxHp, targetTotalDamage, targetCurrentHp, targetStaggerPct);
     this.updateTtk(targetIsBoss, targetId, battleTimeMs, targetMaxHp, targetTotalDamage, targetCurrentHp);
     window.ForkMeter?.payload?.(this, { battleTimeMs, targetMaxHp, targetTotalDamage, targetCurrentHp }); // fork
     if (
@@ -1699,6 +1727,7 @@ class DpsApp {
     const targetCurrentHp = Number.isFinite(Number(payload?.targetCurrentHp))
       ? Number(payload.targetCurrentHp)
       : -1;
+    const targetStaggerPct = Number.isFinite(Number(payload?.targetStaggerPct)) ? Number(payload.targetStaggerPct) : -1;
     const targetIsBoss = payload?.targetIsBoss === true;
     const targetMobCode = Math.trunc(Number(payload?.targetMobCode)) || 0;
     const partyGeneration = Math.trunc(Number(payload?.partyGeneration)) || 0;
@@ -1715,6 +1744,7 @@ class DpsApp {
       targetMaxHp,
       targetTotalDamage,
       targetCurrentHp,
+      targetStaggerPct,
       targetIsBoss,
       dungeonId,
       targetMobCode,
@@ -1757,6 +1787,7 @@ class DpsApp {
       const totalDamage = Math.trunc(Number(isObj ? value.amount : 0)) || 0;
       const hps = Math.trunc(Number(isObj ? value.hps : 0)) || 0;
       const healAmount = Math.trunc(Number(isObj ? value.healAmount : 0)) || 0;
+      const damageReceived = Math.trunc(Number(isObj ? value.damageReceived : 0)) || 0;
       // Stagger taken off the target's gauge in the fight (combat/stagger.rs).
       const stagger = Math.trunc(Number(isObj ? value.stagger : 0)) || 0;
       // The same by skill code, for the tooltip in Stagger mode.
@@ -1786,6 +1817,7 @@ class DpsApp {
         totalDamage,
         hps,
         healAmount,
+        damageReceived,
         stagger,
         staggerSkills,
         damageContribution,
@@ -1799,6 +1831,7 @@ class DpsApp {
         isSupporter: !!(isObj && value.isSupporter) && this.showSupporterColors !== false,
         // A party member who runs A2Tools too (party_presence.rs).
         usesA2tools: !!(isObj && value.usesA2tools),
+        deaths: isObj ? Math.max(0, Number(value.deaths) || 0) : 0,
       });
     }
 
@@ -1899,6 +1932,8 @@ class DpsApp {
       // Which section is open, for what shows beside it (Appearance's bar preview).
       const body = document.querySelector(".settingsBody");
       if (body) body.dataset.section = key;
+      // For sections that load when first opened (What's new).
+      document.dispatchEvent(new CustomEvent("settingsSectionShown", { detail: key }));
     };
     const steps = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
     for (const item of items) {
@@ -2613,31 +2648,9 @@ class DpsApp {
     this.lockBtn?.addEventListener("click", () => {
       this._setOverlayLocked(!this._overlayLocked);
     });
-    this.targetModeBtn?.addEventListener("click", () => {
-      const modes = ["lastHitByMe", "groupTargets", "bossTargets", "trainTargets", "allTargets"]; // fork
-      const currentIndex = modes.indexOf(this.targetSelection);
-      const nextMode = modes[(currentIndex + 1) % modes.length];
-      console.log("[Target Mode Toggle]", {
-        from: this.targetSelection,
-        to: nextMode,
-      });
-      this.setTargetSelection(nextMode, {
-        persist: true,
-        syncBackend: true,
-        reason: "header toggle",
-      });
-      if (!this.isCollapse) {
-        this.fetchDps();
-      }
-    });
-    this.metricToggleBtn?.addEventListener("click", () => {
-      // DPS -> total damage -> both (-> HPS -> total heal) (-> stagger),
-      // each unless turned off in Settings, -> DPS.
-      const order = ["dps", ...this.displayModes()];
-      const nextMode = order[(order.indexOf(this.displayMode) + 1) % order.length];
-      this.setDisplayMode(nextMode, { persist: true });
-      this.renderCurrentRows();
-    });
+    this.bindTargetMenu();
+    this.bindMetricMenu();
+    this.bindFooterMenu();
     this.logoBtn?.addEventListener("click", () => {
       this.captureMainMeterScreenshot();
     });
@@ -2798,12 +2811,10 @@ class DpsApp {
     this.updateRateDropdownBtn = document.querySelector(".updateRateDropdownBtn");
     this.updateRateDropdownMenu = document.querySelector(".updateRateDropdownMenu");
     this.trainSelectionModeDropdownBtn = document.querySelector(".trainSelectionModeDropdownBtn");
-    this.partyStatDropdownBtn = document.querySelector(".partyStatDropdownBtn");
     this.barTextureDropdownBtn = document.querySelector(".barTextureDropdownBtn");
     this.barTextureDropdownMenu = document.querySelector(".barTextureDropdownMenu");
     this.barTextureHint = document.querySelector(".barTextureHint");
     this.textureOffsetCheckbox = document.querySelector(".textureOffsetCheckbox");
-    this.partyStatDropdownMenu = document.querySelector(".partyStatDropdownMenu");
     this.clearOnZoneDropdownBtn = document.querySelector(".clearOnZoneDropdownBtn");
     this.clearOnZoneDropdownMenu = document.querySelector(".clearOnZoneDropdownMenu");
     this.hideOutOfCombatDropdownBtn = document.querySelector(".hideOutOfCombatDropdownBtn");
@@ -2827,8 +2838,6 @@ class DpsApp {
     this.runAsAdminCheckbox = document.querySelector(".runAsAdminCheckbox");
     this.shareDataCheckbox = document.querySelector(".shareDataCheckbox");
     this.partyPresenceCheckbox = document.querySelector(".partyPresenceCheckbox");
-    this.showPingCheckbox = document.querySelector(".showPingCheckbox");
-    this.showOdyleCheckbox = document.querySelector(".showOdyleCheckbox");
     this.saveRawPacketsCheckbox = document.querySelector(".saveRawPacketsCheckbox");
     this.sendLogsBtn = document.querySelector(".sendLogsBtn");
     this.sendLogsStatus = document.querySelector(".sendLogsStatus");
@@ -3130,56 +3139,6 @@ class DpsApp {
         this.setDebugLogging(isChecked, { persist: true, syncBackend: true });
       });
     }
-    if (this.showPingCheckbox) {
-      this.showPingCheckbox.checked = this.showPing;
-      this.showPingCheckbox.addEventListener("change", (event) => {
-        this.showPing = !!event.target?.checked;
-        this.safeSetSetting(this.storageKeys.showPing, String(this.showPing));
-      });
-    }
-    if (this.showOdyleCheckbox) {
-      this.showOdyleCheckbox.checked = this.showOdyle;
-      this.showOdyleCheckbox.addEventListener("change", (event) => {
-        this.showOdyle = !!event.target?.checked;
-        this.safeSetSetting(this.storageKeys.showOdyle, String(this.showOdyle));
-        this.updateOdyle();
-      });
-    }
-    this.showTtkCheckbox = document.querySelector(".showTtkCheckbox");
-    if (this.showTtkCheckbox) {
-      this.showTtkCheckbox.checked = this.showTtk;
-      this.showTtkCheckbox.addEventListener("change", (event) => {
-        this.showTtk = !!event.target?.checked;
-        this.safeSetSetting(this.storageKeys.showTtk, String(this.showTtk));
-        if (!this.showTtk) this.battleTime?.setTtk?.(null);
-      });
-    }
-    this.showHealModesCheckbox = document.querySelector(".showHealModesCheckbox");
-    if (this.showHealModesCheckbox) {
-      this.showHealModesCheckbox.checked = this.showHealModes;
-      this.showHealModesCheckbox.addEventListener("change", (event) => {
-        this.showHealModes = !!event.target?.checked;
-        this.safeSetSetting(this.storageKeys.showHealModes, String(this.showHealModes));
-        // Turned off while showing healing: back to DPS.
-        if (!this.showHealModes && (this.displayMode === "hps" || this.displayMode === "totalHeal")) {
-          this.setDisplayMode("dps", { persist: true });
-          this.renderCurrentRows?.();
-        }
-      });
-    }
-    this.showStaggerModeCheckbox = document.querySelector(".showStaggerModeCheckbox");
-    if (this.showStaggerModeCheckbox) {
-      this.showStaggerModeCheckbox.checked = this.showStaggerMode;
-      this.showStaggerModeCheckbox.addEventListener("change", (event) => {
-        this.showStaggerMode = !!event.target?.checked;
-        this.safeSetSetting(this.storageKeys.showStaggerMode, String(this.showStaggerMode));
-        // Turned off while showing stagger: back to DPS.
-        if (!this.showStaggerMode && this.displayMode === "stagger") {
-          this.setDisplayMode("dps", { persist: true });
-          this.renderCurrentRows?.();
-        }
-      });
-    }
     // Plugins only: the meter window hidden, the backend keeps it so (and
     // tells every window when it changes, from the hotkey or a plugin bar).
     const showMeterCheckbox = document.querySelector(".showMeterCheckbox");
@@ -3189,15 +3148,6 @@ class DpsApp {
       window.__TAURI__?.event?.listen?.("meter-shown", (event) => { showMeterCheckbox.checked = event.payload !== false; });
       showMeterCheckbox.addEventListener("change", (event) => {
         tauriInvoke("set_meter_shown", { shown: !!event.target?.checked }).catch(() => {});
-      });
-    }
-    this.showTotalDpsCheckbox = document.querySelector(".showTotalDpsCheckbox");
-    if (this.showTotalDpsCheckbox) {
-      this.showTotalDpsCheckbox.checked = this.showTotalDps;
-      this.showTotalDpsCheckbox.addEventListener("change", (event) => {
-        this.showTotalDps = !!event.target?.checked;
-        this.safeSetSetting(this.storageKeys.showTotalDps, String(this.showTotalDps));
-        this.renderCurrentRows();
       });
     }
     this.roundDpsCheckbox = document.querySelector(".roundDpsCheckbox");
@@ -4240,19 +4190,6 @@ class DpsApp {
         this.safeSetSetting(this.storageKeys.allTargetsWindowMs, value);
         window.javaBridge?.setAllTargetsWindowMs?.(value);
         if (!this.isCollapse) this.fetchDps();
-      }
-    );
-
-    setupDropdown(
-      this.partyStatDropdownBtn,
-      this.partyStatDropdownMenu,
-      partyStatOptions,
-      this.settingsSelections.partyStat,
-      (value) => {
-        if (!value) return;
-        this.settingsSelections.partyStat = value;
-        this.applyPartyStat(value);
-        this.safeSetSetting(this.storageKeys.partyStat, value);
       }
     );
 
@@ -5685,37 +5622,430 @@ class DpsApp {
     }, 0);
   }
 
-  /** The display modes after DPS, in the button's cycle, as Settings allow. */
+  /** The display modes after DPS, in the menu's order. */
   displayModes() {
-    const modes = ["totalDamage", "both"];
-    if (this.showHealModes !== false) modes.push("hps", "totalHeal");
-    // Off unless turned on: checked on only a few bosses so far.
-    if (this.showStaggerMode === true) modes.push("stagger");
-    return modes;
+    return ["totalDamage", "damageReceived", "hps", "totalHeal", "stagger"];
   }
 
   setDisplayMode(mode, { persist = false } = {}) {
-    this.displayMode = this.displayModes().includes(mode) ? mode : "dps";
+    const modes = ["dps", ...this.displayModes()];
+    this.displayMode = modes.includes(mode) ? mode : "dps";
+    // Extras in the menu's order, never the primary, never one turned off.
+    const extras = new Set(this.extraMetrics || []);
+    this.extraMetrics = modes.filter((m) => m !== this.displayMode && extras.has(m));
     if (persist) {
       this.safeSetStorage(this.storageKeys.displayMode, this.displayMode);
+      this.safeSetStorage(this.storageKeys.extraMetrics, JSON.stringify(this.extraMetrics));
     }
     this.updateDisplayToggleLabel();
+    this.renderMetricMenu();
+  }
+
+  metricLabels(mode) {
+    return {
+      totalDamage: ["header.display.total", "DMG", "header.display.ariaDamage", "Showing total damage", "header.display.names.totalDamage", "Total damage"],
+      damageReceived: ["header.display.damageReceived", "TAKEN", "header.display.ariaDamageReceived", "Showing damage taken", "header.display.names.damageReceived", "Damage taken"],
+      hps: ["header.display.hps", "HPS", "header.display.ariaHps", "Showing healing per second", "header.display.names.hps", "Healing per second"],
+      totalHeal: ["header.display.totalHeal", "HEAL", "header.display.ariaHeal", "Showing total healing", "header.display.names.totalHeal", "Total healing"],
+      stagger: ["header.display.stagger", "STAG", "header.display.ariaStagger", "Showing stagger dealt", "header.display.names.stagger", "Stagger"],
+      dps: ["header.display.dps", "DPS", "header.display.ariaDps", "Showing DPS", "header.display.names.dps", "Damage per second"],
+    }[mode];
   }
 
   updateDisplayToggleLabel() {
     if (!this.metricToggleBtn) return;
-    const [labelKey, labelFallback, ariaKey, ariaFallback] = {
-      totalDamage: ["header.display.total", "DMG", "header.display.ariaDamage", "Showing total damage"],
-      both: ["header.display.both", "BOTH", "header.display.ariaBoth", "Showing DPS and total damage"],
-      hps: ["header.display.hps", "HPS", "header.display.ariaHps", "Showing healing per second"],
-      totalHeal: ["header.display.totalHeal", "HEAL", "header.display.ariaHeal", "Showing total healing"],
-      stagger: ["header.display.stagger", "STAG", "header.display.ariaStagger", "Showing stagger dealt"],
-      dps: ["header.display.dps", "DPS", "header.display.ariaDps", "Showing DPS"],
-    }[this.displayMode];
+    const [labelKey, labelFallback, ariaKey, ariaFallback] = this.metricLabels(this.displayMode);
     const label = this.i18n?.t(labelKey, labelFallback) ?? labelFallback;
     const ariaLabel = this.i18n?.t(ariaKey, ariaFallback) ?? ariaFallback;
-    this.metricToggleBtn.textContent = label;
+    const extras = this.extraMetrics?.length || 0;
+    this.metricToggleBtn.textContent = extras ? `${label}+${extras}` : label;
+    // In the metric's own colour, as its numbers on the rows are.
+    this.metricToggleBtn.dataset.metric = this.displayMode;
     this.metricToggleBtn.setAttribute("aria-label", ariaLabel);
+    this.metricToggleBtn.setAttribute("aria-expanded", String(!!this.metricMenuOpen));
+    const tip = "Pick what the rows show. Wheel or right-click: next metric";
+    this.metricToggleBtn.title = this.i18n?.t("header.display.menuTip", tip) ?? tip;
+  }
+
+  // The metric button opens a menu: tick a metric to add it as a column,
+  // click its name to sort and draw the bars by it. The wheel or a right
+  // click on the button steps the sorting metric, as the old click did.
+  // Last in the menu, boss stagger % on the HP bar: on or off, never a sort.
+  bindMetricMenu() {
+    const btn = this.metricToggleBtn;
+    const footer = document.querySelector(".meter .meterFooter");
+    if (!btn || !footer) return;
+    const menu = document.createElement("div");
+    menu.className = "metricMenu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("data-no-drag", "true");
+    menu.hidden = true;
+    // In the meter's flow, above the footer, so the window grows to fit it.
+    footer.parentNode.insertBefore(menu, footer);
+    this.metricMenuEl = menu;
+    this.metricMenuOpen = false;
+
+    const step = (dir) => {
+      const order = ["dps", ...this.displayModes()];
+      const i = order.indexOf(this.displayMode);
+      this.setDisplayMode(order[(i + dir + order.length) % order.length], { persist: true });
+      this.renderCurrentRows();
+    };
+    btn.addEventListener("click", () => this.setMetricMenuOpen(!this.metricMenuOpen));
+    btn.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      step(1);
+    });
+    let lastWheel = 0;
+    btn.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        // A touchpad sends a stream of small deltas: one step per gesture tick.
+        const now = performance.now();
+        if (now - lastWheel < 150 || event.deltaY === 0) return;
+        lastWheel = now;
+        step(event.deltaY > 0 ? 1 : -1);
+      },
+      { passive: false },
+    );
+    menu.addEventListener("click", (event) => {
+      const item = event.target.closest?.("[data-metric]");
+      if (!item) return;
+      const mode = item.dataset.metric;
+      if (mode === "bossStagger") {
+        this.showBossStagger = !this.showBossStagger;
+        this.safeSetStorage(this.storageKeys.showBossStagger, String(this.showBossStagger));
+        this.renderMetricMenu();
+        this.renderCurrentRows();
+        return;
+      }
+      if (mode === "statColours") {
+        this.statColours = !this.statColours;
+        this.safeSetStorage(this.storageKeys.statColours, String(this.statColours));
+        document.body.classList.toggle("noStatColours", !this.statColours);
+        this.renderMetricMenu();
+        return;
+      }
+      if (mode === "deaths") {
+        this.showDeaths = !this.showDeaths;
+        this.safeSetStorage(this.storageKeys.showDeaths, String(this.showDeaths));
+        document.body.classList.toggle("noDeaths", !this.showDeaths);
+        this.renderMetricMenu();
+        return;
+      }
+      // Beside the names: combat power and gear score, each on or off (the
+      // setting's four values: one, the other, both, neither).
+      if (mode === "combatPower" || mode === "gearScore") {
+        const on = { combatPower: false, gearScore: false };
+        if (this.partyStat === "both") on.combatPower = on.gearScore = true;
+        else if (this.partyStat in on) on[this.partyStat] = true;
+        on[mode] = !on[mode];
+        const value = on.combatPower && on.gearScore ? "both" : on.combatPower ? "combatPower" : on.gearScore ? "gearScore" : "off";
+        this.settingsSelections.partyStat = value;
+        this.applyPartyStat(value);
+        this.safeSetSetting(this.storageKeys.partyStat, value);
+        this.renderMetricMenu();
+        this.renderCurrentRows();
+        return;
+      }
+      if (event.target.closest(".metricMenuSort")) {
+        if (mode === this.displayMode) return;
+        // The old sort metric stays on as a column: the switch loses nothing.
+        this.extraMetrics = [...this.extraMetrics, this.displayMode];
+        this.setDisplayMode(mode, { persist: true });
+      } else {
+        // The sorting metric is always shown.
+        if (mode === this.displayMode) return;
+        const extras = new Set(this.extraMetrics);
+        if (extras.has(mode)) extras.delete(mode);
+        else extras.add(mode);
+        this.extraMetrics = [...extras];
+        this.setDisplayMode(this.displayMode, { persist: true });
+      }
+      this.renderCurrentRows();
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (!this.metricMenuOpen) return;
+      if (menu.contains(event.target) || btn.contains(event.target)) return;
+      this.setMetricMenuOpen(false);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && this.metricMenuOpen) this.setMetricMenuOpen(false);
+    });
+    window.addEventListener("blur", () => this.setMetricMenuOpen(false));
+    this.renderMetricMenu();
+  }
+
+  setMetricMenuOpen(open) {
+    if (!this.metricMenuEl || this.metricMenuOpen === open) return;
+    if (open) {
+      this.setTargetMenuOpen(false);
+      this.setFooterMenuOpen?.(false);
+    }
+    this.metricMenuOpen = open;
+    this.metricMenuEl.hidden = !open;
+    this.metricToggleBtn?.classList.toggle("isOpen", open);
+    this.metricToggleBtn?.setAttribute("aria-expanded", String(open));
+    if (open) this.renderMetricMenu();
+    // Grow (or shrink) the window for it now, not on the next poll.
+    requestAnimationFrame(() => window.javaBridge?.updateOverlaySize?.());
+  }
+
+  // The target mode button opens a menu like the metric one: a radio per
+  // mode. The wheel or a right click on the button steps the mode, as the
+  // old click did.
+  bindTargetMenu() {
+    const btn = this.targetModeBtn;
+    const footer = document.querySelector(".meter .meterFooter");
+    if (!btn || !footer) return;
+    const menu = document.createElement("div");
+    menu.className = "metricMenu targetMenu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("data-no-drag", "true");
+    menu.hidden = true;
+    footer.parentNode.insertBefore(menu, footer);
+    this.targetMenuEl = menu;
+    this.targetMenuOpen = false;
+
+    const choose = (mode) => {
+      this.setTargetSelection(mode, { persist: true, syncBackend: true, reason: "target menu" });
+      this.renderTargetMenu();
+      if (!this.isCollapse) this.fetchDps();
+    };
+    const step = (dir) => {
+      const modes = TARGET_MENU_MODES.map(([mode]) => mode);
+      const i = modes.indexOf(this.targetSelection);
+      choose(modes[(i + dir + modes.length) % modes.length]);
+    };
+    btn.addEventListener("click", () => this.setTargetMenuOpen(!this.targetMenuOpen));
+    btn.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      step(1);
+    });
+    let lastWheel = 0;
+    btn.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        const now = performance.now();
+        if (now - lastWheel < 150 || event.deltaY === 0) return;
+        lastWheel = now;
+        step(event.deltaY > 0 ? 1 : -1);
+      },
+      { passive: false },
+    );
+    menu.addEventListener("click", (event) => {
+      const item = event.target.closest?.("[data-mode]");
+      if (item && item.dataset.mode !== this.targetSelection) choose(item.dataset.mode);
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (!this.targetMenuOpen) return;
+      if (menu.contains(event.target) || btn.contains(event.target)) return;
+      this.setTargetMenuOpen(false);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && this.targetMenuOpen) this.setTargetMenuOpen(false);
+    });
+    window.addEventListener("blur", () => this.setTargetMenuOpen(false));
+  }
+
+  setTargetMenuOpen(open) {
+    if (!this.targetMenuEl || this.targetMenuOpen === open) return;
+    if (open) {
+      this.setMetricMenuOpen(false);
+      this.setFooterMenuOpen?.(false);
+    }
+    this.targetMenuOpen = open;
+    this.targetMenuEl.hidden = !open;
+    this.targetModeBtn?.classList.toggle("isOpen", open);
+    this.targetModeBtn?.setAttribute("aria-expanded", String(open));
+    if (open) this.renderTargetMenu();
+    requestAnimationFrame(() => window.javaBridge?.updateOverlaySize?.());
+  }
+
+  renderTargetMenu() {
+    const menu = this.targetMenuEl;
+    if (!menu || !this.targetMenuOpen) return;
+    const t = (key, fallback) => this.i18n?.t(key, fallback) ?? fallback;
+    menu.replaceChildren();
+    for (const [mode, label, descKey, descFallback] of TARGET_MENU_MODES) {
+      const primary = mode === this.targetSelection;
+      const el = document.createElement("div");
+      el.className = "metricMenuItem";
+      el.dataset.mode = mode;
+      el.classList.toggle("isPrimary", primary);
+      el.setAttribute("role", "menuitemradio");
+      el.setAttribute("aria-checked", String(primary));
+      const radio = document.createElement("span");
+      radio.className = "metricMenuSort";
+      const name = document.createElement("span");
+      name.className = "metricMenuName";
+      name.textContent = label;
+      const desc = document.createElement("span");
+      desc.className = "targetMenuDesc";
+      desc.textContent = t(descKey, descFallback);
+      el.append(radio, name, desc);
+      menu.appendChild(el);
+    }
+  }
+
+  // The footer's displays (battle timer, party total, Odyle energy) open a
+  // menu of every footer display to turn on or off, ping included: these
+  // were switches in Settings → Meter Settings.
+  bindFooterMenu() {
+    const area = document.querySelector(".meter .footerInfo");
+    const footer = document.querySelector(".meter .meterFooter");
+    if (!area || !footer) return;
+    const menu = document.createElement("div");
+    menu.className = "metricMenu footerMenu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("data-no-drag", "true");
+    menu.hidden = true;
+    footer.parentNode.insertBefore(menu, footer);
+    this.footerMenuEl = menu;
+    this.footerMenuOpen = false;
+    const t = (key, fallback) => this.i18n?.t(key, fallback) ?? fallback;
+    area.title = t("footerMenu.tip", "Choose what the footer shows");
+    area.addEventListener("click", () => this.setFooterMenuOpen(!this.footerMenuOpen));
+    area.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      this.setFooterMenuOpen(!this.footerMenuOpen);
+    });
+    menu.addEventListener("click", (event) => {
+      const item = event.target.closest?.("[data-display]");
+      if (!item) return;
+      const display = FOOTER_DISPLAYS.find(([key]) => key === item.dataset.display);
+      if (!display) return;
+      const [key] = display;
+      this[key] = !this[key];
+      this.safeSetSetting(this.storageKeys[key], String(this[key]));
+      if (key === "showTtk" && !this.showTtk) this.battleTime?.setTtk?.(null);
+      if (key === "showOdyle") this.updateOdyle();
+      if (key === "showPing") this.updatePing();
+      if (key === "showTotalDps") this.renderCurrentRows();
+      this.renderFooterMenu();
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (!this.footerMenuOpen) return;
+      if (menu.contains(event.target) || area.contains(event.target)) return;
+      this.setFooterMenuOpen(false);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && this.footerMenuOpen) this.setFooterMenuOpen(false);
+    });
+    window.addEventListener("blur", () => this.setFooterMenuOpen(false));
+  }
+
+  setFooterMenuOpen(open) {
+    if (!this.footerMenuEl || this.footerMenuOpen === open) return;
+    if (open) {
+      this.setMetricMenuOpen(false);
+      this.setTargetMenuOpen(false);
+    }
+    this.footerMenuOpen = open;
+    this.footerMenuEl.hidden = !open;
+    document.querySelector(".meter .footerInfo")?.classList.toggle("isOpen", open);
+    if (open) this.renderFooterMenu();
+    requestAnimationFrame(() => window.javaBridge?.updateOverlaySize?.());
+  }
+
+  renderFooterMenu() {
+    const menu = this.footerMenuEl;
+    if (!menu || !this.footerMenuOpen) return;
+    const t = (key, fallback) => this.i18n?.t(key, fallback) ?? fallback;
+    menu.replaceChildren();
+    for (const [key, labelKey, fallback] of FOOTER_DISPLAYS) {
+      const shown = this[key] !== false;
+      const el = document.createElement("div");
+      el.className = "metricMenuItem";
+      el.dataset.display = key;
+      el.classList.toggle("isShown", shown);
+      el.setAttribute("role", "menuitemcheckbox");
+      el.setAttribute("aria-checked", String(shown));
+      const name = document.createElement("span");
+      name.className = "metricMenuName";
+      name.textContent = t(labelKey, fallback);
+      const check = document.createElement("span");
+      check.className = "metricMenuCheck";
+      check.setAttribute("aria-hidden", "true");
+      el.append(name, check);
+      menu.appendChild(el);
+    }
+  }
+
+  renderMetricMenu() {
+    const menu = this.metricMenuEl;
+    if (!menu) return;
+    const t = (key, fallback) => this.i18n?.t(key, fallback) ?? fallback;
+    const cell = (tag, className, text = "") => {
+      const el = document.createElement(tag);
+      el.className = className;
+      if (text) el.textContent = text;
+      return el;
+    };
+    // One row: sort radio (none for boss stagger), name, show tick.
+    const item = (mode, label, shown, { primary = false, sortable = true } = {}) => {
+      const el = cell("div", "metricMenuItem");
+      el.dataset.metric = mode;
+      el.classList.toggle("isPrimary", primary);
+      el.classList.toggle("isShown", shown);
+      if (sortable) {
+        const sort = cell("button", "metricMenuSort");
+        sort.type = "button";
+        sort.setAttribute("role", "menuitemradio");
+        sort.setAttribute("aria-checked", String(primary));
+        sort.setAttribute("aria-label", `${t("header.display.sortBy", "Sort by this")}: ${label}`);
+        sort.title = t("header.display.sortBy", "Sort by this");
+        el.appendChild(sort);
+      } else {
+        el.appendChild(cell("span", "metricMenuSortNone"));
+      }
+      const name = cell("button", "metricMenuName", label);
+      name.type = "button";
+      name.setAttribute("role", "menuitemcheckbox");
+      name.setAttribute("aria-checked", String(shown));
+      if (primary) name.setAttribute("aria-disabled", "true");
+      const check = cell("span", "metricMenuCheck");
+      check.setAttribute("aria-hidden", "true");
+      el.append(name, check);
+      return el;
+    };
+    menu.replaceChildren();
+    const head = cell("div", "metricMenuHead");
+    head.append(
+      cell("span", "metricMenuHeadSort", t("header.display.sortCol", "Sort")),
+      cell("span", "metricMenuHeadName"),
+      cell("span", "metricMenuHeadShow", t("header.display.showCol", "Show")),
+    );
+    menu.appendChild(head);
+    for (const mode of ["dps", ...this.displayModes()]) {
+      const [, , , , nameKey, nameFallback] = this.metricLabels(mode);
+      const primary = mode === this.displayMode;
+      menu.appendChild(item(mode, t(nameKey, nameFallback), primary || (this.extraMetrics || []).includes(mode), { primary }));
+    }
+    menu.appendChild(cell("div", "metricMenuSep"));
+    const boss = item("bossStagger", t("header.display.names.bossStagger", "Boss stagger %"), !!this.showBossStagger, {
+      sortable: false,
+    });
+    boss.title = t("header.display.bossStaggerTip", "How far the boss's stagger gauge is worn down, on its HP bar");
+    menu.appendChild(boss);
+    // Beside the names (Settings' "Beside player names" was here before).
+    const stat = this.partyStat;
+    const cp = item("combatPower", t("settings.partyStat.options.combatPower", "Combat power"),
+      stat === "combatPower" || stat === "both", { sortable: false });
+    const gs = item("gearScore", t("settings.partyStat.options.gearScore", "Gear score"),
+      stat === "gearScore" || stat === "both", { sortable: false });
+    const deaths = item("deaths", t("header.display.names.deaths", "Death count"), this.showDeaths === true, {
+      sortable: false,
+    });
+    menu.append(cp, gs, deaths);
+    const colours = item("statColours", t("header.display.names.statColours", "Stat colours"), this.statColours !== false, {
+      sortable: false,
+    });
+    colours.title = t("header.display.statColoursTip", "Each stat in its own colour on the rows, the menu and the button");
+    menu.appendChild(colours);
   }
 
   // Time to kill beside the battle timer: bosses only, and only with their HP
@@ -5738,7 +6068,7 @@ class DpsApp {
   // Boss remaining-HP bar. There is no live boss current-HP packet, so remaining
   // is derived from spawn-time max HP minus the damage the meter has tracked
   // against this target. Hidden unless a single boss target with known max HP.
-  updateBossHpBar(maxHp, totalDamage, currentHp) {
+  updateBossHpBar(maxHp, totalDamage, currentHp, staggerPct = -1) {
     if (!this.elBossHpBar) return;
     const max = Number(maxHp) || 0;
     if (max <= 0) {
@@ -5759,6 +6089,11 @@ class DpsApp {
       this.elBossHpBar.style.display = "";
     }
     if (this.elBossHpFill) {
+      // Glides only when the change shows, as the rows' bars do (meter.js
+      // GLIDE_MIN_JUMP): a boss loses a hair of HP on most updates.
+      const jump = Math.abs(pct - (this._bossHpPct ?? 0));
+      this.elBossHpFill.classList.toggle("noGlide", jump < 3);
+      this._bossHpPct = pct;
       this.elBossHpFill.style.width = `${pct.toFixed(1)}%`;
     }
     // Color shifts as the boss is whittled down.
@@ -5770,6 +6105,14 @@ class DpsApp {
       // getting sliced in half by the fill's leading edge at mid HP.
       const pctEl = this.elBossHpText.querySelector(".bossHpPct");
       const amtEl = this.elBossHpText.querySelector(".bossHpAmt");
+      const stagEl = this.elBossHpText.querySelector(".bossHpStag");
+      if (stagEl) {
+        // How far the stagger gauge is worn down, when turned on in the menu.
+        const stag = Number(staggerPct);
+        const shown = this.showBossStagger && Number.isFinite(stag) && stag >= 0;
+        const label = this.i18n?.t("header.display.stagger", "STAG") ?? "STAG";
+        stagEl.textContent = shown ? `${label} ${Math.round(stag)}%` : "";
+      }
       if (pctEl && amtEl) {
         pctEl.textContent = `${Math.round(pct)}%`;
         amtEl.textContent = `${this.formatAbbreviatedNumber(remaining)} / ${this.formatAbbreviatedNumber(max)}`;
@@ -6119,34 +6462,44 @@ class DpsApp {
   }
 
   getMetricForRow(row) {
-    if (this.displayMode === "totalDamage") {
+    const metric = this.metricFor(row, this.displayMode);
+    metric.mode = this.displayMode;
+    // Worked out only when drawn: the sort asks for every row's value often.
+    const extras = this.extraMetrics || [];
+    Object.defineProperty(metric, "extras", {
+      get: () => extras.map((mode) => ({ mode, text: this.metricFor(row, mode).text })),
+      enumerable: true,
+    });
+    return metric;
+  }
+
+  metricFor(row, mode) {
+    if (mode === "totalDamage") {
       const totalDamage = Number(row?.totalDamage) || 0;
       return {
         value: totalDamage,
         text: this.formatAbbreviatedNumber(totalDamage),
       };
     }
-    if (this.displayMode === "hps") {
+    if (mode === "damageReceived") {
+      const received = Number(row?.damageReceived) || 0;
+      return { value: received, text: this.formatAbbreviatedNumber(received) };
+    }
+    if (mode === "hps") {
       const hps = Number(row?.hps) || 0;
       return { value: hps, text: `${this.formatDpsThousands(hps)}${this.meterDpsSuffix()}` };
     }
-    if (this.displayMode === "totalHeal") {
+    if (mode === "totalHeal") {
       const healAmount = Number(row?.healAmount) || 0;
       return { value: healAmount, text: this.formatAbbreviatedNumber(healAmount) };
     }
-    if (this.displayMode === "stagger") {
+    if (mode === "stagger") {
       // Gauge points, small whole numbers (a Story boss's gauge is 40).
       const stagger = Number(row?.stagger) || 0;
       return { value: stagger, text: String(stagger) };
     }
     const dps = Number(row?.dps) || 0;
-    const dpsText = `${this.formatDpsThousands(dps)}${this.meterDpsSuffix()}`;
-    if (this.displayMode === "both") {
-      // "408k (13k/s)", as a player asked: damage leads, so the bars follow it.
-      const totalDamage = Number(row?.totalDamage) || 0;
-      return { value: totalDamage, text: `${this.formatAbbreviatedNumber(totalDamage)} (${dpsText})` };
-    }
-    return { value: dps, text: dpsText };
+    return { value: dps, text: `${this.formatDpsThousands(dps)}${this.meterDpsSuffix()}` };
   }
 
   /** "/s" after the meter's DPS figures, or nothing when turned off in Advanced. */
@@ -6780,6 +7133,7 @@ class DpsApp {
   }
 
   updateTargetModeButton() {
+    this.renderTargetMenu?.();
     if (!this.targetModeBtn) return;
     const isBossTargets = this.targetSelection === "bossTargets";
     const isAllTargets = this.targetSelection === "allTargets";
@@ -6943,28 +7297,23 @@ class DpsApp {
 
     let isResizing = false;
     let startX = 0;
-    let startY = 0;
     let startWidth = 0;
-    let startHeight = 0;
     const minWidth = 300;
-    const minHeight = 30;
 
-    // The size the player gave the meter, kept across restarts: it went back
+    // The width the player gave the meter, kept across restarts: it went back
     // to the default on every start (Windows, 2026-10-17). Saved by both
-    // resizes, the corner handle here and the window's edges (tauriBridge.js
-    // sends "meter-resized").
+    // resizes, the corner handle here and the window's edge (tauriBridge.js
+    // sends "meter-resized"). The handle sets the width only: the meter is
+    // as tall as its rows (a saved height, dpsMeter.meterMinHeight, left an
+    // empty box under them and is no longer applied).
     const px = (v) => Math.round(parseFloat(v));
     const saveSize = () => {
       const width = px(this.meterEl.style.width);
-      const height = px(this.meterEl.style.minHeight);
       if (width >= minWidth && width <= 3000) this.safeSetSetting(this.storageKeys.meterWidth, String(width));
-      if (height >= minHeight && height <= 3000) this.safeSetSetting(this.storageKeys.meterMinHeight, String(height));
     };
     if (window.A2_VIEW === "main") {
       const width = px(this.safeGetSetting(this.storageKeys.meterWidth));
-      const height = px(this.safeGetSetting(this.storageKeys.meterMinHeight));
       if (width >= minWidth && width <= 3000) this.meterEl.style.width = `${width}px`;
-      if (height >= minHeight && height <= 3000) this.meterEl.style.minHeight = `${height}px`;
       window.addEventListener("meter-resized", saveSize);
     }
 
@@ -6984,21 +7333,14 @@ class DpsApp {
         return;
       }
       const nextWidth = Math.max(minWidth, startWidth + (event.screenX - startX));
-      const nextHeight = Math.max(minHeight, startHeight + (event.screenY - startY));
       this.meterEl.style.width = `${nextWidth}px`;
-      this.meterEl.style.height = `${nextHeight}px`;
+      // Linux: the window grows sideways ahead of the meter (tauriBridge.js).
+      window.javaBridge?.growResizeViewport?.(nextWidth + 16);
     };
 
     const onMouseUp = () => {
       if (!isResizing) return;
       isResizing = false;
-      // Convert fixed height to min-height so the meter can still grow
-      // when new rows are added, while preserving the user's minimum.
-      const currentHeight = this.meterEl.style.height;
-      if (currentHeight) {
-        this.meterEl.style.minHeight = currentHeight;
-        this.meterEl.style.height = "";
-      }
       saveSize();
     };
 
@@ -7007,9 +7349,7 @@ class DpsApp {
       event.stopPropagation();
       const rect = this.meterEl.getBoundingClientRect();
       startWidth = rect.width;
-      startHeight = rect.height;
       startX = event.screenX;
-      startY = event.screenY;
       isResizing = true;
     });
 
@@ -7099,6 +7439,12 @@ class DpsApp {
     this._overlayLocked = !!locked;
     this.safeSetSetting(this.storageKeys.overlayLocked, String(this._overlayLocked));
     document.body.classList.toggle("overlayLocked", this._overlayLocked);
+    // Locked, clicks go through to the game: the menu could not be closed.
+    if (this._overlayLocked) {
+      this.setMetricMenuOpen?.(false);
+      this.setTargetMenuOpen?.(false);
+      this.setFooterMenuOpen?.(false);
+    }
     if (!this.lockBtn) return;
     this.lockBtn.classList.toggle("isLocked", this._overlayLocked);
     const icon = document.createElement("i");
@@ -7314,9 +7660,9 @@ class DpsApp {
   }
 
   // A one-time popup about showing A2Tools users in the party to each other,
-  // ticked: shown once to everyone, on a new install and after the update
-  // that brings it. Done keeps the tick's answer; ×, Escape or a click
-  // outside keep it on (it says so, and Settings changes it).
+  // unticked: it tells party members you use a meter, so it is the player's
+  // to turn on (#131). Done keeps the tick's answer; ×, Escape or a click
+  // outside keep what was set (off, unless turned on before).
   maybeShowPartyPromo() {
     const promo = document.querySelector("#partyPromo");
     if (!promo) return false;
@@ -7326,7 +7672,7 @@ class DpsApp {
     const onKey = (event) => {
       if (event.key === "Escape") {
         event.stopPropagation();
-        answer(this.safeGetSetting(this.storageKeys.partyPresence) !== "false");
+        answer(this.safeGetSetting(this.storageKeys.partyPresence) === "true");
       }
     };
     const answer = (enabled) => {
@@ -7340,7 +7686,7 @@ class DpsApp {
       promo.setAttribute("aria-hidden", "true");
       document.removeEventListener("keydown", onKey, true);
     };
-    const kept = () => this.safeGetSetting(this.storageKeys.partyPresence) !== "false";
+    const kept = () => this.safeGetSetting(this.storageKeys.partyPresence) === "true";
     promo.querySelector(".partyPromoDone")?.addEventListener("click", () => answer(!!checkbox?.checked));
     promo.querySelector(".partyPromoClose")?.addEventListener("click", () => answer(kept()));
     promo.addEventListener("click", (event) => {
@@ -7405,6 +7751,32 @@ class DpsApp {
   // notice (C); anyone who never chose gets the choice (B); those who turned
   // it off themselves are taken as asked. Signed in: asked, nothing shown.
   // Resolves true when it showed something.
+  // What's new (#127): the first launch after an update opens Settings on
+  // it. Not after a new install (nothing changed for them) or a downgrade,
+  // and not on a launch that already asked about sharing (`quiet`): then it
+  // waits for the next one. Resolves true when it opened.
+  async maybeShowWhatsNew({ existingInstall = false, quiet = false } = {}) {
+    const invoke = window.__TAURI__?.core?.invoke;
+    const version = await invoke?.("get_app_version").catch(() => "");
+    if (!version) return false;
+    const seen = this.safeGetSetting(this.storageKeys.lastSeenVersion);
+    if (seen === version) return false;
+    const parts = (v) => String(v).split(/[.-]/).map((n) => parseInt(n, 10) || 0);
+    const newer = (a, b) => {
+      const [x, y] = [parts(a), parts(b)];
+      for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+      return false;
+    };
+    // Nothing seen yet: a new install, or one from before this setting,
+    // which had answered the sharing question.
+    const updated = seen ? newer(version, seen) : existingInstall;
+    if (updated && quiet) return false;
+    this.safeSetSetting(this.storageKeys.lastSeenVersion, version);
+    if (!updated) return false;
+    await invoke("open_settings_at", { section: "changelog" }).catch(() => {});
+    return true;
+  }
+
   async maybeShowSharing() {
     if ((await window.a2BuildReady)?.online === false) return false;
     if (this.safeGetSetting(this.storageKeys.sharingAsked) === "true") return false;

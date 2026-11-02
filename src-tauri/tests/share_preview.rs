@@ -50,10 +50,12 @@ fn record_spanning(start_ms: i64, duration_ms: i64) -> FightRecord {
         app_version: "2.0.22".into(),
         mob_code: 4242,
         dungeon_id: 600093,
-        killed: false,
         server_id: 0,
         buffs: None,
         stagger: None,
+        local_actor_id: None,
+        killed: None,
+        max_hp_from_spawn: None,
     }
 }
 

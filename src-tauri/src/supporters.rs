@@ -446,10 +446,12 @@ mod tests {
             app_version: "2.0.22".into(),
             mob_code: 0,
             dungeon_id: 0,
-            killed: false,
             server_id: 0,
             buffs: None,
             stagger: None,
+            local_actor_id: None,
+            killed: None,
+            max_hp_from_spawn: None,
         }
     }
 
