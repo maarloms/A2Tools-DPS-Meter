@@ -845,7 +845,7 @@ const createDetailsUI = ({
         const iconEl = document.createElement("img");
         iconEl.className = "detailsPartyBarIcon";
         iconEl.src = `./assets/${job}.png`;
-        iconEl.alt = job;
+        window.i18n?.setClassTooltip?.(iconEl, job);
         iconEl.onerror = () => { iconEl.style.display = "none"; };
         contentEl.appendChild(iconEl);
       }
