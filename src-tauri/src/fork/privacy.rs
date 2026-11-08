@@ -5,7 +5,8 @@
 //! - `dpsMeter.shareData` (boss_report.rs `shares_data`, 2.0.78): "Sync
 //!   useful data to A2Tools", one switch for the field bosses of every opened
 //!   map, field boss kills, boss HP, the Abyss artifacts (boss_report.rs) and
-//!   the server's Supply Requests boards (supply_report.rs). It replaced
+//!   the server's Supply Requests boards (supply_report.rs), from 2.0.93 also
+//!   the ranking tables the player opens (ranking_report.rs). It replaced
 //!   `dpsMeter.shareBossTimers` and `dpsMeter.shareSupplyRequests`; upstream
 //!   falls back to those while it has no value. The fork writes "false"
 //!   for it, so a player who had shared boss timers before starts off as well
@@ -236,6 +237,29 @@ mod tests {
         assert!(at < spawn.find("/api/profiteer/supply").unwrap());
         assert!(at < spawn.find(".send()").unwrap());
         assert!(!code.contains("SETTING_KEY"), "a switch of its own again: check it");
+    }
+
+    /// The ranking tables the player opens (ranking_report.rs, 2.0.93) go
+    /// out only when `shares_data` says so – the same switch, seeded "false";
+    /// with it off, the waiting tables are dropped, not kept for later. A new
+    /// path, POST or GET upstream adds there, or another switch, fails here,
+    /// to be checked before a release.
+    #[test]
+    #[cfg(feature = "online")]
+    fn every_ranking_sender_is_behind_the_switch() {
+        let code = code_of(include_str!("../ranking_report.rs"));
+        assert_eq!(api_paths(&code), ["/api/rankings/report"]);
+        assert_eq!(code.matches(".http.post(").count(), 1);
+        assert_eq!(code.matches(".http.get(").count(), 0);
+        assert_eq!(code.matches(".send()").count(), 1);
+        // One loop, and it reads the switch before it builds or sends anything.
+        let gate = "if !crate::boss_report::shares_data(|k| state.settings.get(k)) {\n                waiting.clear();";
+        let spawn = &code[code.find("pub fn spawn(app").unwrap()..];
+        let at = spawn.find(gate).expect("the switch is shares_data");
+        assert!(at < spawn.find("report(server").unwrap());
+        assert!(at < spawn.find("/api/rankings/report").unwrap());
+        assert!(at < spawn.find(".send()").unwrap());
+        assert!(!code.contains("SETTING_KEY"), "a switch of its own: check it");
     }
 
     /// Uploads without an account (account/guest.rs, 2.0.79) happen only
