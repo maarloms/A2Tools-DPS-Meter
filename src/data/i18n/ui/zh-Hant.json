@@ -598,6 +598,12 @@
         "highestDamage": "最高傷害"
       }
     },
+    "trainTimeLimit": {
+      "label": "訓練時間限制",
+      "options": {
+        "off": "不限制"
+      }
+    },
     "showSupporterColors": "顯示贊助者顏色",
     "showSupporterColorsHint": "贊助者的名字顯示為金色。僅為外觀，不會改變任何數值。",
     "account": {
@@ -659,6 +665,7 @@
       "barTexture": "為計量條加上紋理，感謝您對 A2 Tools 的支持。",
       "textureOffset": "每條的紋理從不同位置開始，讓各條看起來不一樣。",
       "trainingMode": "訓練模式下詳細資料視窗顯示哪些木樁：全部一起，或只顯示你打得最多的那個。",
+      "trainTimeLimit": "訓練模式下，只記錄你第一次攻擊後這段時間內對訓練假人的攻擊。之後計量器會停止，直到按下重新整理，時間才會重新開始。",
       "allTargetsWindow": "全部目標模式下，計量器彙總最後一次命中前這段時間內命中的所有目標。",
       "updateRate": "統計數字多久刷新一次。越快越早顯示傷害，但佔用更多 CPU。",
       "partyPresence": "同樣使用 A2Tools 的隊友會在你的名字旁看到小小的 A2 標記，你也會看到他們的。隊伍中任何使用 A2Tools 的人都看得到，因此會知道你使用第三方計量器。只會傳送角色名稱與伺服器的雜湊值。",
@@ -673,7 +680,7 @@
       "hideWhenSolo": "不在隊伍中時隱藏計量器，加入隊伍後再次顯示。顯示/隱藏快捷鍵仍可隨時開啟它。",
       "hideOutOfCombat": "脫離戰鬥達到該時長後隱藏計量器，下一次命中時再次顯示。設定、歷史紀錄或詳情視窗開啟時，或滑鼠停在計量器上時不會隱藏。",
       "runAsAdmin": "顯示遊戲幀率需要此項。每次啟動計量器時 Windows 都會詢問。",
-      "shareData": "將你所在伺服器的野外首領計時和補給委託分享給 a2tools.app，讓大家的 A2Tools 保持同步：你地圖上的首領、你看到被擊殺的首領及其血量，以及每次重置後的委託板。不會傳送任何關於你角色的資訊。",
+      "shareData": "將你所在伺服器的野外首領計時和補給委託分享給 a2tools.app，讓大家的 A2Tools 保持同步：你地圖上的首領、你看到被擊殺的首領及其血量，每次重置後的委託板，以及你開啟的排行榜。不會傳送任何關於你角色的資訊。",
       "pluginAutoUpdate": "計量器啟動時，外掛更新會在背景自動安裝。要求新權限的更新仍會等待你的同意。",
       "meterAnchor": "行增減時保持不動的計量器邊緣。"
     },
@@ -745,6 +752,8 @@
       "permFps": "顯示遊戲幀率（在 Windows 上，計量器會為此要求以系統管理員身分執行）",
       "permDeathRecap": "被玩家擊殺後：對方是誰，以及對你造成的傷害",
       "permLootRolls": "查看擲骰分配的戰利品：物品、誰擲出多少點，以及誰獲得了它",
+      "permBlackMarket": "打開商店時查看黑雲商人的貨品：物品及其價格",
+      "permKda": "統計你對玩家的擊殺、助攻與死亡次數（不含名稱）",
       "permScreenshot": "擷取自身視窗的截圖，到剪貼簿與你的截圖資料夾",
       "testHint": "任何人都可以試用的早期版本，和其他外掛一樣經過簽署。它們可能會變動或尚不完善：發現問題請告訴我們。",
       "testTitle": "測試外掛",
@@ -841,6 +850,10 @@
     "all": "所有目標",
     "identifying": "正在識別你...",
     "train": "訓練用稻草人",
+    "trainLimitReached": "已達時間限制",
+    "timed": "限時：{time}",
+    "timedSeconds": "{n}秒",
+    "timedMinutes": "{n}分鐘",
     "boss": "首領目標"
   },
   "classes": {
@@ -978,6 +991,19 @@
     "partyTotal": "隊伍總計",
     "odyle": "奧德能量",
     "ping": "延遲",
-    "jitter": "抖動：{ms} 毫秒"
+    "jitter": "抖動：{ms} 毫秒",
+    "fpTimer": "飛行力回滿時間",
+    "fpPin": "飛行力以釘選顯示"
+  },
+  "chatCopy": {
+    "title": "複製我的結果到遊戲聊天",
+    "copied": "已複製：貼到遊戲聊天中",
+    "nothing": "沒有可複製的內容：這場戰鬥中沒有你的傷害",
+    "line": "{name} vs {target} ({time}) | DPS {dps} | 傷害 {damage} | {pct} | 第{rank}/{count}",
+    "lineSolo": "{name} vs {target} ({time}) | DPS {dps} | 傷害 {damage}"
+  },
+  "fpTimer": {
+    "tip": "飛行力：{now} / {max}（{pct}%），{time} 後回滿",
+    "tipFlying": "飛行力：{now} / {max}（{pct}%），剩餘飛行 {time}"
   }
 }

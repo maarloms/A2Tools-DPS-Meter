@@ -679,6 +679,8 @@ impl PluginHost {
                 let mut abyss_seq = 0u64;
                 let mut recap_seq = 0u64;
                 let mut roll_seq = 0u64;
+                let mut market_seq = 0u64;
+                let mut kda_seq = 0u64;
                 loop {
                     // Woken by each queued event; the timeout lets settling
                     // events go once their wait is over.
@@ -747,6 +749,26 @@ impl PluginHost {
                             for roll in rolls {
                                 let data = serde_json::to_value(&roll).unwrap_or_default();
                                 host.queue_permitted("events:loot-rolls", "lootRoll", roll.at, data);
+                            }
+                        }
+                        // The Black Cloud Merchant's stock, each tab as it
+                        // is opened: kept, so a window opened later has it.
+                        if let Some((next, markets)) = state.data_storage.black_markets_since(market_seq) {
+                            market_seq = next;
+                            for market in markets {
+                                let data = serde_json::to_value(&market).unwrap_or_default();
+                                host.queue_permitted("events:black-market", "blackMarket", market.at, data);
+                            }
+                        }
+                    }
+                    // Your kills, assists and deaths against players, as they
+                    // are counted: numbered and kept like the recaps.
+                    if let Some(state) = app.try_state::<AppState>() {
+                        if let Some((next, events)) = state.data_storage.kda_since(kda_seq) {
+                            kda_seq = next;
+                            for e in events {
+                                let data = serde_json::to_value(e).unwrap_or_default();
+                                host.queue_permitted("events:kda", "kda", e.at, data);
                             }
                         }
                     }
@@ -1281,6 +1303,8 @@ struct PromptTexts {
     perm_fps: String,
     perm_death_recap: String,
     perm_loot_rolls: String,
+    perm_black_market: String,
+    perm_kda: String,
     perm_screenshot: String,
 }
 
@@ -1335,6 +1359,8 @@ fn prompt_texts(data_dir: Option<&Path>, lang: &str) -> PromptTexts {
         perm_fps: perm("permFps", "Show the game's frame rate (on Windows, the meter asks to run as administrator for it)"),
         perm_death_recap: perm("permDeathRecap", "After a player kills you: who they were and the damage they did to you"),
         perm_loot_rolls: perm("permLootRolls", "See Dice Roll loot: the item, who rolled what, and who won it"),
+        perm_black_market: perm("permBlackMarket", "See the Black Cloud Merchants' stock when you open their shop: the items and their prices"),
+        perm_kda: perm("permKda", "Count your kills, assists and deaths against players (no names)"),
         perm_screenshot: perm("permScreenshot", "Take screenshots of its own window, to the clipboard and your screenshot folder"),
     }
 }
@@ -1351,6 +1377,8 @@ fn describe_permission(t: &PromptTexts, permission: &str) -> String {
         "fps" => t.perm_fps.clone(),
         "events:death-recap" => t.perm_death_recap.clone(),
         "events:loot-rolls" => t.perm_loot_rolls.clone(),
+        "events:black-market" => t.perm_black_market.clone(),
+        "events:kda" => t.perm_kda.clone(),
         "screenshot" => t.perm_screenshot.clone(),
         p => match p.strip_prefix("decoder:") {
             Some(name) => t.perm_decoder.replace("{name}", name),
@@ -1962,8 +1990,51 @@ pub async fn plugin_open(app: tauri::AppHandle, id: String) -> Result<(), String
     Ok(())
 }
 
+/// The plugins the player closed with × this run (a window's, or the
+/// dock's for every tab it showed), and not opened since. × only hides: a
+/// plugin that hides its own window (an alert over) isn't in it.
+fn user_closed() -> &'static std::sync::Mutex<HashSet<String>> {
+    static CLOSED: std::sync::OnceLock<std::sync::Mutex<HashSet<String>>> = std::sync::OnceLock::new();
+    CLOSED.get_or_init(Default::default)
+}
+
+pub(crate) fn note_user_closed(id: &str, closed: bool) {
+    let mut set = user_closed().lock().unwrap_or_else(|e| e.into_inner());
+    if closed {
+        set.insert(id.to_string());
+    } else {
+        set.remove(id);
+    }
+}
+
+/// Open again every plugin closed with × this run and still turned on, as
+/// its Open button would (in the dock when it docks): the "plugin windows"
+/// hotkey, with `bring_back_windows` for those still open. Players closed a
+/// window (Pet Souls, docked) and expected the key to bring it back
+/// (2026-11-07). 2.0.91 read the list of plugins stopped with ×, which ×
+/// no longer does, and so opened none.
+pub fn reopen_closed(app: &tauri::AppHandle) {
+    let Ok(host) = host(app) else { return };
+    let mut closed: Vec<String> = user_closed().lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect();
+    closed.sort();
+    let off = disabled(app);
+    for id in closed {
+        if off.contains(&id) || host.with(&id, |_| ()).is_none() {
+            continue;
+        }
+        tracing::info!("Plugins: {id} opened again by the hotkey");
+        reopened(app, &id);
+        remember_window(app, &id, Some("shown"));
+        let opened = if dock::docks(app, &id) { dock::open_manually(app, &id) } else { open_window(app, &id, true) };
+        if let Err(e) = opened {
+            tracing::info!("Plugins: {id} didn't open again: {e}");
+        }
+    }
+}
+
 /// A plugin opened by hand (Open, or turned on) starts again after reloads.
 fn reopened(app: &tauri::AppHandle, id: &str) {
+    note_user_closed(id, false);
     if let Ok(host) = host(app) {
         host.closed.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
     }
@@ -2144,6 +2215,7 @@ pub fn plugin_close(app: tauri::AppHandle, window: tauri::WebviewWindow, plugin:
     let id = window_plugin(&window, plugin.as_deref())?;
     dock::cancel_manual_open();
     remember_window(&app, &id, Some("hidden"));
+    note_user_closed(&id, true);
     // Docked: its tab goes; the dock with the last one (dock::sync).
     if window.label() == dock::LABEL {
         dock::sync(&app, None);

@@ -599,6 +599,12 @@
         "highestDamage": "Höchster Schaden"
       }
     },
+    "trainTimeLimit": {
+      "label": "Trainingszeitlimit",
+      "options": {
+        "off": "Kein Limit"
+      }
+    },
     "showSupporterColors": "Unterstützerfarben anzeigen",
     "showSupporterColorsHint": "Namen von Unterstützern erscheinen golden. Rein kosmetisch — es ändert keine Zahl.",
     "account": {
@@ -660,6 +666,7 @@
       "barTexture": "Ein Muster auf den Balken des Meters. Ein Dankeschön für die Unterstützung von A2 Tools.",
       "textureOffset": "Jeder Balken beginnt seine Textur an einer anderen Stelle, damit nicht alle gleich aussehen.",
       "trainingMode": "Im Trainingsmodus: welche Puppen das Detailfenster zeigt – alle zusammen oder nur die, die du am stärksten triffst.",
+      "trainTimeLimit": "Im Trainingsmodus zählen Treffer auf Trainingspuppen so lange nach deinem ersten. Danach hält das Meter an, bis du auf Aktualisieren drückst, was die Zeit neu startet.",
       "allTargetsWindow": "Im Modus „Alle Ziele“ zählt das Meter alle Ziele, die innerhalb dieser Zeit vor dem letzten Treffer getroffen wurden.",
       "updateRate": "Wie oft sich die Zahlen des Meters aktualisieren. Schneller zeigt Treffer früher, braucht aber mehr CPU.",
       "partyPresence": "Gruppenmitglieder, die auch A2Tools nutzen, sehen ein kleines A2 neben deinem Namen und du ihres. Jeder in deiner Gruppe mit A2Tools sieht es und weiß damit, dass du ein Drittanbieter-Meter nutzt. Gesendet werden nur Hashes von Charakternamen und Servern.",
@@ -674,7 +681,7 @@
       "hideWhenSolo": "Das Meter wird ausgeblendet, solange du in keiner Gruppe bist, und erscheint wieder, wenn du einer beitrittst. Die Tastenkombination zum Ein-/Ausblenden holt es trotzdem hervor.",
       "hideOutOfCombat": "Das Meter wird ausgeblendet, wenn du so lange nicht im Kampf warst, und erscheint mit dem nächsten Treffer wieder. Solange Einstellungen, Verlauf oder Details offen sind oder die Maus darüber ist, bleibt es sichtbar.",
       "runAsAdmin": "Nötig, um die Bildrate des Spiels anzuzeigen. Windows fragt bei jedem Start des Meters nach.",
-      "shareData": "Teilt die Feldboss-Timer und Versorgungsaufträge deines Servers mit a2tools.app, damit A2Tools für alle aktuell bleibt: die Bosse auf deiner Karte, die du besiegt siehst, und ihre HP, sowie die Auftragstafeln nach jedem Reset. Nichts über deinen Charakter wird gesendet.",
+      "shareData": "Teilt die Feldboss-Timer und Versorgungsaufträge deines Servers mit a2tools.app, damit A2Tools für alle aktuell bleibt: die Bosse auf deiner Karte, die du besiegt siehst, und ihre HP, die Auftragstafeln nach jedem Reset und die Ranglisten, die du öffnest. Nichts über deinen Charakter wird gesendet.",
       "pluginAutoUpdate": "Beim Start des Meters installieren sich Plugin-Updates im Hintergrund von selbst. Ein Update, das etwas Neues verlangt, wartet weiter auf dein Ja.",
       "meterAnchor": "Der Rand des Meters, der stehen bleibt, wenn Zeilen dazukommen oder wegfallen."
     },
@@ -746,6 +753,8 @@
       "permFps": "Die Bildrate des Spiels anzeigen (unter Windows bittet das Meter dafür, als Administrator zu laufen)",
       "permDeathRecap": "Nachdem dich ein Spieler getötet hat: wer es war und welchen Schaden er dir zugefügt hat",
       "permLootRolls": "Würfel-Beute sehen: den Gegenstand, wer was gewürfelt hat und wer ihn bekommen hat",
+      "permBlackMarket": "Das Angebot des Schwarzwolken-Händlers sehen, wenn du den Laden öffnest: die Gegenstände und ihre Preise",
+      "permKda": "Deine Kills, Assists und Tode gegen Spieler zählen (ohne Namen)",
       "permScreenshot": "Bildschirmfotos des eigenen Fensters machen, in die Zwischenablage und deinen Screenshot-Ordner",
       "testHint": "Frühe Versionen zum Ausprobieren für alle, signiert wie die anderen. Sie können sich noch ändern oder Ecken und Kanten haben: Sag uns, was dir auffällt.",
       "testTitle": "Test-Plugins",
@@ -842,6 +851,10 @@
     "all": "Alle Ziele",
     "identifying": "Identifiziere dich...",
     "train": "Trainingspuppe",
+    "trainLimitReached": "Zeitlimit erreicht",
+    "timed": "Zeitlimit: {time}",
+    "timedSeconds": "{n} Sek.",
+    "timedMinutes": "{n} Min.",
     "boss": "Boss-Ziele"
   },
   "classes": {
@@ -979,6 +992,19 @@
     "partyTotal": "Gruppensumme",
     "odyle": "Odyle-Energie",
     "ping": "Ping",
-    "jitter": "Jitter: {ms} ms"
+    "jitter": "Jitter: {ms} ms",
+    "fpTimer": "Flugkraft bis voll",
+    "fpPin": "Flugkraft als Pin"
+  },
+  "chatCopy": {
+    "title": "Dein Ergebnis für den Spielchat kopieren",
+    "copied": "Kopiert: im Spielchat einfügen",
+    "nothing": "Nichts zu kopieren: kein Schaden von dir in diesem Kampf",
+    "line": "{name} vs {target} ({time}) | {dps} DPS | {damage} Schaden | {pct} | #{rank}/{count}",
+    "lineSolo": "{name} vs {target} ({time}) | {dps} DPS | {damage} Schaden"
+  },
+  "fpTimer": {
+    "tip": "Flugkraft: {now} / {max} ({pct} %), voll in {time}",
+    "tipFlying": "Flugkraft: {now} / {max} ({pct} %), noch {time} Flug"
   }
 }

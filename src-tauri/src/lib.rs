@@ -43,6 +43,8 @@ mod update_check;
 #[cfg(feature = "online")]
 mod supply_report;
 #[cfg(feature = "online")]
+mod ranking_report;
+#[cfg(feature = "online")]
 mod party_presence;
 #[cfg(feature = "online")]
 mod presence;
@@ -55,6 +57,8 @@ mod npcap_setup;
 
 #[cfg(feature = "desktop")]
 mod app;
+#[cfg(feature = "desktop")]
+mod fp_pin;
 
 #[cfg(feature = "desktop")]
 mod atomic_file;
