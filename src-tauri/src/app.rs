@@ -1103,11 +1103,16 @@ fn hotkey_of(settings: &Settings, key: &str) -> (u32, u32) {
 /// Register the hotkeys from saved settings (or defaults).
 /// Show or hide the meter, and remember it (as Settings → Plugins → Show
 /// the DPS meter does): its keybind and the tray's. Hidden by auto-hide
-/// only, it is shown, as before, and nothing changes.
+/// only, it is shown, as before, and nothing changes. Auto-hide and the
+/// out-of-combat and solo rules minimise it, which Windows still calls
+/// visible: the first press took it for shown and hid it for good, so the
+/// keybind needed two presses to bring it back (2026-11-09).
 pub(crate) fn toggle_meter(app: &tauri::AppHandle) {
     if meter_wanted(app)
         && let Some(window) = app.get_webview_window("main")
-        && (!window.is_visible().unwrap_or(true) || platform::window::is_hidden_in_place(&window))
+        && (!window.is_visible().unwrap_or(true)
+            || window.is_minimized().unwrap_or(false)
+            || platform::window::is_hidden_in_place(&window))
     {
         crate::fork::reopen_meter(); // fork: closed beside the timer, it comes back
         show_meter_again(app, &window);
@@ -1250,6 +1255,9 @@ fn get_capture_status(state: tauri::State<'_, AppState>) -> serde_json::Value {
         // When true, characterName is the game's (null = an unnamed tutorial
         // character) and the UI should adopt it rather than push its own.
         "characterNameFromGame": state.data_storage.local_identity_from_self_record(),
+        // The character's server (0 while not known), for what the page keeps
+        // per character: one name can be a character on several servers.
+        "serverId": state.data_storage.own_server(),
     })
 }
 
@@ -4298,7 +4306,12 @@ pub fn run() {
                             if last_odyle.as_ref() != Some(&now) || tick_count % 4 == 0 {
                                 let _ = handle.emit(
                                     "odyle-energy",
-                                    serde_json::json!({ "basic": energy.0, "charged": energy.1, "name": now.1 }),
+                                    serde_json::json!({
+                                        "basic": energy.0,
+                                        "charged": energy.1,
+                                        "name": now.1,
+                                        "server": state.data_storage.own_server(),
+                                    }),
                                 );
                                 last_odyle = Some(now);
                             }
