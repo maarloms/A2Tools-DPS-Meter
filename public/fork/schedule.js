@@ -43,13 +43,13 @@ export function eventState(event, now = Date.now(), offsetMinutes = 0) {
   return { active, start: active ? previous : next, end: active ? end : null,
     remaining: (active ? end : next) - now, next };
 }
-export function countdown(ms) {
+export function countdown(ms, dayUnit = "T") {
   if (!Number.isFinite(ms)) return "—";
   const seconds = Math.max(0, Math.ceil(ms / 1000));
   // Weekly events are days away; seconds are noise there.
   if (seconds >= 86400) {
     const d = Math.floor(seconds / 86400);
-    return d + "T " + String(Math.floor(seconds % 86400 / 3600)).padStart(2, "0") + ":"
+    return d + dayUnit + " " + String(Math.floor(seconds % 86400 / 3600)).padStart(2, "0") + ":"
       + String(Math.floor(seconds % 3600 / 60)).padStart(2, "0");
   }
   const h = Math.floor(seconds / 3600);

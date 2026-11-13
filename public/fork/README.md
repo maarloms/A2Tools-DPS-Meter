@@ -57,6 +57,8 @@ Verteron (aus), `kind: "respawn"` mit `mobCodes` in events.json.
 Kompakte Schalter, einklappbare Eventgruppen und Auswahlzähler im Reiter
 Events. Deckkraft mit Live-Prozentwert und Zeitkorrektur mit +/- im Reiter
 Darstellung. Reiter sind auch mit Pfeiltasten erreichbar.
+Sprache (Deutsch/English) im Reiter Darstellung, nur für den Timer; Texte in
+`timer-i18n.js`, englische Event-/Bossnamen im Block `en` je Eintrag in `events.json`.
 ## Prüfen
 
 npm run test:timer

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:timer": "node --test tests/timer-schedule.test.mjs",
+    "test:timer": "node --test tests/timer-schedule.test.mjs tests/timer-i18n.test.mjs",
     "tauri": "tauri",
     "build:offline": "tauri build -- --no-default-features --features desktop",
     "dev:offline": "tauri dev -- --no-default-features --features desktop",

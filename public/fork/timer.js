@@ -1,21 +1,16 @@
-import { eventState, respawnState, countdown, intervalText } from "./schedule.js";
+import { eventState, respawnState, intervalText } from "./schedule.js";
+import { DEFAULT_LANG, normalizeLang, t, category as categoryName, labels, alarmLabel, timeText, clockText, when, dayCountdown, bossText, applyStatic } from "./timer-i18n.js";
 const $ = id => document.getElementById(id);
 const native = window.__TAURI__;
 let data, preferences, locked = false, writeQueue = Promise.resolve(), signature = "";
+// Timer language (preferences.lang, Deutsch by default); T() = text in it.
+let lang = DEFAULT_LANG;
+const T = (key, params) => t(lang, key, params);
 // Field boss timers by mob code (src-tauri/src/fork/bosses.rs) and the boss
 // whose entry panel is open.
 const bosses = new Map();
 let openBoss = null;
-const time = new Intl.DateTimeFormat("de-DE", { timeZone:"Europe/Berlin", hour:"2-digit", minute:"2-digit" });
-const clock = new Intl.DateTimeFormat("de-DE", { timeZone:"Europe/Berlin", hour:"2-digit", minute:"2-digit", second:"2-digit" });
-const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone:"Europe/Berlin" });
-const weekday = new Intl.DateTimeFormat("de-DE", { timeZone:"Europe/Berlin", weekday:"short" });
-// "21:30" today, "Sa 21:30" on any other day.
-function when(ms, now) {
-  const t = time.format(ms);
-  return dayKey.format(ms) === dayKey.format(now) ? t : weekday.format(ms).replace(".", "") + " " + t;
-}
-const defaultPreferences = { enabled:[], offset:0, opacity:88, alarm:0, layout:"portrait" };
+const defaultPreferences = { enabled:[], offset:0, opacity:88, alarm:0, layout:"portrait", lang:DEFAULT_LANG };
 const alarmed = new Set();
 let alarmsPrimed = false;
 function message(text) { $("error").textContent = text; $("error").hidden = false; }
@@ -25,7 +20,7 @@ async function save() {
   writeQueue = writeQueue.catch(() => {}).then(() => native
     ? native.core.invoke("update_settings", { key:"fork.timer.preferences", value })
     : localStorage.setItem("fork.timer.preferences", value));
-  try { await writeQueue; } catch { message("Einstellungen konnten nicht gespeichert werden."); }
+  try { await writeQueue; } catch { message(T("errSave")); }
 }
 // A short two-note chime, synthesized so no sound file has to ship.
 function chime() {
@@ -85,11 +80,17 @@ function updateFilters() {
     input.indeterminate = selected > 0 && selected < events.length;
     $("options").querySelectorAll("[data-count]").forEach(el => { if (el.dataset.count === input.dataset.category) el.textContent = selected + "/" + events.length; });
   }
-  $("selection-count").textContent = preferences.enabled.length + " aktiv";
+  $("selection-count").textContent = T("selectionCount", { n: preferences.enabled.length });
 }
 function buildFilters() {
+  // A language change rebuilds the list; categories keep their open state.
+  const opened = new Set([...$("options").querySelectorAll(".categoryDisclosure[aria-expanded=true]")]
+    .map(el => el.parentElement.querySelector("input[data-category]")?.dataset.category));
+  const rebuilt = $("options").childElementCount > 0;
+  $("options").replaceChildren();
   const categories = [...new Set(data.events.map(e => e.category))];
   for (const [index, category] of categories.entries()) {
+    const open = rebuilt ? opened.has(category) : index === 0;
     const events = data.events.filter(e => e.category === category);
     const section = document.createElement("section");
     section.className = "eventCategory";
@@ -97,18 +98,18 @@ function buildFilters() {
     const disclosure = document.createElement("button"); disclosure.className = "categoryDisclosure";
     const panelId = "category-" + index;
     disclosure.setAttribute("aria-controls", panelId);
-    disclosure.setAttribute("aria-expanded", String(index === 0));
+    disclosure.setAttribute("aria-expanded", String(open));
     disclosure.innerHTML = '<svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>';
-    const title = document.createElement("span"); title.textContent = category;
+    const title = document.createElement("span"); title.textContent = categoryName(lang, category);
     const count = document.createElement("span"); count.className = "categoryCount"; count.dataset.count = category;
     disclosure.append(title, count);
     const toggle = document.createElement("label"); toggle.className = "toggle";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox"; checkbox.dataset.category = category;
-    checkbox.setAttribute("aria-label", "Alle Events: " + category);
+    checkbox.setAttribute("aria-label", T("allEventsAria", { c: categoryName(lang, category) }));
     const track = document.createElement("span"); track.className = "toggleTrack"; track.setAttribute("aria-hidden","true");
     toggle.append(checkbox,track); header.append(disclosure,toggle);
-    const list = document.createElement("div"); list.className = "categoryEvents"; list.id = panelId; list.hidden = index !== 0;
+    const list = document.createElement("div"); list.className = "categoryEvents"; list.id = panelId; list.hidden = !open;
     disclosure.addEventListener("click", () => {
       list.hidden = !list.hidden;
       disclosure.setAttribute("aria-expanded", String(!list.hidden));
@@ -121,12 +122,12 @@ function buildFilters() {
     });
     if (events.some(e => !e.confirmed)) {
       const note = document.createElement("p"); note.className = "categoryNote";
-      note.textContent = "Zeiten aus den Global-Clientdaten, ingame noch nicht geprüft.";
+      note.textContent = T("unconfirmedNote");
       list.append(note);
     }
     for (const event of events) {
-      const row = document.createElement("label"); row.className = "eventChoice"; row.title = event.note;
-      const name = document.createElement("span"); name.className = "choiceName"; name.textContent = event.name;
+      const row = document.createElement("label"); row.className = "eventChoice"; row.title = labels(event, lang).note;
+      const name = document.createElement("span"); name.className = "choiceName"; name.textContent = labels(event, lang).name;
       const control = document.createElement("span"); control.className = "toggle";
       const input = document.createElement("input"); input.type = "checkbox"; input.dataset.event = event.id;
       const track = document.createElement("span"); track.className = "toggleTrack"; track.setAttribute("aria-hidden","true");
@@ -164,17 +165,6 @@ function stateOf(event, now) {
   return event.kind === "respawn" ? respawnState(event, bossTimer(event), now)
     : eventState(event, now, preferences.offset);
 }
-function bossText(event, state, now) {
-  const by = state.by ? " · " + state.by : "";
-  switch (state.status) {
-    case "alive": return ["da", "Gesichtet " + when(state.seen, now) + by];
-    case "due": return ["fällig", "Respawn seit " + when(state.respawn, now) + by];
-    case "waiting": return [countdown(state.remaining), "Respawn " + (state.estimated ? "~" : "") + when(state.respawn, now)
-      + (state.interval ? " · alle " + intervalText(state.interval) : "") + by];
-    case "killed": return ["+" + countdown(now - state.killed), "Getötet " + when(state.killed, now) + " · Takt noch offen" + by];
-    default: return ["—", event.zone + " · noch kein Kill"];
-  }
-}
 // "10:45" (mm:ss), "1:10:45" (h:mm:ss) or "45" (minutes), as on the map.
 function parseCountdown(text) {
   const parts = String(text).trim().split(":").map(p => p.trim());
@@ -188,22 +178,22 @@ function showBossPanel(id) {
   const event = data.events.find(e => e.id === id);
   $("boss-panel").hidden = !event;
   if (!event) return;
-  $("boss-name").textContent = event.name + " · " + event.zone;
+  $("boss-name").textContent = labels(event, lang).name + " · " + labels(event, lang).zone;
   $("boss-spawn").value = "";
   const state = stateOf(event, Date.now());
-  $("boss-interval").textContent = state.interval ? "Respawn alle " + intervalText(state.interval) : "Takt unbekannt";
+  $("boss-interval").textContent = state.interval ? T("bossRespawnEvery", { i: intervalText(state.interval) }) : T("bossIntervalUnknown");
 }
 async function bossAction(action, ms) {
   const event = data.events.find(e => e.id === openBoss);
-  if (!event || !native) { message("Feldboss-Timer gehen nur in der Desktop-App."); return; }
+  if (!event || !native) { message(T("errBossDesktop")); return; }
   try {
     await native.core.invoke("set_field_boss", { code: event.mobCodes[0], action, ms: ms ?? null });
     showBossPanel(null);
-  } catch (e) { message("Feldboss konnte nicht gespeichert werden: " + e); }
+  } catch (e) { message(T("errBossSave", { e })); }
 }
 function render() {
   const now = Date.now();
-  $("clock").textContent = clock.format(now);
+  $("clock").textContent = clockText(lang, now);
   const selected = data.events.filter(e => preferences.enabled.includes(e.id))
     .map(event => ({ event, state:stateOf(event, now) }));
   // Recreate rows only when order/state changes, not every second: the user
@@ -216,20 +206,20 @@ function render() {
     signature = nextSignature; $("events").replaceChildren();
     if (!rows.length) {
       const empty = document.createElement("p"); empty.className = "empty";
-      empty.textContent = "Keine Events ausgewählt. Öffne die Filter über das Zahnrad.";
+      empty.textContent = T("empty");
       $("events").append(empty);
     }
     let category;
     for (const {event,state} of rows) {
       if (category !== event.category) {
         category = event.category;
-        const title = document.createElement("h2"); title.className = "group"; title.textContent = category;
+        const title = document.createElement("h2"); title.className = "group"; title.textContent = categoryName(lang, category);
         $("events").append(title);
       }
-      const row = document.createElement("div"); row.className = "event"; row.dataset.id = event.id; row.title = event.note;
+      const row = document.createElement("div"); row.className = "event"; row.dataset.id = event.id; row.title = labels(event, lang).note;
       if (event.kind === "respawn") {
         row.classList.add("boss", state.status); row.tabIndex = 0;
-        row.title = event.note + "\nKlicken: getötet oder Countdown von der Karte eintragen.";
+        row.title = labels(event, lang).note + "\n" + T("bossClickHint");
         row.addEventListener("click", () => showBossPanel(openBoss === event.id ? null : event.id));
         row.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); row.click(); } });
       }
@@ -237,7 +227,7 @@ function render() {
       else if (state.remaining <= 300000) row.classList.add("soon");
       const dot = document.createElement("span"); dot.className = "dot"; dot.setAttribute("aria-hidden","true");
       const info = document.createElement("div"); info.className = "info";
-      const name = document.createElement("div"); name.className = "name"; name.textContent = event.name;
+      const name = document.createElement("div"); name.className = "name"; name.textContent = labels(event, lang).name;
       const meta = document.createElement("div"); meta.className = "meta";
       info.append(name,meta);
       const count = document.createElement("time"); count.className = "countdown";
@@ -248,20 +238,31 @@ function render() {
   for (const {event,state} of rows) {
     const row = $("events").querySelector('[data-id="' + event.id + '"]');
     if (event.kind === "respawn") {
-      const [count, meta] = bossText(event, state, now);
+      const [count, meta] = bossText(lang, event, state, now);
       row.querySelector(".countdown").textContent = count;
       row.querySelector(".meta").textContent = meta;
       continue;
     }
-    row.querySelector(".countdown").textContent = countdown(state.remaining);
-    row.querySelector(".meta").textContent = (state.active ? (event.activeText || "Läuft bis") + " " + time.format(state.end)
-      : "Start " + when(state.start, now)) + (event.confirmed ? "" : " · unbestätigt");
+    row.querySelector(".countdown").textContent = dayCountdown(lang, state.remaining);
+    row.querySelector(".meta").textContent = (state.active ? labels(event, lang).activeText + " " + timeText(lang, state.end)
+      : T("start") + " " + when(lang, state.start, now)) + (event.confirmed ? "" : " · " + T("unconfirmed"));
   }
+}
+const updateFooter = () => { $("footer").textContent = T(locked ? "footerLocked" : "footer"); };
+// Applies preferences.lang to everything the page shows. Before the first
+// render() (boot) it only builds the static parts.
+function applyLanguage() {
+  document.documentElement.lang = lang;
+  document.title = "AION 2 " + T("title");
+  applyStatic(document, lang);
+  for (const option of $("alarm").options) option.textContent = alarmLabel(lang, Number(option.value));
+  updateFooter(); buildFilters(); showBossPanel(openBoss);
+  signature = ""; render();
 }
 async function boot() {
   try {
     const response = await fetch("/fork/events.json");
-    if (!response.ok) throw new Error("Eventdaten fehlen");
+    if (!response.ok) throw new Error(T("errData"));
     data = await response.json();
     const settings = native ? await native.core.invoke("get_settings") : {
       "fork.timer.preferences":localStorage.getItem("fork.timer.preferences")
@@ -288,8 +289,15 @@ async function boot() {
     preferences.opacity = Math.max(35, Math.min(100, Number(preferences.opacity) || 88));
     preferences.alarm = [0, 1, 3, 5, 10].includes(Number(preferences.alarm)) ? Number(preferences.alarm) : 0;
     preferences.layout = preferences.layout === "landscape" ? "landscape" : "portrait";
+    preferences.lang = normalizeLang(preferences.lang);
+    lang = preferences.lang;
     applyLayout();
-    applyAppearance(settings); buildFilters();
+    applyAppearance(settings); applyLanguage();
+    $("language").value = lang;
+    $("language").addEventListener("change", async e => {
+      preferences.lang = lang = normalizeLang(e.target.value);
+      e.target.value = lang; applyLanguage(); await save();
+    });
     $("offset").value = preferences.offset; $("opacity").value = preferences.opacity;
     $("opacity-value").value = preferences.opacity + " %";
     $("alarm").value = String(preferences.alarm);
@@ -326,23 +334,22 @@ async function boot() {
     });
     $("drag").addEventListener("mousedown", e => {
       if (e.button === 0 && !e.target.closest("button") && native)
-        native.window.getCurrentWindow().startDragging().catch(() => message("Fenster konnte nicht verschoben werden."));
+        native.window.getCurrentWindow().startDragging().catch(() => message(T("errDrag")));
     });
     $("close").addEventListener("click", () => {
-      if (native) native.core.invoke("toggle_timer").catch(() => message("Timer konnte nicht ausgeblendet werden."));
+      if (native) native.core.invoke("toggle_timer").catch(() => message(T("errHide")));
     });
     $("lock").addEventListener("click", async () => {
-      if (!native) { message("Die Fenstersperre funktioniert in der Desktop-App."); return; }
+      if (!native) { message(T("errLockDesktop")); return; }
       try {
         await native.core.invoke("set_timer_locked", {locked:!locked});
         locked = !locked; filterPanel(false); showBossPanel(null);
         $("lock").setAttribute("aria-pressed", String(locked));
-        $("footer").textContent = locked ? "Gesperrt · Strg+Alt+T zweimal zum Entsperren" : "Strg+Alt+T · Ein / Aus";
-      } catch { message("Timer konnte nicht gesperrt werden."); }
+        updateFooter();
+      } catch { message(T("errLock")); }
     });
     window.addEventListener("timer-unlocked", () => {
-      locked = false; $("lock").setAttribute("aria-pressed","false");
-      $("footer").textContent = "Strg+Alt+T · Ein / Aus";
+      locked = false; $("lock").setAttribute("aria-pressed","false"); updateFooter();
     });
     if (native) await native.event.listen("setting-changed", ({payload}) => {
       if (payload.key === "dpsMeter.theme") { settings[payload.key] = payload.value; applyAppearance(settings); }
@@ -368,6 +375,6 @@ async function boot() {
       else if (e.key === "Escape") showBossPanel(null);
     });
     render(); setInterval(render, 1000);
-  } catch(e) { message("Timer konnte nicht geladen werden: " + e.message); }
+  } catch(e) { message(T("errLoad", { e: e.message })); }
 }
 boot();

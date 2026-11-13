@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "displayTimeZone": "Europe/Berlin",
   "sources": [
     "https://aion2.gaming.tools/de/event-calendar",
@@ -27,7 +27,12 @@
         23
       ],
       "activeText": "Portal offen bis",
-      "note": "23:00 Uhr deutscher Zeit am 02.10.2026 ingame bestätigt. Portal 10 Minuten offen. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin)."
+      "note": "23:00 Uhr deutscher Zeit am 02.10.2026 ingame bestätigt. Portal 10 Minuten offen. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin).",
+      "en": {
+        "name": "Spacetime Rift",
+        "activeText": "Portal open until",
+        "note": "23:00 German time on 02.10.2026 confirmed in game. Portal open for 10 minutes. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin)."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -64,7 +69,11 @@
         22,
         23
       ],
-      "note": "Jede volle Stunde. Minispiele wechseln: Jump Jump, Geister meiden, Mystische Strecke, Finde den Lugi, Odtropfen sammeln, Goldrins Schatz, Beschütze die Shugo-Händler, Hoch hinaus!, War das die richtige Kachel? Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin)."
+      "note": "Jede volle Stunde. Minispiele wechseln: Jump Jump, Geister meiden, Mystische Strecke, Finde den Lugi, Odtropfen sammeln, Goldrins Schatz, Beschütze die Shugo-Händler, Hoch hinaus!, War das die richtige Kachel? Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin).",
+      "en": {
+        "name": "Shugo Festa",
+        "note": "Every full hour. Minigames rotate: Jump Jump, Avoid the Ghosts, Mystic Track, Find the Lugi, Collect Odium Drops, Goldrin's Treasure, Protect the Shugo Merchants, Reach for the Sky!, Was That the Right Tile? Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin)."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -101,7 +110,11 @@
         22,
         23
       ],
-      "note": "Jede halbe Stunde. Varianten: Beritra-Luftangriff, Verfluchtes Schwert, Überfall der Naturgeister. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin)."
+      "note": "Jede halbe Stunde. Varianten: Beritra-Luftangriff, Verfluchtes Schwert, Überfall der Naturgeister. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin).",
+      "en": {
+        "name": "Dimensional Invasion",
+        "note": "Every half hour. Variants: Beritra Air Raid, Cursed Sword, Raid of the Nature Spirits. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin)."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -120,7 +133,11 @@
         4,
         6
       ],
-      "note": "Mo, Do, Sa 21:00. Untere und Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Mo, Do, Sa 21:00. Untere und Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft.",
+      "en": {
+        "name": "Artifact Conquest",
+        "note": "Mon, Thu, Sat 21:00. Lower and Middle Level of Reshanta. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin). Not yet verified in game."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -139,7 +156,11 @@
         4,
         6
       ],
-      "note": "Mo, Do, Sa 21:30, Chaotische Untere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Mo, Do, Sa 21:30, Chaotische Untere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft.",
+      "en": {
+        "name": "Executor Tamasa",
+        "note": "Mon, Thu, Sat 21:30, Chaotic Lower Level of Reshanta. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin). Not yet verified in game."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -158,7 +179,11 @@
         4,
         6
       ],
-      "note": "Mo, Do, Sa 21:30, Chaotische Untere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Mo, Do, Sa 21:30, Chaotische Untere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft.",
+      "en": {
+        "name": "Executor Argo",
+        "note": "Mon, Thu, Sat 21:30, Chaotic Lower Level of Reshanta. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin). Not yet verified in game."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -177,7 +202,11 @@
         4,
         6
       ],
-      "note": "Mo, Do, Sa 21:30, Chaotische Untere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Mo, Do, Sa 21:30, Chaotische Untere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft.",
+      "en": {
+        "name": "Executor Kaira",
+        "note": "Mon, Thu, Sat 21:30, Chaotic Lower Level of Reshanta. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin). Not yet verified in game."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -196,7 +225,11 @@
         4,
         6
       ],
-      "note": "Mo, Do, Sa 21:30, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Mo, Do, Sa 21:30, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft.",
+      "en": {
+        "name": "Executioner Dramos",
+        "note": "Mon, Thu, Sat 21:30, Chaotic Middle Level of Reshanta. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin). Not yet verified in game."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -215,7 +248,11 @@
         4,
         6
       ],
-      "note": "Mo, Do, Sa 21:30, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Mo, Do, Sa 21:30, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft.",
+      "en": {
+        "name": "Turncoat Ducal",
+        "note": "Mon, Thu, Sat 21:30, Chaotic Middle Level of Reshanta. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin). Not yet verified in game."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -234,7 +271,11 @@
         4,
         6
       ],
-      "note": "Mo, Do, Sa 21:30, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Mo, Do, Sa 21:30, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft.",
+      "en": {
+        "name": "Ravager Marakha",
+        "note": "Mon, Thu, Sat 21:30, Chaotic Middle Level of Reshanta. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin). Not yet verified in game."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -252,7 +293,11 @@
         0,
         5
       ],
-      "note": "Fr, So 21:00, Chaotische Untere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Fr, So 21:00, Chaotische Untere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft.",
+      "en": {
+        "name": "Guardian Lord Nahma",
+        "note": "Fri, Sun 21:00, Chaotic Lower Level of Reshanta. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin). Not yet verified in game."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -270,7 +315,11 @@
         0,
         5
       ],
-      "note": "Fr, So 21:00, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Fr, So 21:00, Chaotische Mittlere Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft.",
+      "en": {
+        "name": "Enraged Guardian Lord Nahma",
+        "note": "Fri, Sun 21:00, Chaotic Middle Level of Reshanta. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin). Not yet verified in game."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -291,7 +340,11 @@
         19,
         22
       ],
-      "note": "Alle 3 Stunden ab 01:00, zufälliger Ort in der Chaotischen Unteren Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Alle 3 Stunden ab 01:00, zufälliger Ort in der Chaotischen Unteren Ebene von Reshanta. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft.",
+      "en": {
+        "name": "Watcher Kaira",
+        "note": "Every 3 hours from 01:00, random location in the Chaotic Lower Level of Reshanta. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin). Not yet verified in game."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -306,7 +359,12 @@
         11
       ],
       "activeText": "Geöffnet bis",
-      "note": "Täglich 11:00–14:00. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Täglich 11:00–14:00. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft.",
+      "en": {
+        "name": "Arena of Strategy · Midday",
+        "activeText": "Open until",
+        "note": "Daily 11:00–14:00. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin). Not yet verified in game."
+      }
     },
     {
       "timeZone": "Europe/Berlin",
@@ -321,7 +379,12 @@
         19
       ],
       "activeText": "Geöffnet bis",
-      "note": "Täglich 19:00–21:00. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft."
+      "note": "Täglich 19:00–21:00. Global-Client-Daten 1.0.21.0 (aion2.gaming.tools, Region Europa = Europe/Berlin). Ingame noch nicht geprüft.",
+      "en": {
+        "name": "Arena of Strategy · Evening",
+        "activeText": "Open until",
+        "note": "Daily 19:00–21:00. Global client data 1.0.21.0 (aion2.gaming.tools, region Europe = Europe/Berlin). Not yet verified in game."
+      }
     },
     {
       "timeZone": "Asia/Seoul",
@@ -335,7 +398,11 @@
       "hours": [
         16
       ],
-      "note": "16:00 koreanischer Zeit = 09:00 Sommerzeit / 08:00 Winterzeit in Deutschland. Quests, Kina-Limits, Shugofesta- und Invasions-Schlüssel, Albtraum-Versuche."
+      "note": "16:00 koreanischer Zeit = 09:00 Sommerzeit / 08:00 Winterzeit in Deutschland. Quests, Kina-Limits, Shugofesta- und Invasions-Schlüssel, Albtraum-Versuche.",
+      "en": {
+        "name": "Daily Reset",
+        "note": "16:00 Korean time = 09:00 summer / 08:00 winter time in Germany. Quests, Kina limits, Shugo Festa and invasion keys, Nightmare attempts."
+      }
     },
     {
       "timeZone": "Asia/Seoul",
@@ -352,7 +419,11 @@
       "weekdays": [
         3
       ],
-      "note": "Mittwoch 16:00 koreanischer Zeit. Wochenquests, Arena-Belohnungen, Abyss-Nutzungszeit, Aszensusritus, Dungeon-Rotation."
+      "note": "Mittwoch 16:00 koreanischer Zeit. Wochenquests, Arena-Belohnungen, Abyss-Nutzungszeit, Aszensusritus, Dungeon-Rotation.",
+      "en": {
+        "name": "Weekly Reset",
+        "note": "Wednesday 16:00 Korean time. Weekly quests, arena rewards, Abyss time allowance, Ascension rite, dungeon rotation."
+      }
     },
     {
       "kind": "respawn",
@@ -369,7 +440,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111001
-      ]
+      ],
+      "en": {
+        "name": "Melted Danar",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -386,7 +462,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111002
-      ]
+      ],
+      "en": {
+        "name": "Black Warrior Aed",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -403,7 +484,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111003
-      ]
+      ],
+      "en": {
+        "name": "Faithful Rajit",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -420,7 +506,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111004
-      ]
+      ],
+      "en": {
+        "name": "Berserker Vargor",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -437,7 +528,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111005
-      ]
+      ],
+      "en": {
+        "name": "Predator Garsan",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -454,7 +550,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111006
-      ]
+      ],
+      "en": {
+        "name": "Blood Warrior Lannar",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -471,7 +572,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111007
-      ]
+      ],
+      "en": {
+        "name": "Deceiver Trid",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -488,7 +594,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111008
-      ]
+      ],
+      "en": {
+        "name": "Blue Wave Kelpina",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -505,7 +616,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111009
-      ]
+      ],
+      "en": {
+        "name": "High Overseer Nutah",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -522,7 +638,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111010
-      ]
+      ],
+      "en": {
+        "name": "Advisor Resana",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -539,7 +660,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111011
-      ]
+      ],
+      "en": {
+        "name": "Special Operations Leader Linx",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -556,7 +682,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111012
-      ]
+      ],
+      "en": {
+        "name": "Desecrator Newbold",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -573,7 +704,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111013
-      ]
+      ],
+      "en": {
+        "name": "Specter Archon Axios",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -590,7 +726,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111014
-      ]
+      ],
+      "en": {
+        "name": "Addicted Hardirun",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -607,7 +748,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111015
-      ]
+      ],
+      "en": {
+        "name": "Executioner Barthien",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -624,7 +770,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111016
-      ]
+      ],
+      "en": {
+        "name": "Drakan Battalion Weapon Guruta",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -641,7 +792,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111017
-      ]
+      ],
+      "en": {
+        "name": "Veteran Shujakan",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -658,7 +814,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111018
-      ]
+      ],
+      "en": {
+        "name": "Visionary Karuka",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -675,7 +836,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111019
-      ]
+      ],
+      "en": {
+        "name": "Dark Shadow Vishwada",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -692,7 +858,12 @@
       "note": "Altgard. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111020
-      ]
+      ],
+      "en": {
+        "name": "Sharp Shylak",
+        "zone": "Altgard",
+        "note": "Altgard. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -709,7 +880,12 @@
       "note": "Altgard · Unsterbliche Insel. Spawn-Zeit von der Ingame-Karte (Altgard, Karte 1110), sonst aus Kills.",
       "spawnIds": [
         111021
-      ]
+      ],
+      "en": {
+        "name": "Immortal Gartua",
+        "zone": "Altgard · Immortal Isle",
+        "note": "Altgard · Immortal Isle. Spawn time from the in-game map (Altgard, map 1110), otherwise learned from kills."
+      }
     },
     {
       "kind": "respawn",
@@ -726,7 +902,12 @@
       "note": "Stufe 45, Altgard. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown.",
       "spawnIds": [
         111022
-      ]
+      ],
+      "en": {
+        "name": "High Commander Lagta",
+        "zone": "Altgard",
+        "note": "Level 45, Altgard. Respawns after death. No public respawn interval known; the timer learns it from a kill plus the map countdown."
+      }
     },
     {
       "kind": "respawn",
@@ -743,7 +924,12 @@
       "note": "Stufe 45, Altgard. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown.",
       "spawnIds": [
         111023
-      ]
+      ],
+      "en": {
+        "name": "Soul Ruler Kashapa",
+        "zone": "Altgard",
+        "note": "Level 45, Altgard. Respawns after death. No public respawn interval known; the timer learns it from a kill plus the map countdown."
+      }
     },
     {
       "kind": "respawn",
@@ -760,7 +946,12 @@
       "note": "Stufe 45, Altgard. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown.",
       "spawnIds": [
         111024
-      ]
+      ],
+      "en": {
+        "name": "Silent Dartan",
+        "zone": "Altgard",
+        "note": "Level 45, Altgard. Respawns after death. No public respawn interval known; the timer learns it from a kill plus the map countdown."
+      }
     },
     {
       "kind": "respawn",
@@ -774,7 +965,12 @@
         2101074
       ],
       "respawnMinutes": null,
-      "note": "Stufe 51, Verteron. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown."
+      "note": "Stufe 51, Verteron. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown.",
+      "en": {
+        "name": "Eternal Gartua",
+        "zone": "Verteron",
+        "note": "Level 51, Verteron. Respawns after death. No public respawn interval known; the timer learns it from a kill plus the map countdown."
+      }
     },
     {
       "kind": "respawn",
@@ -788,7 +984,12 @@
         2101131
       ],
       "respawnMinutes": null,
-      "note": "Stufe 45, Verteron. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown."
+      "note": "Stufe 45, Verteron. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown.",
+      "en": {
+        "name": "High Commander Lagta",
+        "zone": "Verteron",
+        "note": "Level 45, Verteron. Respawns after death. No public respawn interval known; the timer learns it from a kill plus the map countdown."
+      }
     },
     {
       "kind": "respawn",
@@ -802,7 +1003,12 @@
         2101122
       ],
       "respawnMinutes": null,
-      "note": "Stufe 45, Verteron. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown."
+      "note": "Stufe 45, Verteron. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown.",
+      "en": {
+        "name": "Soul Ruler Kashapa",
+        "zone": "Verteron",
+        "note": "Level 45, Verteron. Respawns after death. No public respawn interval known; the timer learns it from a kill plus the map countdown."
+      }
     },
     {
       "kind": "respawn",
@@ -816,7 +1022,12 @@
         2101120
       ],
       "respawnMinutes": null,
-      "note": "Stufe 45, Verteron. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown."
+      "note": "Stufe 45, Verteron. Respawn nach dem Tod. Kein öffentlicher Respawn-Takt bekannt; der Timer lernt ihn aus Kill + Karten-Countdown.",
+      "en": {
+        "name": "Silent Dartan",
+        "zone": "Verteron",
+        "note": "Level 45, Verteron. Respawns after death. No public respawn interval known; the timer learns it from a kill plus the map countdown."
+      }
     }
   ]
 }
