@@ -262,6 +262,47 @@ mod tests {
         assert!(!code.contains("SETTING_KEY"), "a switch of its own: check it");
     }
 
+    /// The boss claim (2.0.98): every dungeon upload names the boss this meter
+    /// saw (`"claim"` in the one POST /api/logs, `claim_of`), and the start-up
+    /// sweep (`claim_sweep` in app.rs, 90 s after the start) sends fights the
+    /// service refused for having no boss once more. Both only run where an
+    /// upload may: `auto_uploads` (the account's automatic upload or a guest
+    /// switch, both off in the fork) is read before the sweep picks a fight and
+    /// again before each send; `upload_claiming` has no other caller than
+    /// `upload_detailed` and the sweep, and there is no other path or POST in
+    /// share/mod.rs. A new caller, path or gate that differs fails here, to be
+    /// checked before a release.
+    #[test]
+    #[cfg(feature = "online")]
+    fn the_claim_sweep_stays_behind_the_upload_switch() {
+        let share = include_str!("../share/mod.rs").replace("\r\n", "\n");
+        assert_eq!(api_paths(&share), ["/api/logs"]);
+        assert_eq!(share.matches(".post(").count(), 1);
+        assert_eq!(share.matches(".send()").count(), 1);
+        assert_eq!(share.matches("body[\"claim\"] = claim_json(claim);").count(), 1);
+        let auto = body(&share, "pub fn auto_uploads(");
+        assert!(
+            auto.contains("settings.get(AUTO_UPLOAD_KEY).as_deref() == Some(\"true\")\n        || crate::account::guest::uploads(settings)"),
+            "{auto}"
+        );
+
+        let app = include_str!("../app.rs").replace("\r\n", "\n");
+        let sweep = body(&app, "async fn claim_sweep(");
+        let first = sweep.find("if !share::auto_uploads(&state.settings) {\n        return;").expect("the gate before the pick");
+        assert!(first < sweep.find("claim_sweep_candidates(").unwrap());
+        let each = sweep.find("if !share::auto_uploads(&state.settings) {\n            break;").expect("the gate before each send");
+        assert!(each < sweep.find("upload_claiming(").unwrap());
+        assert_eq!(sweep.matches("upload_claiming(").count(), 1);
+        assert_eq!(app.matches("upload_claiming(").count(), 1);
+        assert_eq!(app.matches("claim_sweep(handle)").count(), 1);
+
+        for p in sources().iter().filter(|p| !p.ends_with("fork/privacy.rs") && !p.ends_with("share/mod.rs") && !p.ends_with("app.rs")) {
+            let code = std::fs::read_to_string(p).unwrap();
+            assert!(!code.contains("upload_claiming("), "{p:?} uploads with a claim");
+            assert!(!code.contains("claim_sweep("), "{p:?} runs the claim sweep");
+        }
+    }
+
     /// Uploads without an account (account/guest.rs, 2.0.79) happen only
     /// with "Upload boss fights without an account" turned on: nothing sets
     /// it "true" by itself (upstream's new-install default is the fork's
