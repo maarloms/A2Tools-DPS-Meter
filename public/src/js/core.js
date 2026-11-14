@@ -82,6 +82,7 @@ const REMOTE_APPLIED_SETTING_CONTROLS = {
   "dpsMeter.barTextureOffset": ".textureOffsetCheckbox",
   "dpsMeter.showSuspendBtn": ".showSuspendBtnCheckbox",
   "dpsMeter.showLockBtn": ".showLockBtnCheckbox",
+  "dpsMeter.showDockBtn": ".showDockBtnCheckbox",
   // Set from the main window by the account offer.
   "dpsMeter.autoUpload": ".autoUploadCheckbox",
 };
@@ -188,6 +189,7 @@ class DpsApp {
       detailsMonitor: "dpsMeter.detailsMonitor",
       showSuspendBtn: "dpsMeter.showSuspendBtn",
       showLockBtn: "dpsMeter.showLockBtn",
+      showDockBtn: "dpsMeter.showDockBtn",
       overlayLocked: "dpsMeter.overlayLocked",
     };
 
@@ -418,6 +420,7 @@ class DpsApp {
     this.suspendBtn = document.querySelector(".suspendBtn");
     this.updatesBtn = document.querySelector(".updatesBtn");
     this.lockBtn = document.querySelector(".lockBtn");
+    this.dockBtn = document.querySelector(".dockBtn");
     this.headerBtns = document.querySelector(".headerBtns");
     this.targetModeBtn = document.querySelector(".footerBtns .targetModeBtn");
     this.collapseBtn = document.querySelector(".collapseBtn");
@@ -2723,6 +2726,10 @@ class DpsApp {
     this.lockBtn?.addEventListener("click", () => {
       this._setOverlayLocked(!this._overlayLocked);
     });
+    // The plugin dock, opened or closed as by its own ×.
+    this.dockBtn?.addEventListener("click", () => {
+      window.__TAURI__?.core?.invoke?.("dock_toggle").catch((e) => console.warn("dock_toggle", e));
+    });
     this.bindTargetMenu();
     this.bindMetricMenu();
     this.bindFooterMenu();
@@ -3468,6 +3475,18 @@ class DpsApp {
           // When hiding the button, also resume if suspended
           this._setCaptureSuspended(false);
         }
+      });
+    }
+    // Plugin dock button setting
+    this.showDockBtnCheckbox = document.querySelector(".showDockBtnCheckbox");
+    if (this.showDockBtnCheckbox) {
+      const showDock = this.safeGetSetting(this.storageKeys.showDockBtn) === "true";
+      this.showDockBtnCheckbox.checked = showDock;
+      this._applyDockBtnVisibility(showDock);
+      this.showDockBtnCheckbox.addEventListener("change", (event) => {
+        const isChecked = !!event.target?.checked;
+        this.safeSetSetting(this.storageKeys.showDockBtn, String(isChecked));
+        this._applyDockBtnVisibility(isChecked);
       });
     }
     this.initOverlayLock();
@@ -7770,6 +7789,11 @@ class DpsApp {
     icon.setAttribute("data-lucide", this._overlayLocked ? "lock" : "lock-open");
     this.lockBtn.replaceChildren(icon);
     window.lucide?.createIcons?.({ root: this.lockBtn });
+  }
+
+  _applyDockBtnVisibility(show) {
+    if (this.dockBtn) this.dockBtn.style.display = show ? "" : "none";
+    this.headerBtns?.classList.toggle("hasDockBtn", !!show);
   }
 
   _applySuspendBtnVisibility(show) {

@@ -1,6 +1,7 @@
 {
   "header": {
     "title": "A2Tools DPS-Meter",
+"pluginDock": "Plugin-Dock",
     "display": {
       "dps": "DPS",
       "total": "SCH",
@@ -401,6 +402,7 @@
     },
     "showSuspendBtn": "Taste „Erfassung pausieren“ anzeigen",
     "showLockBtn": "Taste für Durchklick-Sperre anzeigen",
+    "showDockBtn": "Plugin-Dock-Taste anzeigen",
     "playerLimit": {
       "label": "Max. angezeigte Spieler"
     },
@@ -662,6 +664,7 @@
       "roundDps": "13.412 wird als 13k angezeigt.",
       "showSuspendBtn": "Eine Taste am Meter, die das Lesen des Spielverkehrs anhält, bis du sie erneut drückst.",
       "showLockBtn": "Eine Taste, mit der das Meter die Maus ignoriert, sodass Klicks im Spiel ankommen.",
+      "showDockBtn": "Eine Taste am Meter, die das Plugin-Dock öffnet und schließt.",
       "windowOpacity": "Wie durchsichtig der Hintergrund des Meters ist. Balken und Text bleiben, wie sie sind.",
       "titleOpacity": "Wie durchsichtig die Titelleiste des Meters ist, getrennt vom Hintergrund darunter. Bis du ihn bewegst, folgt er dem Hintergrund.",
       "meterOpacity": "Wie deckend die farbigen Schadensbalken sind.",
@@ -759,8 +762,9 @@
       "permFps": "Die Bildrate des Spiels anzeigen (unter Windows bittet das Meter dafür, als Administrator zu laufen)",
       "permDeathRecap": "Nachdem dich ein Spieler getötet hat: wer es war und welchen Schaden er dir zugefügt hat",
       "permLootRolls": "Würfel-Beute sehen: den Gegenstand, wer was gewürfelt hat und wer ihn bekommen hat",
+      "permLoot": "Deine Beute sehen: Gegenstände, die du aufhebst oder erhältst, und was du sammelst",
       "permBlackMarket": "Das Angebot des Schwarzwolken-Händlers sehen, wenn du den Laden öffnest: die Gegenstände und ihre Preise",
-      "permKda": "Deine Kills, Assists und Tode gegen Spieler zählen (ohne Namen)",
+      "permKda": "Zählt deine Kills, Assists und Tode gegen Spieler und nennt die Spieler, die du tötest oder töten hilfst",
       "permStats": "Die Werte deines Charakters sehen, etwa die Abklingzeitverringerung",
       "permScreenshot": "Bildschirmfotos des eigenen Fensters machen, in die Zwischenablage und deinen Screenshot-Ordner",
       "testHint": "Frühe Versionen zum Ausprobieren für alle, signiert wie die anderen. Sie können sich noch ändern oder Ecken und Kanten haben: Sag uns, was dir auffällt.",

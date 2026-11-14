@@ -1,6 +1,7 @@
 {
   "header": {
     "title": "A2Tools DPS Meter",
+"pluginDock": "Panel de plugins",
     "display": {
       "dps": "DPS",
       "total": "DÑO",
@@ -400,6 +401,7 @@
     },
     "showSuspendBtn": "Mostrar botón de pausar captura",
     "showLockBtn": "Mostrar botón de bloqueo (clic a través)",
+    "showDockBtn": "Mostrar el botón del panel de plugins",
     "playerLimit": {
       "label": "Máx. jugadores mostrados"
     },
@@ -661,6 +663,7 @@
       "roundDps": "13.412 se muestra como 13k.",
       "showSuspendBtn": "Un botón en el medidor que deja de leer el tráfico del juego hasta que lo pulses de nuevo.",
       "showLockBtn": "Un botón que hace que el medidor ignore el ratón, para que los clics lleguen al juego.",
+      "showDockBtn": "Un botón en el medidor que abre y cierra el panel de plugins.",
       "windowOpacity": "Cuán transparente es el fondo del medidor. Las barras y el texto no cambian.",
       "titleOpacity": "Qué tan transparente es la barra de título del medidor, aparte del fondo de debajo. Hasta que lo muevas, sigue al fondo.",
       "meterOpacity": "Cuán sólidas son las barras de daño de color.",
@@ -758,8 +761,9 @@
       "permFps": "Mostrar los FPS del juego (en Windows, el medidor pide ejecutarse como administrador para ello)",
       "permDeathRecap": "Cuando un jugador te mata: quién era y el daño que te hizo",
       "permLootRolls": "Ver el botín por dados: el objeto, quién sacó cuánto y quién lo ganó",
+      "permLoot": "Ver tu botín: los objetos que recoges o recibes, y lo que recolectas",
       "permBlackMarket": "Ver las existencias del Mercader de la Nube Negra al abrir la tienda: los objetos y sus precios",
-      "permKda": "Contar tus bajas, asistencias y muertes contra jugadores (sin nombres)",
+      "permKda": "Contar tus bajas, asistencias y muertes contra jugadores, con el nombre de los jugadores que matas o ayudas a matar",
       "permStats": "Ver las estadísticas de tu personaje, como la reducción de reutilización",
       "permScreenshot": "Hacer capturas de su propia ventana, al portapapeles y a tu carpeta de capturas",
       "testHint": "Versiones tempranas para que cualquiera las pruebe, firmadas como las demás. Pueden cambiar o tener detalles sin pulir: cuéntanos lo que encuentres.",

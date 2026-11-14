@@ -685,6 +685,7 @@ impl PluginHost {
                 let mut abyss_seq = 0u64;
                 let mut recap_seq = 0u64;
                 let mut roll_seq = 0u64;
+                let mut loot_seq = 0u64;
                 let mut market_seq = 0u64;
                 let mut kda_seq = 0u64;
                 let mut stats_seq = 0u64;
@@ -758,6 +759,15 @@ impl PluginHost {
                                 host.queue_permitted("events:loot-rolls", "lootRoll", roll.at, data);
                             }
                         }
+                        // Items gained and gathers, as they come: numbered
+                        // and kept, as loot rolls.
+                        if let Some((next, events)) = state.data_storage.loot_since(loot_seq) {
+                            loot_seq = next;
+                            for event in events {
+                                let data = serde_json::to_value(&event).unwrap_or_default();
+                                host.queue_permitted("events:loot", "loot", event.at(), data);
+                            }
+                        }
                         // The Black Cloud Merchant's stock, each tab as it
                         // is opened: kept, so a window opened later has it.
                         if let Some((next, markets)) = state.data_storage.black_markets_since(market_seq) {
@@ -774,7 +784,7 @@ impl PluginHost {
                         if let Some((next, events)) = state.data_storage.kda_since(kda_seq) {
                             kda_seq = next;
                             for e in events {
-                                let data = serde_json::to_value(e).unwrap_or_default();
+                                let data = serde_json::to_value(&e).unwrap_or_default();
                                 host.queue_permitted("events:kda", "kda", e.at, data);
                             }
                         }
@@ -1320,6 +1330,7 @@ struct PromptTexts {
     perm_fps: String,
     perm_death_recap: String,
     perm_loot_rolls: String,
+    perm_loot: String,
     perm_black_market: String,
     perm_kda: String,
     perm_stats: String,
@@ -1393,8 +1404,9 @@ fn prompt_texts(data_dir: Option<&Path>, lang: &str) -> PromptTexts {
         perm_fps: perm("permFps", "Show the game's frame rate (on Windows, the meter asks to run as administrator for it)"),
         perm_death_recap: perm("permDeathRecap", "After a player kills you: who they were and the damage they did to you"),
         perm_loot_rolls: perm("permLootRolls", "See Dice Roll loot: the item, who rolled what, and who won it"),
+        perm_loot: perm("permLoot", "See your loot: the items you pick up or receive, and what you gather"),
         perm_black_market: perm("permBlackMarket", "See the Black Cloud Merchants' stock when you open their shop: the items and their prices"),
-        perm_kda: perm("permKda", "Count your kills, assists and deaths against players (no names)"),
+        perm_kda: perm("permKda", "Count your kills, assists and deaths against players, naming the players you kill or help kill"),
         perm_stats: perm("permStats", "See your character's stats, such as cooldown reduction"),
         perm_screenshot: perm("permScreenshot", "Take screenshots of its own window, to the clipboard and your screenshot folder"),
     }
@@ -1412,6 +1424,7 @@ fn describe_permission(t: &PromptTexts, permission: &str) -> String {
         "fps" => t.perm_fps.clone(),
         "events:death-recap" => t.perm_death_recap.clone(),
         "events:loot-rolls" => t.perm_loot_rolls.clone(),
+        "events:loot" => t.perm_loot.clone(),
         "events:black-market" => t.perm_black_market.clone(),
         "events:kda" => t.perm_kda.clone(),
         "events:stats" => t.perm_stats.clone(),

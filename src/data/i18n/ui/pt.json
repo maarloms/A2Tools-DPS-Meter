@@ -1,6 +1,7 @@
 {
   "header": {
     "title": "A2Tools DPS Meter",
+"pluginDock": "Painel de plugins",
     "display": {
       "dps": "DPS",
       "total": "DAN",
@@ -400,6 +401,7 @@
     },
     "showSuspendBtn": "Mostrar botão de pausar captura",
     "showLockBtn": "Mostrar botão de bloqueio (clique através)",
+    "showDockBtn": "Mostrar o botão do painel de plugins",
     "playerLimit": {
       "label": "Máx. de jogadores exibidos"
     },
@@ -661,6 +663,7 @@
       "roundDps": "13.412 aparece como 13k.",
       "showSuspendBtn": "Um botão no medidor que para de ler o tráfego do jogo até você apertar de novo.",
       "showLockBtn": "Um botão que faz o medidor ignorar o mouse, para os cliques irem ao jogo.",
+      "showDockBtn": "Um botão no medidor que abre e fecha o painel de plugins.",
       "windowOpacity": "Quão transparente é o fundo do medidor. Barras e texto não mudam.",
       "titleOpacity": "O quanto a barra de título do medidor é transparente, separada do fundo abaixo. Até você mexer, ela segue o fundo.",
       "meterOpacity": "Quão sólidas são as barras coloridas de dano.",
@@ -758,8 +761,9 @@
       "permFps": "Mostrar o FPS do jogo (no Windows, o medidor pede para ser executado como administrador para isso)",
       "permDeathRecap": "Depois que um jogador te mata: quem era e o dano que te causou",
       "permLootRolls": "Ver o saque por dados: o item, quem tirou quanto e quem ganhou",
+      "permLoot": "Ver seu saque: os itens que você pega ou recebe, e o que você coleta",
       "permBlackMarket": "Ver o estoque do Mercador da Nuvem Negra ao abrir a loja: os itens e seus preços",
-      "permKda": "Contar seus abates, assistências e mortes contra jogadores (sem nomes)",
+      "permKda": "Contar seus abates, assistências e mortes contra jogadores, com o nome dos jogadores que você abate ou ajuda a abater",
       "permStats": "Ver os atributos do seu personagem, como a redução de recarga",
       "permScreenshot": "Tirar capturas da própria janela, para a área de transferência e sua pasta de capturas",
       "testHint": "Versões iniciais para qualquer um experimentar, assinadas como as outras. Podem mudar ou ter arestas: conte o que encontrar.",
