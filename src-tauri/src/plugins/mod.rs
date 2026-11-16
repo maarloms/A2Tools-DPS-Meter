@@ -679,7 +679,10 @@ impl PluginHost {
                 GAME_OPEN.store(game, std::sync::atomic::Ordering::Relaxed);
                 sync_game_hiding(&app);
                 let mut game_checked = Instant::now();
-                let mut ping: Option<i32> = None;
+                let mut ping: (Option<i32>, Option<i64>) = (None, None);
+                let mut matchup_seq = 0u64;
+                let mut pairings_told: (u16, u64) = (0, 0);
+                let mut supply_seq = 0u64;
                 let mut fps_told: Option<Value> = None;
                 let mut map_seq = 0u64;
                 let mut abyss_seq = 0u64;
@@ -799,12 +802,42 @@ impl PluginHost {
                             }
                         }
                     }
-                    // The ping to the game server, when it changes (about every
-                    // 10 s), to every plugin: a ping widget needs no permission.
-                    let now_ping = app.try_state::<AppState>().and_then(|s| s.ping_tracker.current_ping_ms());
-                    if now_ping != ping {
-                        ping = now_ping;
-                        host.tell_all(&app, "ping", serde_json::json!({ "ms": now_ping }));
+                    // The ping to the game server, at each reading (about every
+                    // 10 s), with its jitter, to every plugin: a ping widget
+                    // needs no permission.
+                    if let Some(state) = app.try_state::<AppState>() {
+                        let now_ping = (state.ping_tracker.current_ping_ms(), state.ping_tracker.last_reading_at());
+                        if now_ping != ping {
+                            ping = now_ping;
+                            host.tell_all(&app, "ping", ping_event(&state.ping_tracker));
+                        }
+                    }
+                    // The servers sharing your Abyss, when the game says
+                    // (meter 2.0.99 on): public game state, so to every plugin.
+                    if let Some((seq, matchup)) = crate::capture::matchup::since(matchup_seq) {
+                        matchup_seq = seq;
+                        host.tell_all(&app, "abyssPairing", matchup.to_json());
+                    }
+                    // The character's server's Abyss and Spacetime Rift
+                    // opponents (crate::pairings, meter 2.0.99 on), when the
+                    // list or the server changes: public, so to every plugin.
+                    if let Some(state) = app.try_state::<AppState>() {
+                        let now = (state.data_storage.local_profile().server_id, crate::pairings::seq());
+                        if now != pairings_told && now.0 > 0 {
+                            pairings_told = now;
+                            if let Some(pairings) = crate::pairings::for_server(now.0) {
+                                host.tell_all(&app, "pairings", pairings);
+                            }
+                        }
+                    }
+                    // The Supply Requests boards, as the game sends them at
+                    // login (meter 2.0.99 on): the server's, not the
+                    // character's progress, so to every plugin.
+                    if let Some(state) = app.try_state::<AppState>() {
+                        if let Some((seq, boards)) = state.data_storage.supply_requests_since(supply_seq) {
+                            supply_seq = seq;
+                            host.tell_all(&app, "supplyBoards", supply_boards_event(&boards));
+                        }
                     }
                     // The game's frame rate, while a plugin asks (fps.rs), to
                     // plugins with "fps" when it changes.
@@ -2397,7 +2430,30 @@ pub fn plugin_hello(app: tauri::AppHandle, window: tauri::WebviewWindow, plugin:
         "reviewed": reviewed,
         "game": crate::platform::window_detector::find_aion2_window(),
         "ping": app.try_state::<AppState>().and_then(|s| s.ping_tracker.current_ping_ms()),
+        "abyssPairing": crate::capture::matchup::latest().map(|m| m.to_json()),
+        "supplyBoards": app.try_state::<AppState>()
+            .map(|s| s.data_storage.supply_requests())
+            .filter(|b| !b.is_empty())
+            .map(|b| supply_boards_event(&b)),
+        "pairings": app.try_state::<AppState>()
+            .and_then(|s| crate::pairings::for_server(s.data_storage.local_profile().server_id)),
+        "jitter": app.try_state::<AppState>().map(|s| ping_event(&s.ping_tracker)["jitter"].clone()).unwrap_or(Value::Null),
     }))
+}
+
+/// The `supplyBoards` event: each board's tab (1 Emergency, 2 Weekly, 3
+/// Craft, 4 Boss), window (ms) and request ids (SupplyRequest).
+fn supply_boards_event(boards: &[crate::capture::supply_requests::Board]) -> Value {
+    serde_json::json!({ "boards": boards.iter().map(|b| serde_json::json!({
+        "tab": b.tab, "start": b.start_ms, "end": b.end_ms, "requests": b.requests,
+    })).collect::<Vec<_>>() })
+}
+
+/// The `ping` event: the ping in ms and its jitter (the mean change between
+/// recent readings, to 0.1 ms; meter 2.0.99 on), each null while not known.
+fn ping_event(tracker: &crate::combat::ping_tracker::PingTracker) -> Value {
+    let jitter = tracker.current_jitter_ms().map(|j| (j * 10.0).round() / 10.0);
+    serde_json::json!({ "ms": tracker.current_ping_ms(), "jitter": jitter })
 }
 
 /// Debug builds only: feed a game packet (hex, with its length prefix) to the
@@ -2581,12 +2637,16 @@ async fn feed_file(app: &tauri::AppHandle, feed: &'static str, server: u32) -> R
     }
     let state = app.try_state::<AppState>().ok_or("no app state")?;
     let url = format!("https://cdn.a2tools.app/feeds/{feed}/{server}.json");
-    let res = state.http.get(&url).timeout(Duration::from_secs(15)).send().await.map_err(|e| e.to_string())?;
-    let value = match res.status() {
-        s if s == reqwest::StatusCode::NOT_FOUND => None,
-        s if s.is_success() => Some(serde_json::from_str(&res.text().await.map_err(|e| e.to_string())?).map_err(|e| e.to_string())?),
-        s => return Err(format!("the feed answered {s}")),
-    };
+    // Tried again on a poor connection (`crate::cdn`).
+    let value = crate::cdn::retry(|| async {
+        let res = state.http.get(&url).timeout(Duration::from_secs(15)).send().await.map_err(|e| e.to_string())?;
+        match res.status() {
+            s if s == reqwest::StatusCode::NOT_FOUND => Ok(None),
+            s if s.is_success() => Ok(Some(serde_json::from_str::<Value>(&res.text().await.map_err(|e| e.to_string())?).map_err(|e| e.to_string())?)),
+            s => Err(format!("the feed answered {s}")),
+        }
+    })
+    .await?;
     cache.lock().unwrap_or_else(|p| p.into_inner()).insert(key, (Instant::now(), value.clone()));
     Ok(value)
 }

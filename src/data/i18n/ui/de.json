@@ -345,6 +345,7 @@
     "title": "Einstellungen",
     "lockedPort": "Erkannte Verbindung",
     "resetDetection": "Erneut erkennen",
+    "mirroredCapture": "Das Spiel läuft auf einem anderen PC (gespiegelte Aufzeichnung)",
     "characterName": "Dein Charakter",
     "characterNamePlaceholder": "Charakternamen eingeben",
     "pinMeToTop": "Meine Zeile oben halten",
@@ -654,6 +655,7 @@
       "characterName": "Dein Name und deine ID im Spiel, damit das Meter weiß, welche Zeile du bist. Wird meist von selbst erkannt.",
       "device": "Die Netzwerkverbindung, aus der das Meter den Spielverkehr liest. Die automatische Erkennung findet sie; mit VPN wähle sie von Hand.",
       "lockedPort": "Der Adapter und Port, auf dem das Spiel gefunden wurde.",
+      "mirroredCapture": "Für einen PC, der eine gespiegelte Kopie des Spielverkehrs liest, während AION2 auf einem anderen PC läuft: Alle Adapter werden gelesen, auch ohne eigene Adresse, im Promiscuous-Modus, und hier ist kein AION2-Fenster nötig. Starte das Meter neu, damit es wirkt.",
       "defaultMeterMode": "Der Zielmodus beim Öffnen: Boss, Ziel, Training oder Alle.",
       "playerLimit": "Wie viele Spielerzeilen das Meter zeigt; der Rest wird ausgelassen.",
       "pinMeToTop": "Deine Zeile bleibt oben, egal wie viel Schaden du machst.",
@@ -968,6 +970,12 @@
     "never": "Der Name deines PCs und der volle Name deines Charakters werden nie gesendet.",
     "policy": "Datenschutzerklärung",
     "continue": "Weiter"
+  },
+  "netNotice": {
+    "title": "A2-Tools-Server nicht erreichbar",
+    "text": "Plugins, Updates und Boss-Timer ließen sich auch nach erneuten Versuchen nicht herunterladen. Meist liegt es an der Internetverbindung: Die kostenlose 1.1.1.1-App von Cloudflare hilft den meisten Spielern.",
+    "ok": "OK",
+    "help": "So behebst du es"
   },
   "sharingNotice": {
     "title": "Deine Kämpfe helfen bei den Bestenlisten",

@@ -3455,6 +3455,15 @@ class DpsApp {
       });
     }
     // And while not in a party (the same loop).
+    // The game on another PC, its traffic mirrored to this one (#84): read
+    // by the capture at start, so it applies after a restart.
+    const mirroredCaptureCheckbox = document.querySelector(".mirroredCaptureCheckbox");
+    if (mirroredCaptureCheckbox) {
+      mirroredCaptureCheckbox.checked = this.safeGetSetting("dpsMeter.mirroredCapture") === "true";
+      mirroredCaptureCheckbox.addEventListener("change", (event) => {
+        this.safeSetSetting("dpsMeter.mirroredCapture", String(!!event.target?.checked));
+      });
+    }
     this.hideWhenSoloCheckbox = document.querySelector(".hideWhenSoloCheckbox");
     if (this.hideWhenSoloCheckbox) {
       this.hideWhenSoloCheckbox.checked = this.safeGetSetting(this.storageKeys.hideWhenSolo) === "true";
@@ -8287,6 +8296,24 @@ class DpsApp {
       notice.setAttribute("aria-hidden", "false");
     }, 2500);
     return true;
+  }
+
+  // The meter couldn't reach cdn.a2tools.app, even after trying again
+  // (crate::cdn): what usually fixes it, with the troubleshooter's entry.
+  showNetNotice() {
+    const notice = document.querySelector("#netNotice");
+    if (!notice || notice.classList.contains("isOpen")) return;
+    const close = () => {
+      notice.classList.remove("isOpen");
+      notice.setAttribute("aria-hidden", "true");
+    };
+    notice.querySelector(".netNoticeOk")?.addEventListener("click", close, { once: true });
+    notice.querySelector(".netNoticeHelp")?.addEventListener("click", () => {
+      this.openExternalLink("https://a2tools.app/tweaks/troubleshoot#issue-a2tools-unreachable");
+      close();
+    }, { once: true });
+    notice.classList.add("isOpen");
+    notice.setAttribute("aria-hidden", "false");
   }
 
   _updateSuspendStatusMessage() {
