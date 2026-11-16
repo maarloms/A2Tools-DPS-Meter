@@ -163,9 +163,11 @@ pub fn toggle(app: &tauri::AppHandle) -> Result<(), String> {
         }
         return Ok(());
     }
-    let window = tauri::WebviewWindowBuilder::new(
+    // fork: with the main window's WebView2 flags (share_process, upstream 2.0.99),
+    // or WebView2 refuses to make this window.
+    let window = crate::platform::window::share_process(tauri::WebviewWindowBuilder::new(
         app, "timer", tauri::WebviewUrl::App("timer.html".into()),
-    ).title("AION 2 Event-Timer")
+    ), crate::platform::ProcessGroup::Meter).title("AION 2 Event-Timer")
         .decorations(false).transparent(true).always_on_top(true)
         .shadow(false).resizable(true).skip_taskbar(true)
         .inner_size(320.0, 260.0).min_inner_size(280.0, 180.0)
@@ -322,6 +324,17 @@ fn on_packet(packet: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WebView2 makes a window only with the flags the other windows have
+    /// (upstream 2.0.99 gives them `BROWSER_ARGS`, also in tauri.conf.json):
+    /// the timer is built through `share_process`, like upstream's windows.
+    #[test]
+    fn the_timer_window_gets_the_shared_webview2_flags() {
+        let src = include_str!("mod.rs").replace("\r\n", "\n");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        assert_eq!(code.matches("WebviewWindowBuilder::new(").count(), 1, "another window: build it through share_process");
+        assert!(code.contains("share_process(tauri::WebviewWindowBuilder::new("));
+    }
 
     #[test]
     fn the_timer_hides_with_the_meter() {
