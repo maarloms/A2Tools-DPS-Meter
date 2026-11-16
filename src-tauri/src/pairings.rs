@@ -78,12 +78,18 @@ pub fn for_server(server: u16) -> Option<serde_json::Value> {
 const RETRY_SECS: [u64; 5] = [15, 30, 60, 120, 300];
 
 /// Read the list now, then every `EVERY`. A failed read keeps the last list
-/// and tries again after `RETRY_SECS`, then hourly.
+/// and tries again after `RETRY_SECS`, then hourly. fork: `allowed` is asked
+/// before each read (the fork's Sync switch, fork/privacy.rs); while it says
+/// no, nothing is requested.
 #[cfg(feature = "online")]
-pub fn spawn(client: reqwest::Client) {
+pub fn spawn(client: reqwest::Client, allowed: impl Fn() -> bool + Send + 'static) {
     tauri::async_runtime::spawn(async move {
         let mut failures = 0usize;
         loop {
+            if !allowed() {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                continue;
+            }
             let read = async {
                 for url in URLS {
                     let text = async {

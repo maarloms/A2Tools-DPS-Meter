@@ -303,6 +303,41 @@ mod tests {
         }
     }
 
+    /// The servers' Abyss/Rift pairing list (pairings.rs, 2.0.99) is a read
+    /// from cdn.a2tools.app (and GitHub) that upstream starts with the meter
+    /// and repeats every 6 h. In the fork it is read only while `shares_data`
+    /// says so (seeded "false"): `spawn` asks before each read, app.rs gives
+    /// it that switch, nothing else starts it. A new URL, request or caller
+    /// fails here, to be checked before a release.
+    #[test]
+    #[cfg(feature = "online")]
+    fn the_pairings_list_is_read_only_with_the_switch() {
+        let code = code_of(include_str!("../pairings.rs"));
+        assert_eq!(code.matches("client.get(").count(), 1);
+        assert_eq!(code.matches(".send()").count(), 1);
+        assert_eq!(code.matches("https://").count(), 2, "another URL: check it");
+        assert!(code.contains("https://cdn.a2tools.app/feeds/pairings.json"));
+        assert!(code.contains("https://raw.githubusercontent.com/taengu/A2Tools-DPS-Meter/main/feeds/pairings.json"));
+        let spawn = &code[code.find("pub fn spawn(").unwrap()..];
+        assert!(spawn.starts_with("pub fn spawn(client: reqwest::Client, allowed: impl Fn() -> bool + Send + 'static) {"), "{spawn}");
+        let gate = spawn.find("if !allowed() {").expect("the switch before the read");
+        assert!(gate < spawn.find("client.get(").unwrap());
+        assert!(gate < spawn.find("for url in URLS").unwrap());
+        // The switch is the Sync one, read through shares_data.
+        let app = include_str!("../app.rs").replace("\r\n", "\n");
+        assert_eq!(app.matches("crate::pairings::spawn(").count(), 1);
+        let at = app.find("crate::pairings::spawn(").unwrap();
+        assert!(app[at..at + 400].contains("crate::boss_report::shares_data(|k| s.settings.get(k))"), "{}", &app[at..at + 400]);
+        for p in sources().iter().filter(|p| !p.ends_with("fork/privacy.rs") && !p.ends_with("app.rs") && !p.ends_with("pairings.rs")) {
+            let code = std::fs::read_to_string(p).unwrap();
+            assert!(!code.contains("pairings::spawn("), "{p:?} starts the pairings read");
+        }
+        let (s, dir) = settings("pairings");
+        seed_off_by_default(&s);
+        assert!(!crate::boss_report::shares_data(|k| s.get(k)));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     /// Uploads without an account (account/guest.rs, 2.0.79) happen only
     /// with "Upload boss fights without an account" turned on: nothing sets
     /// it "true" by itself (upstream's new-install default is the fork's

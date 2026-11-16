@@ -4725,8 +4725,17 @@ pub fn run() {
             });
 
             // Each server's Abyss and Spacetime Rift opponents (a2tools.app).
+            // fork: read only with "Sync useful data to A2Tools" on (off by
+            // default, fork/privacy.rs).
             #[cfg(feature = "online")]
-            crate::pairings::spawn(app.state::<AppState>().http.clone());
+            {
+                let handle = app.handle().clone();
+                crate::pairings::spawn(app.state::<AppState>().http.clone(), move || {
+                    handle
+                        .try_state::<AppState>()
+                        .is_some_and(|s| crate::boss_report::shares_data(|k| s.settings.get(k)))
+                });
+            }
 
             // Supporter roster: fetched, never queried. See `crate::supporters`
             // — asking the server "is this player a supporter?" would hand it a
