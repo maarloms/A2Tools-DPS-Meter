@@ -1,22 +1,21 @@
 **Neu**
-- Server-Paarungen für Plugins: Plugins (zum Beispiel Event-Timer) erfahren, gegen welche Server dein Server im Abyss und im Raumzeit-Riss antritt. Die Liste lädt das Meter von a2tools.app und aktualisiert sie alle 6 Stunden. Im Fork passiert das nur, wenn du „Nützliche Daten mit A2Tools synchronisieren“ selbst einschaltest (standardmäßig aus); ohne den Schalter fragt das Meter die Liste nicht ab. Den Abyss-Gegner, den das Spiel selbst nennt, bekommen Plugins auch ohne Netzwerk.
-- Plugins erhalten außerdem die Versorgungsaufträge-Tafeln des Servers (Tab, Zeitfenster, Aufträge) und die Ping-Schwankung (Jitter). Beides sind öffentliche Spieldaten, ohne Erlaubnis und ohne etwas zu senden.
-- Einstellungen → Verbindung: „Das Spiel läuft auf einem anderen PC (gespiegelte Aufzeichnung)“ für Spieler, die den Netzwerkverkehr eines anderen PCs über einen Switch-Spiegelport mitlesen. Standardmäßig aus, wirkt nach einem Neustart des Meters.
+- Layout bearbeiten: Meter, FP-Pin, Plugin-Dock und alle Plugin-Widgets lassen sich auf einmal entsperren und an ihren Platz ziehen (Einstellungen → Meter-Einstellungen → „Layout bearbeiten“, oder die Taste im Dock, oder eine eigene Taste unter Tastenkürzel, standardmäßig leer). Alle Teile sind umrandet und beschriftet, ein Teil rastet an Bildschirmrändern, der Mitte und den Kanten der anderen Teile ein (oder an einem Raster). Mit „Fertig“ bleiben die neuen Plätze, mit „Abbrechen“ springt alles zurück. Der Event-Timer gehört nicht dazu, er hat sein eigenes Fenster.
+- Sammel-Statistik: Das Meter liest jetzt die Sammelfertigkeiten und jeden Sammelvorgang mit (aufgewertet, kritisch, Lady Luck). Plugins sehen aufgewertete und fehlgeschlagene Sammlungen mit ihrem Status. Gesendet wird davon nichts, solange „Nützliche Daten mit A2Tools synchronisieren“ aus ist (im Fork standardmäßig aus); schaltest du es selbst ein, gehen Server, Zeit, Gegenstand, Ergebnis und die Fertigkeitsstufen gesammelt an a2tools.app, ohne Charaktername und ohne Ort.
+- Party-Namen (nur mit A2 Tools-Konto): Unter Einstellungen → Datenschutz erscheint nach der Anmeldung „Meinen Namen in Logs meiner Gruppe zeigen“. Der Schalter gehört der Webseite, das Meter fragt ihn nur beim Öffnen ab und ändert ihn nur, wenn du das Häkchen setzt. Ohne Konto passiert nichts.
+- Plugins bekommen den Abyss-Rang (Rang 1 bis 19) bei Todesbericht, Mördern, Helfern und Opfern der Abschüsse.
+- Spieldaten vom 18.11.: 132 NPCs, 110 Fertigkeiten und 9 Buffs in allen Sprachen. Abyssal Forge: Ludra (leicht) als Raid mit Rahu, Ketu, Zentraler Abyss-Fusionsreaktor und Ewige Ludra.
 
 **Behoben**
-- Deutlich weniger Arbeitsspeicher: Die Seiten des Meters teilen sich jetzt einen Browser-Prozess, die Plugins einen zweiten, und kleine Fenster (Pins, Plugin-Widgets, Dock) sparen zusätzlich. Bei acht offenen Fenstern sank der Verbrauch bei Upstream von 656 auf 423 MB.
-- Auf schlechten Leitungen lädt das Meter Plugins, Listen und Updates mehrmals nach (1 s, 3 s Pause), und ein abgebrochener Update-Download wird an der Stelle fortgesetzt (bis zu vier Mal), statt von vorn zu beginnen. Fällt das mehrmals hintereinander aus, erscheint einmal pro Start ein Hinweis mit dem üblichen Rat (Cloudflares 1.1.1.1-App).
-- Die Aufzeichnung engt jetzt auch am Netzwerkgerät des Spiels auf den Spiel-Anschluss ein, damit lokale Proxys das Meter nicht mit fremdem Verkehr fluten (vorher bis zu 7,8 MB/s). Die Umstellung läuft über ein zweites Aufnahme-Handle, damit kein Spielpaket verloren geht.
-- Die Plugin-Dock-Taste erkennt ein verstecktes Dock richtig; der erste Klick öffnet es sofort. Ein Klick auf Spieler bei offenen Details startet nicht mehr jedes Mal einen weiteren Hintergrundwächter.
-- Server-Namen ergänzt: 1321 Gauss, 1322 Lamuatan, 2321 Agnita, 2322 Atiel, 2323 Tassin.
+- Der Meter-Knopf im Dock und in der Plugin-Leiste zeigt ein Meter, das Auto-Ausblenden oder die „Außerhalb des Kampfes“-/Solo-Regel minimiert hat, schon beim ersten Klick wieder. Vorher versteckte der erste Klick das unsichtbare Meter dauerhaft und erst der zweite holte es zurück.
+- Gespeicherte Kämpfe: Ein Heiler ohne Heilung innerhalb des Kampfes zählt nicht mehr als Mitspieler (vorher bekam jeder Heiler der Sitzung in jedem Kampf eine leere Heilzeile; ein Zwei-Spieler-Dungeonkampf wurde mit 115 Spielern gespeichert).
+- Weltboss-Verlauf: Die beobachtete „Andere“-Schätzung bleibt im Verlauf und in der Wiedergabe erhalten.
 
 **Sonstiges**
-- Basis jetzt A2Tools 2.0.99.
-- Wenn du den automatischen Upload deiner Dungeon-Kämpfe selbst eingeschaltet hast: Kämpfe, die nie als Bosskampf zählen, werden beim Start nicht mehr jedes Mal neu geladen. Bei dir bleibt das aus, solange du den Upload nicht einschaltest; ein Test sichert das ab.
-- Alle Fork-Funktionen bleiben erhalten. Das Teilen von Daten (Synchronisieren, Bosskämpfe, Ranglisten, Party-A2-Tag) bleibt aus, bis du es selbst einschaltest.
+- Basis jetzt A2Tools 2.1.0 (auch Linux: Hyprland setzt versteckte Fenster wieder an ihren alten Platz).
+- Alle Fork-Funktionen bleiben erhalten. Das Teilen von Daten (Synchronisieren, Sammel-Statistik, Bosskämpfe, Ranglisten, Party-A2-Tag) bleibt aus, bis du es selbst einschaltest; Tests sichern auch die neue Sammel-Statistik und die Party-Namen-Abfrage ab.
 
 **Installation (neu)**
-1. `AION2-DPS-Meter_3.0.41_x64.msi` herunterladen und ausführen. Windows SmartScreen warnt, weil der Installer nicht signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
+1. `AION2-DPS-Meter_3.0.42_x64.msi` herunterladen und ausführen. Windows SmartScreen warnt, weil der Installer nicht signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
 2. Npcap: Fehlt es, bietet der Installer an, es nach dem Setup herunterzuladen (Haken gesetzt lassen, Npcap-Setup mit den Standardoptionen durchklicken). Sonst fragt das Meter beim ersten Start danach.
 3. Meter starten, im Spiel einloggen. Updates kommen danach automatisch (Meldung beim Start).
 4. Einstellungen → „Gruppe teilen“: Einladungslink einfügen.
