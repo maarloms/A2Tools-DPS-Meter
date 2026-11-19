@@ -62,7 +62,7 @@ test("a party fight needs no local damage row, and aggregates respect target sel
   assert.equal(selected.stats[0].contributionPct, 100);
 });
 
-const element = () => ({ style: {}, children: [], textContent: "",
+const element = () => ({ style: {}, dataset: {}, children: [], textContent: "",
   set innerHTML(value) { this.children = []; }, appendChild(child) { this.children.push(child); } });
 const statKeys = ["totalDamage", "contribution", "avgDps", "critRate"];
 const valueOf = (key, data) => String({ totalDamage: data.totalDmg, contribution: data.contributionPct,
