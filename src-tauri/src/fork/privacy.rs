@@ -477,4 +477,94 @@ mod tests {
             .collect();
         assert!(callers.is_empty(), "dev_logs sender called from {callers:?}");
     }
+
+    /// The gathering statistics (gather_report.rs, 2.1.0): the gathers and the
+    /// gathering skill levels go to a2tools.app only while `shares_data` says
+    /// so (seeded "false" in the fork). `spawn` reads the switch before it
+    /// builds or sends anything and, with it off, drops the waiting gathers
+    /// instead of keeping them for later. One path, one POST, no GET, no
+    /// switch of its own, and only app.rs starts it. A new path, request or
+    /// caller fails here, to be checked before a release.
+    #[test]
+    #[cfg(feature = "online")]
+    fn the_gathering_report_is_sent_only_with_the_switch() {
+        let code = code_of(include_str!("../gather_report.rs"));
+        assert_eq!(api_paths(&code), ["/api/gathering/report"]);
+        assert_eq!(code.matches("state.http.post(").count(), 1);
+        assert_eq!(code.matches(".post(").count(), 1);
+        assert_eq!(code.matches(".get(").count(), code.matches("settings.get(").count());
+        assert_eq!(code.matches("settings.get(").count(), 1, "only the switch is read");
+        assert_eq!(code.matches(".send()").count(), 1);
+        assert_eq!(code.matches("https://").count(), 0, "another URL: check it");
+        // One loop, and it reads the switch (and drops what waits) before it takes, builds or sends anything.
+        let gate = "if !crate::boss_report::shares_data(|k| state.settings.get(k)) {";
+        let spawn = &code[code.find("pub fn spawn(app").unwrap()..];
+        let at = spawn.find(gate).expect("the switch is shares_data");
+        assert!(spawn[at..].contains("drop(state.data_storage.take_gathers());"), "the waiting gathers are dropped");
+        assert!(at < spawn.find("gathers_waiting(").unwrap());
+        assert!(at < spawn.find("let mut gathers = state.data_storage.take_gathers();").unwrap());
+        assert!(at < spawn.find("report(server").unwrap());
+        assert!(at < spawn.find("/api/gathering/report").unwrap());
+        assert!(at < spawn.find(".send()").unwrap());
+        assert!(!code.contains("SETTING_KEY"), "a switch of its own: check it");
+        // No character name and no place in the report.
+        let report = body(&code, "pub fn report(");
+        assert!(!report.contains("name") && !report.contains("node"), "{report}");
+        // Only app.rs starts it, once.
+        let app = include_str!("../app.rs").replace("\r\n", "\n");
+        assert_eq!(app.matches("crate::gather_report::spawn(").count(), 1);
+        for p in sources().iter().filter(|p| !p.ends_with("fork/privacy.rs") && !p.ends_with("app.rs") && !p.ends_with("gather_report.rs")) {
+            let code = std::fs::read_to_string(p).unwrap();
+            assert!(!code.contains("gather_report::"), "{p:?} uses the gathering report");
+        }
+        let (s, dir) = settings("gathering");
+        seed_off_by_default(&s);
+        assert!(!crate::boss_report::shares_data(|k| s.get(k)));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Party naming (account/mod.rs `party_names`, 2.1.0: GET and PUT
+    /// /api/account/party-names) is asked of a2tools.app only with a signed-in
+    /// account's token (a guest token or none: no request at all), the one
+    /// command `account_party_names` is its only caller, and the page asks
+    /// only signed in (`paintPartyNames`) and changes it only when the box is
+    /// ticked or unticked. A new caller, path or request fails here, to be
+    /// checked before a release.
+    #[test]
+    #[cfg(feature = "online")]
+    fn party_naming_is_asked_only_signed_in_and_by_a_click() {
+        let account = include_str!("../account/mod.rs").replace("\r\n", "\n");
+        assert_eq!(account.matches("/api/account/party-names").count(), 1);
+        let names = body(&account, "pub async fn party_names(");
+        let token = names.find("let secret::Stored::Token(token) = secret::load_stored(app_data_dir) else { return Ok(None) };").expect("no token, no request");
+        assert!(token < names.find("client.get(").unwrap().min(names.find(".put(").unwrap()));
+        assert!(token < names.find(".send()").unwrap());
+        assert!(token < names.find("/api/account/party-names").unwrap());
+        assert_eq!(names.matches(".send()").count(), 1);
+        assert_eq!(names.matches(".put(").count(), 1);
+        assert_eq!(names.matches("client.get(").count(), 1);
+        assert_eq!(names.matches(".post(").count() + names.matches(".delete(").count(), 0);
+
+        let app = include_str!("../app.rs").replace("\r\n", "\n");
+        assert_eq!(app.matches("account::party_names(").count(), 1);
+        for p in sources().iter().filter(|p| !p.ends_with("fork/privacy.rs") && !p.ends_with("app.rs") && !p.ends_with("account/mod.rs")) {
+            let code = std::fs::read_to_string(p).unwrap();
+            assert!(!code.contains("party_names("), "{p:?} asks about party naming");
+        }
+
+        let core = include_str!("../../../public/src/js/core.js").replace("\r\n", "\n");
+        assert_eq!(core.matches("javaBridge?.partyNames?.(").count(), 2);
+        let paint = &core[core.find("  paintPartyNames(signedIn) {").expect("paintPartyNames")..];
+        let signed_out = paint.find("if (!signedIn) {").expect("signed out: no request");
+        assert!(signed_out < paint.find("javaBridge?.partyNames?.(").unwrap());
+        // The change is asked in the checkbox's own listener.
+        let change = &core[core.find("this.partyNamesCheckbox.addEventListener(\"change\"").expect("the box's listener")..];
+        assert!(change.find("javaBridge?.partyNames?.(wanted)").unwrap() < 600);
+        // The fork's own pages never ask.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/fork");
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let text = std::fs::read_to_string(e.path()).unwrap_or_default();
+            assert!(!text.contains("partyNames") && !text.contains("party-names"), "{:?} asks about party naming", e.path());
+        }
+    }
 }
