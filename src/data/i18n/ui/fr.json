@@ -233,6 +233,7 @@
     },
     "fightTimeline": "Chronologie du combat",
     "replay": {
+      "noOthersTiming": "La relecture exclut les autres joueurs, car les instants de leurs coups n’ont pas été enregistrés. Quittez la relecture pour voir le total observé.",
       "label": "Relecture",
       "title": "Relecture",
       "play": "Lancer la relecture",
@@ -402,6 +403,9 @@
     },
     "showSuspendBtn": "Afficher le bouton de pause de capture",
     "showLockBtn": "Afficher le bouton de verrouillage (clic au travers)",
+    "editLayout": "Disposer le compteur, les épingles et les widgets",
+    "editLayoutBtn": "Modifier la disposition",
+    "editLayoutUnsupported": "Ce bureau place lui-même les fenêtres du compteur : la disposition ne peut pas être modifiée ici.",
     "showDockBtn": "Afficher le bouton du dock des plugins",
     "playerLimit": {
       "label": "Joueurs affichés max."
@@ -580,6 +584,7 @@
       "pressKeys": "Appuyez sur des touches...",
       "tooManyKeys": "3 touches au maximum",
       "plugins": "Afficher/masquer les fenêtres des plugins",
+      "layout": "Modifier la disposition",
       "hidePins": "Masquer aussi les épingles des plugins",
       "notSet": "Non défini",
       "restoreDefaults": "Rétablir par défaut",
@@ -627,13 +632,15 @@
       "failed": "Échec de la connexion : {error}",
       "supporter": "Soutien",
       "guestUpload": "Envoyer les combats de boss sans compte",
-      "guestUploadHint": "À la fin d'un combat de boss, il est envoyé sur a2tools.app, public, sans compte. Les autres joueurs restent masqués. Connecte-toi plus tard et les combats envoyés depuis ce PC deviennent les tiens.",
+      "guestUploadHint": "À la fin d'un combat de boss, il est envoyé sur a2tools.app, public, sans compte. Les autres joueurs restent masqués. Les membres du groupe qui ont choisi d'être nommés sur a2tools.app apparaissent en entier. Connecte-toi plus tard et les combats envoyés depuis ce PC deviennent les tiens.",
       "guestClaimHint": "Les combats envoyés depuis ce PC sont gardés pour toi. Connecte-toi ici pour qu'ils deviennent les tiens, ou obtiens un code pour les récupérer depuis un autre appareil.",
       "guestClaimButton": "Obtenir un code",
       "guestClaimCode": "Saisis {code} sur {url} en étant connecté. Le code expire dans 15 minutes.",
       "claimed": "{count} combats envoyés depuis ce PC sont maintenant à toi.",
       "autoUpload": "Envoyer automatiquement les combats de boss",
-      "autoUploadHint": "À la fin d'un combat de boss, il est envoyé sur votre compte avec la visibilité choisie sur a2tools.app. Les autres joueurs restent masqués. Les mannequins d'entraînement ne sont jamais envoyés."
+      "autoUploadHint": "À la fin d'un combat de boss, il est envoyé sur votre compte avec la visibilité choisie sur a2tools.app. Les autres joueurs restent masqués. Les membres du groupe qui ont choisi d'être nommés sur a2tools.app apparaissent en entier. Les mannequins d'entraînement ne sont jamais envoyés.",
+      "partyNames": "Afficher mon nom dans les journaux de mon groupe",
+      "partyNamesHint": "Le nom de ton personnage apparaît en entier, et compte dans les classements, dans les journaux envoyés par les membres de ton groupe. Activé : ton personnage est lié lors de ton prochain envoi de groupe connecté, puis les 30 derniers jours sont parcourus. Désactivé : tu quittes les classements aussitôt et les journaux enregistrés sont de nouveau masqués en quelques heures."
     },
     "sendLogs": {
       "hint": "Envoie ton journal de débogage et tes derniers journaux de paquets (3 fichiers en tout) au développeur, pour un rapport de bug.",
@@ -665,6 +672,7 @@
       "roundDps": "13 412 s'affiche 13k.",
       "showSuspendBtn": "Un bouton sur le compteur qui arrête la lecture du trafic du jeu jusqu'à ce que tu appuies à nouveau.",
       "showLockBtn": "Un bouton qui fait ignorer la souris au compteur, pour que les clics passent au jeu.",
+      "editLayout": "Déverrouille d'un coup le compteur, l'épingle FP et tous les widgets de plugins pour les faire glisser en place. Terminé garde les nouvelles places ; Annuler les remet.",
       "showDockBtn": "Un bouton sur le meter qui ouvre et ferme le dock des plugins.",
       "windowOpacity": "La transparence du fond du compteur. Les barres et le texte ne changent pas.",
       "titleOpacity": "La transparence de la barre de titre du meter, à part du fond en dessous. Tant que vous ne le bougez pas, il suit le fond.",
@@ -691,7 +699,7 @@
       "hideWhenSolo": "Le compteur se masque tant que vous n'êtes pas en groupe et réapparaît quand vous en rejoignez un. Le raccourci Afficher/Masquer le fait toujours apparaître.",
       "hideOutOfCombat": "Le compteur se masque après ce délai hors combat et réapparaît au prochain coup. Il reste affiché tant que les Paramètres, l'Historique ou les Détails sont ouverts, ou que la souris est dessus.",
       "runAsAdmin": "Nécessaire pour afficher les FPS du jeu. Windows le demande à chaque démarrage du compteur.",
-      "shareData": "Partage les minuteurs des boss de terrain et les Demandes de ravitaillement de ton serveur avec a2tools.app, pour garder A2Tools à jour pour tout le monde : les boss sur ta carte, ceux que tu vois tomber et leurs PV, les tableaux de demandes après chaque réinitialisation et les classements que tu ouvres. Rien sur ton personnage n'est envoyé.",
+      "shareData": "Partage les minuteurs des boss de terrain et les Demandes de ravitaillement de ton serveur avec a2tools.app, pour garder A2Tools à jour pour tout le monde : les boss sur ta carte, ceux que tu vois tomber et leurs PV, les tableaux de demandes après chaque réinitialisation les classements que tu ouvres, et tes récoltes avec les niveaux de tes compétences de récolte. Rien qui nomme ton personnage n'est envoyé.",
       "pluginAutoUpdate": "Au démarrage du compteur, les mises à jour des plugins s'installent d'elles-mêmes, en arrière-plan. Une mise à jour qui demande quelque chose de nouveau attend toujours votre accord.",
       "meterAnchor": "Le bord du compteur qui ne bouge pas quand des lignes apparaissent ou disparaissent."
     },
@@ -946,6 +954,7 @@
     "showControls": "Afficher les commandes",
     "popOut": "Ouvrir dans sa propre fenêtre",
     "pluginSettings": "Réglages des plugins",
+    "editLayout": "Modifier la disposition",
     "hide": "Masquer (le plugin continue de tourner)",
     "close": "Masquer le dock (les plugins continuent de tourner)",
     "hideMeter": "Masquer le compteur DPS",
@@ -969,7 +978,17 @@
     "never": "Le nom de votre PC et le nom complet de votre personnage ne sont jamais envoyés.",
     "policy": "Politique de confidentialité",
     "continue": "Continuer"
-  },
+  },
+
+  "layout": {
+    "title": "Modifier la disposition",
+    "hint": "Fais glisser chaque élément en place. Lâché près d'un bord, il s'y aimante.",
+    "snap": "Aimanter",
+    "gridOff": "Grille : non",
+    "gridOn": "Grille : {px} px",
+    "cancel": "Annuler",
+    "done": "Terminé"
+  },
   "netNotice": {
     "title": "Impossible de joindre les serveurs d'A2 Tools",
     "text": "Les plugins, mises à jour et minuteurs de boss n'ont pas pu être téléchargés, même après de nouveaux essais. C'est généralement la connexion internet : l'application gratuite 1.1.1.1 de Cloudflare règle le problème pour la plupart des joueurs.",

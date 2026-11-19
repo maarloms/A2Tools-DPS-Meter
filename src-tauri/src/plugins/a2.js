@@ -40,10 +40,13 @@
 //                                              "feed:boss-timers", meter 2.0.65 on)
 //   a2.on("deathRecap", (r) => ...)            a player killed you (permission "events:death-recap", meter
 //                                              2.0.81 on): r = { at, killer: { name, serverId, legion,
-//                                              class ("gladiator", ...), level, gearScore, combatPower },
+//                                              class ("gladiator", ...), level, gearScore, combatPower,
+//                                              abyssGrade (meter 2.1.0 on: the Abyss rank, 1 Supreme
+//                                              Commander, 2 Commander, 3 Marshal, 4 General, 5-9 5-Star to
+//                                              1-Star Officer, 10-18 First- to Ninth-Class Soldier, 19 Trainee) },
 //                                              damage, hits, durationMs, dps, skills: [{ id, name, damage,
 //                                              hits }], assists: [{ name, legion, serverId, class, level, gearScore,
-//                                              combatPower, damage, hits }] (the others who damaged you
+//                                              combatPower, abyssGrade, damage, hits }] (the others who damaged you
 //                                              in the fight, your party never) }, null where the game
 //                                              did not say. Once each, kept like a decoder's events
 //   a2.on("lootRoll", (e) => ...)              Dice Roll loot (permission "events:loot-rolls", meter
@@ -64,9 +67,11 @@
 //                                              known, else null) }], atPlace } for items you pick up, are
 //                                              given or use up; or { kind: "gather", at, gather, atPlace },
 //                                              gather = { type: "started", node, n } | { type: "refused",
-//                                              node } | { type: "done", node, item, count, bonus (extra
-//                                              copies), extraItem, extraCount (the random add-on, 0 when
-//                                              none) }; or { kind: "drops", at, drops: [{ source (the entity
+//                                              node } | { type: "done", node, status (0 base quality, 1
+//                                              upgraded: a Fresh item or Mela x3, 2 failed; meter 2.1.0,
+//                                              older meters send base results only), item, count, bonus
+//                                              (extra copies), extraItem, extraCount (the random add-on, 0
+//                                              when none) }; or { kind: "drops", at, drops: [{ source (the entity
 //                                              it fell from), mob (its NPC code, when known), item, count,
 //                                              owner ("you" | "party" | "other": in a party each member gets
 //                                              drops of their own) }], atPlace }; or { kind: "kill", at,
@@ -86,7 +91,9 @@
 //                                              a player killed you ("death"), once each, kept like a
 //                                              decoder's events; the event's `at` (unix ms) says when
 //                                              and `seq` (from 1) numbers it, two in the same ms differ by it
-//                                              (permission "events:kda", meter 2.0.94 on). No names. Also
+//                                              (permission "events:kda", meter 2.0.94 on). A kill or assist
+//                                              has `victim`: { name, serverId, class, level, legion, abyssGrade
+//                                              (2.1.0 on, as deathRecap's) }, null where not known. Also
 //                                              "points" with `amount`: Abyss Points just gained, and
 //                                              "zone" with `abyss` true/false: the Abyss entered or
 //                                              left (the first map load of a meter started there too).
@@ -120,7 +127,15 @@
 //                                              var(--a2-bg), var(--a2-panel); and selects, checkboxes, radios,
 //                                              sliders and scrollbars are styled to match unless the plugin styles them itself
 //   a2.on("compact", (on) => ...)              the window's fold button: show only the essentials
-//
+//   a2.on("visible", (shown) => ...)          whether the plugin's page is on view, at start and on change
+//                                              (meter 2.0.77 on): its window shown, or in the dock, the dock shown,
+//                                              its tab the open one (or stacked) and the dock not folded (2.1.0 on).
+//                                              The page keeps running either way; widgets stay up
+//   a2.on("layout", ({ editing }) => ...)      the player arranging the meter and every widget at once
+//                                              (Settings, Edit layout; meter 2.1.0 on), at start while on and
+//                                              on change. Every widget is unlocked and outlined meanwhile; a
+//                                              widget that shows only on an alert can open a stand-in to place
+////
 // Keep the page's background transparent: the window paints the panel at the
 // opacity the user picks.
 //   await a2.storage.get("state")              the plugin's own saved data
@@ -177,6 +192,8 @@
 //   a2.widget.post(data)                       to the plugin's page ("widget-message")
 //   a2.on("widget", (data) => ...)             what the plugin sent it
 //   a2.on("locked", (locked) => ...)           whether the widgets are locked, at start and on change
+//   a2.on("layout", ({ editing }) => ...)      the layout being edited (meter 2.1.0 on): the widget can
+//                                              be dragged whatever the lock, and is outlined with its name
 //
 //   a2.ready()                                 call once the handlers are set
 //

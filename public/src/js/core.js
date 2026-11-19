@@ -2982,10 +2982,27 @@ class DpsApp {
     this.setAccountState(label);
   }
 
+  // Party naming (a2tools.app): shown signed in, when the site says this
+  // account can use it; its state is the site's, asked each time.
+  paintPartyNames(signedIn) {
+    if (!this.partyNamesRow) return;
+    if (!signedIn) {
+      this.partyNamesRow.style.display = "none";
+      return;
+    }
+    window.javaBridge?.partyNames?.().then((enabled) => {
+      this.partyNamesRow.style.display = enabled === null || enabled === undefined ? "none" : "";
+      if (this.partyNamesCheckbox) this.partyNamesCheckbox.checked = !!enabled;
+    }).catch(() => {
+      this.partyNamesRow.style.display = "none";
+    });
+  }
+
   // Signed out: uploading without an account instead of to one, and, once
   // this PC has guest fights, how to claim them. Signed in: the account's.
   paintGuest(signedIn) {
     document.querySelector(".autoUploadRow")?.style.setProperty("display", signedIn ? "" : "none");
+    this.paintPartyNames(signedIn);
     for (const row of document.querySelectorAll(".guestUploadRow")) row.style.setProperty("display", signedIn ? "none" : "");
     document.querySelector(".privacySignedIn")?.style.setProperty("display", signedIn ? "" : "none");
     if (!this.guestClaimRow) return;
@@ -3051,6 +3068,8 @@ class DpsApp {
     this.playerNamesBoldCheckbox = document.querySelector(".playerNamesBoldCheckbox");
     this.showSupporterColorsCheckbox = document.querySelector(".showSupporterColorsCheckbox");
     this.autoUploadCheckbox = document.querySelector(".autoUploadCheckbox");
+    this.partyNamesRow = document.querySelector(".partyNamesRow");
+    this.partyNamesCheckbox = document.querySelector(".partyNamesCheckbox");
     this.guestUploadCheckbox = document.querySelector(".guestUploadCheckbox");
     this.guestClaimRow = document.querySelector(".guestClaimRow");
     this.guestClaimText = document.querySelector(".guestClaimText");
@@ -3499,6 +3518,7 @@ class DpsApp {
       });
     }
     this.initOverlayLock();
+    this.initLayoutEditor();
     // Restore suspend state from backend on load
     this._captureSuspended = !!window.javaBridge?.isCaptureSuspended?.();
     this._updateSuspendBtnIcon();
@@ -3620,6 +3640,27 @@ class DpsApp {
         this.safeGetSetting(this.storageKeys.autoUpload) === "true";
       this.autoUploadCheckbox.addEventListener("change", (event) => {
         this.safeSetSetting(this.storageKeys.autoUpload, String(!!event.target?.checked));
+      });
+    }
+
+    if (this.partyNamesCheckbox) {
+      this.partyNamesCheckbox.addEventListener("change", (event) => {
+        const box = event.target;
+        const wanted = !!box?.checked;
+        box.disabled = true;
+        window.javaBridge?.partyNames?.(wanted).then((enabled) => {
+          if (enabled === null || enabled === undefined) {
+            box.checked = !wanted;
+            this.partyNamesRow.style.display = "none";
+          } else {
+            box.checked = !!enabled;
+          }
+        }).catch(() => {
+          // Not changed on the site (offline, a hiccup): as it was.
+          box.checked = !wanted;
+        }).finally(() => {
+          box.disabled = false;
+        });
       });
     }
 
@@ -5029,6 +5070,7 @@ class DpsApp {
     const toggleBtn = document.querySelector(".toggleKeybindBtn");
     const lockKeyBtn = document.querySelector(".lockKeybindBtn");
     const pluginsKeyBtn = document.querySelector(".pluginsKeybindBtn");
+    const layoutKeyBtn = document.querySelector(".layoutKeybindBtn");
     const notSet = () => this.i18n?.t?.("settings.keybind.notSet", "Not set") ?? "Not set";
 
     this.refreshKeybindLabels = () => {
@@ -5049,6 +5091,11 @@ class DpsApp {
         pluginsKeyBtn.querySelector(".keybindText").textContent = label || notSet();
         pluginsKeyBtn.classList.toggle("isUnset", !label);
       }
+      if (layoutKeyBtn) {
+        const label = window.javaBridge?.getCurrentLayoutHotKey?.() || "";
+        layoutKeyBtn.querySelector(".keybindText").textContent = label || notSet();
+        layoutKeyBtn.classList.toggle("isUnset", !label);
+      }
     };
     this.refreshKeybindLabels();
 
@@ -5059,7 +5106,7 @@ class DpsApp {
     let lastHotkeyStatus = {};
     this.applyHotkeyStatus = (status) => {
       lastHotkeyStatus = status && typeof status === "object" ? status : {};
-      const rows = [[reloadBtn, "reload"], [toggleBtn, "toggle"], [lockKeyBtn, "lock"], [pluginsKeyBtn, "plugins"]]
+      const rows = [[reloadBtn, "reload"], [toggleBtn, "toggle"], [lockKeyBtn, "lock"], [pluginsKeyBtn, "plugins"], [layoutKeyBtn, "layout"]]
         .filter(([btn]) => btn && btn.closest?.(".settingsRowKeybind")?.style?.display !== "none")
         .filter(([btn]) => !btn.classList?.contains?.("isUnset"));
       const labelOf = (btn) => (btn.querySelector?.(".keybindText")?.textContent || "").trim().toLowerCase();
@@ -5154,6 +5201,7 @@ class DpsApp {
     toggleBtn?.addEventListener("click", () => handleKeybindClick(toggleBtn, "toggle"));
     lockKeyBtn?.addEventListener("click", () => handleKeybindClick(lockKeyBtn, "lock"));
     pluginsKeyBtn?.addEventListener("click", () => handleKeybindClick(pluginsKeyBtn, "plugins"));
+    layoutKeyBtn?.addEventListener("click", () => handleKeybindClick(layoutKeyBtn, "layout"));
     document.querySelector(".keybindDesktopBtn")?.addEventListener("click", () => {
       Promise.resolve(window.javaBridge?.openDesktopShortcuts?.()).catch(() => {});
     });
@@ -5226,6 +5274,8 @@ class DpsApp {
         if (lockKeyBtn) lockKeyBtn.querySelector(".keybindText").textContent = label;
       } else if (type === "plugins") {
         window.javaBridge?.setPluginWindowsHotkey?.(mods, vk);
+      } else if (type === "layout") {
+        window.javaBridge?.setLayoutHotkey?.(mods, vk);
       }
       this.refreshKeybindLabels();
     }, true);
@@ -7798,6 +7848,40 @@ class DpsApp {
     icon.setAttribute("data-lucide", this._overlayLocked ? "lock" : "lock-open");
     this.lockBtn.replaceChildren(icon);
     window.lucide?.createIcons?.({ root: this.lockBtn });
+  }
+
+  // ===== Layout editor (layout.rs) =====
+  // Settings -> Meter Settings -> Edit layout: the meter, the FP pin and every
+  // plugin widget unlocked at once to drag into place, with a bar for Done
+  // and Cancel. The meter is outlined meanwhile, and its click-through lock
+  // lifted, then put back as it was.
+
+  initLayoutEditor() {
+    const button = document.querySelector(".editLayoutBtn");
+    button?.addEventListener("click", () => {
+      Promise.resolve(window.javaBridge?.editLayout?.()).catch(() => {
+        const t = (key, fallback) => this.i18n?.t(key, fallback) ?? fallback;
+        button.title = t("settings.editLayoutUnsupported",
+          "This desktop places the meter's windows itself, so the layout can't be edited here.");
+        button.disabled = true;
+      });
+    });
+  }
+
+  setLayoutEditing(on) {
+    if (window.A2_VIEW !== "main") return;
+    document.body.classList.toggle("layoutEditing", on);
+    if (on) {
+      this._lockedBeforeLayout = !!this._overlayLocked;
+      if (this._lockedBeforeLayout) window.javaBridge?.setOverlayLocked?.(false);
+      this.setMetricMenuOpen?.(false);
+      this.setTargetMenuOpen?.(false);
+      this.setFooterMenuOpen?.(false);
+    } else if (this._lockedBeforeLayout) {
+      this._lockedBeforeLayout = false;
+      this._sendLockBtnRect();
+      window.javaBridge?.setOverlayLocked?.(true);
+    }
   }
 
   _applyDockBtnVisibility(show) {

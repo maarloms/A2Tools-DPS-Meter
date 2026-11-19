@@ -233,6 +233,7 @@
     },
     "fightTimeline": "Linha do tempo da luta",
     "replay": {
+      "noOthersTiming": "O replay exclui os outros porque os momentos dos seus golpes não foram registrados. Encerre o replay para ver o total observado.",
       "label": "Replay",
       "title": "Replay",
       "play": "Reproduzir replay",
@@ -402,6 +403,9 @@
     },
     "showSuspendBtn": "Mostrar botão de pausar captura",
     "showLockBtn": "Mostrar botão de bloqueio (clique através)",
+    "editLayout": "Posicionar o medidor, os pins e os widgets",
+    "editLayoutBtn": "Editar layout",
+    "editLayoutUnsupported": "Esta área de trabalho posiciona as janelas do medidor sozinha, então o layout não pode ser editado aqui.",
     "showDockBtn": "Mostrar o botão do painel de plugins",
     "playerLimit": {
       "label": "Máx. de jogadores exibidos"
@@ -580,6 +584,7 @@
       "pressKeys": "Pressione as teclas...",
       "tooManyKeys": "No máximo 3 teclas",
       "plugins": "Mostrar/ocultar janelas de plugins",
+      "layout": "Editar layout",
       "hidePins": "Ocultar também os pinos de plugins",
       "notSet": "Não definido",
       "restoreDefaults": "Restaurar padrões",
@@ -627,13 +632,15 @@
       "failed": "Falha ao entrar: {error}",
       "supporter": "Apoiador",
       "guestUpload": "Enviar lutas contra chefes sem conta",
-      "guestUploadHint": "Quando uma luta contra chefe termina, ela é enviada ao a2tools.app, pública, sem conta. Os outros jogadores continuam ocultos. Se você entrar depois, as lutas enviadas deste PC passam a ser suas.",
+      "guestUploadHint": "Quando uma luta contra chefe termina, ela é enviada ao a2tools.app, pública, sem conta. Os outros jogadores continuam ocultos. Membros do grupo que escolheram ser nomeados no a2tools.app aparecem com o nome completo. Se você entrar depois, as lutas enviadas deste PC passam a ser suas.",
       "guestClaimHint": "As lutas enviadas deste PC ficam guardadas para você. Entre aqui para torná-las suas ou pegue um código para reivindicá-las de outro dispositivo.",
       "guestClaimButton": "Obter um código",
       "guestClaimCode": "Digite {code} em {url} com a sessão iniciada. O código expira em 15 minutos.",
       "claimed": "{count} lutas enviadas deste PC agora são suas.",
       "autoUpload": "Enviar lutas contra chefes automaticamente",
-      "autoUploadHint": "Quando uma luta contra chefe termina, ela é enviada para sua conta com a visibilidade escolhida em a2tools.app. Os outros jogadores ficam mascarados. Bonecos de treino nunca são enviados."
+      "autoUploadHint": "Quando uma luta contra chefe termina, ela é enviada para sua conta com a visibilidade escolhida em a2tools.app. Os outros jogadores ficam mascarados. Membros do grupo que escolheram ser nomeados no a2tools.app aparecem com o nome completo. Bonecos de treino nunca são enviados.",
+      "partyNames": "Mostrar meu nome nos registros do meu grupo",
+      "partyNamesHint": "O nome do seu personagem aparece completo, e conta nos rankings, nos registros que os membros do seu grupo enviam. Ligado: seu personagem é vinculado no seu próximo envio de grupo com login, e os últimos 30 dias são verificados. Desligado: você sai dos rankings na hora, e os registros salvos voltam a ser ocultados em poucas horas."
     },
     "sendLogs": {
       "hint": "Envia seu log de depuração e seus logs de pacotes mais recentes (3 arquivos no total) ao desenvolvedor, para um relatório de bug.",
@@ -665,6 +672,7 @@
       "roundDps": "13.412 aparece como 13k.",
       "showSuspendBtn": "Um botão no medidor que para de ler o tráfego do jogo até você apertar de novo.",
       "showLockBtn": "Um botão que faz o medidor ignorar o mouse, para os cliques irem ao jogo.",
+      "editLayout": "Desbloqueia de uma vez o medidor, o pin de FP e todos os widgets de plugins para arrastá-los ao lugar. Concluir mantém os novos lugares; Cancelar os devolve.",
       "showDockBtn": "Um botão no medidor que abre e fecha o painel de plugins.",
       "windowOpacity": "Quão transparente é o fundo do medidor. Barras e texto não mudam.",
       "titleOpacity": "O quanto a barra de título do medidor é transparente, separada do fundo abaixo. Até você mexer, ela segue o fundo.",
@@ -691,7 +699,7 @@
       "hideWhenSolo": "O medidor se oculta enquanto você não está em um grupo e volta quando você entra em um. O atalho de mostrar/ocultar ainda o exibe.",
       "hideOutOfCombat": "O medidor se oculta após esse tempo fora de combate e volta no próximo golpe. Ele continua visível enquanto Configurações, Histórico ou Detalhes estiverem abertos, ou com o mouse sobre ele.",
       "runAsAdmin": "Necessário para mostrar o FPS do jogo. O Windows pergunta toda vez que o medidor inicia.",
-      "shareData": "Compartilha os timers de chefes de campo e os Pedidos de suprimentos do seu servidor com o a2tools.app, para manter o A2Tools atualizado para todos: os chefes no seu mapa, os que você vê serem derrotados e o HP deles, os quadros de pedidos após cada reinício e os rankings que você abre. Nada sobre o seu personagem é enviado.",
+      "shareData": "Compartilha os timers de chefes de campo e os Pedidos de suprimentos do seu servidor com o a2tools.app, para manter o A2Tools atualizado para todos: os chefes no seu mapa, os que você vê serem derrotados e o HP deles, os quadros de pedidos após cada reinício os rankings que você abre e suas coletas com os níveis das suas habilidades de coleta. Nada que identifique o seu personagem é enviado.",
       "pluginAutoUpdate": "Ao iniciar o medidor, as atualizações de plugins se instalam sozinhas, em segundo plano. Uma atualização que pede algo novo continua esperando sua confirmação.",
       "meterAnchor": "A borda do medidor que fica parada quando linhas entram ou saem."
     },
@@ -946,6 +954,7 @@
     "showControls": "Mostrar os controles",
     "popOut": "Abrir em janela própria",
     "pluginSettings": "Configurações de plugins",
+    "editLayout": "Editar layout",
     "hide": "Ocultar (o plugin continua rodando)",
     "close": "Ocultar o dock (os plugins continuam rodando)",
     "hideMeter": "Ocultar o medidor de DPS",
@@ -969,7 +978,17 @@
     "never": "O nome do seu PC e o nome completo do seu personagem nunca são enviados.",
     "policy": "Política de privacidade",
     "continue": "Continuar"
-  },
+  },
+
+  "layout": {
+    "title": "Editar layout",
+    "hint": "Arraste cada peça para o lugar. Solta perto de uma borda, ela se encaixa.",
+    "snap": "Encaixar",
+    "gridOff": "Grade: não",
+    "gridOn": "Grade: {px} px",
+    "cancel": "Cancelar",
+    "done": "Concluir"
+  },
   "netNotice": {
     "title": "Não é possível acessar os servidores do A2 Tools",
     "text": "Não foi possível baixar plugins, atualizações e timers de chefes, mesmo tentando de novo. Geralmente é a conexão com a internet: o app gratuito 1.1.1.1 da Cloudflare resolve para a maioria dos jogadores.",

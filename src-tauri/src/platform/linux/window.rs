@@ -367,7 +367,13 @@ pub fn show_on_top_without_focus(window: &tauri::WebviewWindow) {
     if super::focus::hyprland_places_windows()
         && let Some((x, y)) = super::focus::place_of(window)
     {
-        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+        // Under XWayland the meter moves its own windows; on native Wayland
+        // only Hyprland can (`set_position` does nothing there).
+        if super::focus::hyprland_native() {
+            super::focus::hyprland_move(window, x, y);
+        } else {
+            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+        }
     }
     let _ = window.set_always_on_top(true);
     reapply_click_through(window);
@@ -714,4 +720,9 @@ pub fn lean_memory(_webview: &tauri::Webview) {}
 /// right here.
 pub fn is_on_screen(window: &tauri::WebviewWindow) -> bool {
     window.is_visible().unwrap_or(false)
+}
+
+/// Another program's window over most of this one: only asked on Windows.
+pub fn covered_by(_window: &tauri::WebviewWindow) -> Option<String> {
+    None
 }
