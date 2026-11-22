@@ -567,4 +567,51 @@ mod tests {
             assert!(!text.contains("partyNames") && !text.contains("party-names"), "{:?} asks about party naming", e.path());
         }
     }
+
+    /// The server clock (2.1.4, `server_clock.rs`) has no request of its own: it
+    /// reads the `Date` header of the plugin boss feed's GET (`feed_file`, only
+    /// when a plugin asks), and what it tells goes to plugins and into the
+    /// time of boss-timer reports that are sent behind the switch anyway
+    /// (`boss_report::observed_at`). The window snapshot and A2TOOLS_DEBUG_LOG
+    /// (`window_diagnostics.rs`) only write to the local debug log. A new
+    /// request, caller or sender fails here, to be checked before a release.
+    #[test]
+    #[cfg(feature = "online")]
+    fn the_server_clock_and_the_window_log_send_nothing_of_their_own() {
+        let clock = code_of(include_str!("../server_clock.rs"));
+        for needle in [".get(", ".post(", ".put(", ".delete(", ".send()", "reqwest", "http", "TcpStream", "UdpSocket"] {
+            assert!(!clock.contains(needle), "server_clock.rs: {needle}");
+        }
+        let diag = code_of(include_str!("../window_diagnostics.rs"));
+        for needle in [".post(", ".put(", ".send()", "reqwest", "https://", "TcpStream", "UdpSocket", "dev_logs"] {
+            assert!(!diag.contains(needle), "window_diagnostics.rs: {needle}");
+        }
+        // The one answer it listens to: the plugin feed's own GET, read only for its header.
+        let plugins = include_str!("../plugins/mod.rs").replace("\r\n", "\n");
+        assert_eq!(plugins.matches("server_clock::note_answer(").count(), 1);
+        let feed = body(&plugins, "async fn feed_file(");
+        assert!(feed.contains("https://cdn.a2tools.app/feeds/"), "the feed is the CDN's");
+        assert!(feed.find(".send()").unwrap() < feed.find("server_clock::note_answer(").unwrap());
+        // Who uses the clock: the app's start, the plugins' hellos and events, the boss reports' time.
+        let users = ["app.rs", "boss_report.rs", "lib.rs", "plugins/mod.rs", "plugins/widgets.rs", "server_clock.rs", "fork/privacy.rs"];
+        for p in sources() {
+            let code = std::fs::read_to_string(&p).unwrap();
+            if code.contains("server_clock::") {
+                assert!(users.iter().any(|u| p.ends_with(u)), "{p:?} uses the server clock");
+            }
+        }
+        // The corrected time is only the time inside reports that were built anyway.
+        let report = code_of(include_str!("../boss_report.rs"));
+        assert_eq!(report.matches("server_clock::").count(), 1, "only observed_at reads the offset");
+        assert!(body(&report, "fn observed_at(").contains("server_clock::offset_ms()"));
+        // Only the debug log's switch or the variable turns the snapshots on, and only app.rs calls them.
+        let app = include_str!("../app.rs").replace("\r\n", "\n");
+        assert_eq!(app.matches("window_diagnostics::debug_log_requested()").count(), 1);
+        assert_eq!(app.matches("window_diagnostics::log_snapshot(").count(), 3);
+        for p in sources().iter().filter(|p| !p.ends_with("fork/privacy.rs") && !p.ends_with("app.rs") && !p.ends_with("window_diagnostics.rs")) {
+            let code = std::fs::read_to_string(p).unwrap();
+            assert!(!code.contains("A2TOOLS_DEBUG_LOG") || p.ends_with("window_diagnostics.rs"), "{p:?} reads the debug variable");
+            assert!(!code.contains("window_diagnostics::"), "{p:?} writes the window snapshot");
+        }
+    }
 }
