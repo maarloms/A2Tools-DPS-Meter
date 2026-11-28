@@ -24,7 +24,7 @@ const NO_STORE = { "cache-control": "no-store" };
 const PAGE_HEADERS: Record<string, string> = {
   ...SECURITY_HEADERS,
   "content-security-policy":
-    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://assets.playnccdn.com https://profileimg.plaync.com; " +
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://assets.playnccdn.com https://profileimg.plaync.com https://fizz-download.playnccdn.com; " +
     "connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   "permissions-policy": "camera=(), microphone=(), geolocation=()",
 };
