@@ -2,6 +2,7 @@
 // Daten kommen über den Worker-Proxy /api/character/* aus den öffentlichen NCSOFT-Diensten (docs/ncsoft-character-api.md).
 // Hash: #/character  oder  #/character/<region>/<serverId>/<characterId>
 
+import { mountOptimizer } from "./optimizer.js";
 import { $, $$, empty, esc, fmtNum, loading, pageHead, view } from "./core.js";
 
 const REGIONS = [
@@ -185,6 +186,8 @@ function renderDetail() {
         <div id="chItem" class="ch-item"><p class="muted small">Ein Ausrüstungsteil anklicken: Würfe, Magiesteine und Seelenbindung erscheinen hier.</p></div></div>
     </div></section>`;
   $$("button[data-slot]", $("#chDetail")).forEach((b) => b.addEventListener("click", () => showItem(Number(b.dataset.slot), b)));
+  $("#chDetail").insertAdjacentHTML("beforeend", '<div id="chOpt"></div>');
+  mountOptimizer($("#chOpt"), cur, (it) => call(`${cur.serverId}/${encodeURIComponent(cur.id)}/item`, { region: cur.region, item: it.id, enchant: it.enchant, slot: it.slotPos }));
 }
 
 async function showItem(slotPos, btn) {

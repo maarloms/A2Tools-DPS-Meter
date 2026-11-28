@@ -19,7 +19,7 @@ export const LOCALES: Record<string, string> = {
 /** Cache-Dauer je Abfrageart (Sekunden) */
 export const TTL = { servers: 86400, search: 300, character: 600, item: 1800 } as const;
 
-export const THROTTLE_PER_MIN = 40;
+export const THROTTLE_PER_MIN = 60;
 
 export type Query = Record<string, string | undefined>;
 type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };

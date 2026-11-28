@@ -44,4 +44,4 @@ Server-IDs hängen an der Region (z. B. eu: 13xx, naw/nae: 11xx).
 - Eingaben streng validiert (Region/Sprache aus fester Liste, Name 2–24 Zeichen Buchstaben/Ziffern, IDs per Regex), URLs entstehen nur aus Konstanten,
 - Antworten auf die benötigten Felder gekürzt, `<strong>` aus Namen entfernt,
 - Cache-API je Abfrage (Server 24 h, Suche 5 min, Info/Ausrüstung 10 min, Item 30 min), `User-Agent` neutral, Timeout 8 s,
-- Drosselung: 40 Aufrufe/Minute je Raum (pro Worker-Instanz, grob) – Treffer im Cache zählen mit.
+- Drosselung: 60 Aufrufe/Minute je Raum (pro Worker-Instanz, grob) – Treffer im Cache zählen mit.

@@ -1,0 +1,11 @@
+{
+  "_comment": "Hier trägt Marlon die Reroll-Kosten ein. Nichts davon ist geschätzt oder aus Drittquellen übernommen: null = noch nicht eingetragen. Solange alles null ist, zeigt der Optimizer 'Kosten noch nicht eingetragen'. Zahlen ohne Anführungszeichen, ein Reroll = ein Versuch.",
+  "_howto": "rerollCosts.default gilt für jeden Slot ohne eigenen Eintrag. Eigener Eintrag: Slot-Name wie in der Ausrüstungsliste (Helmet, Shoulder, Torso, Pants, Gloves, Boots, Cape, Belt, Necklace, Earring1, Earring2, Ring1, Ring2, Bracelet1, Bracelet2 …) mit kinah und petSoul. 'genus' ist für Zielwerte/Notizen je Slot gedacht, die Marlon aus dem Spiel kennt.",
+  "updated": null,
+  "rerollCosts": {
+    "default": { "kinah": null, "petSoul": null }
+  },
+  "genus": {
+    "_comment": "Optional je Slot: { \"Helmet\": { \"note\": \"\", \"bisStats\": [] } }. Leer lassen, bis die Werte bekannt sind."
+  }
+}

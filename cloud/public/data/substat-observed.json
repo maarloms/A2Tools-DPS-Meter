@@ -1,0 +1,6774 @@
+{
+ "kind": "observed",
+ "note": "BEOBACHTET: Stichprobe echter Charaktere über öffentliche NCSOFT-Abfragen, keine offiziellen Spielwerte. Min/Max sind nur die gesehenen Extreme und können bei kleiner Stichprobe zu eng sein.",
+ "generated": "2026-11-28",
+ "region": "eu",
+ "requests": 400,
+ "characterCandidates": 152,
+ "itemsRead": 374,
+ "entries": [
+  {
+   "slot": "Boots",
+   "itemLevel": 39,
+   "grade": "Legend",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 30,
+   "max": 30,
+   "mean": 30,
+   "histogram": {
+    "30": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 39,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 19,
+   "max": 19,
+   "mean": 19,
+   "histogram": {
+    "19": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 39,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 7,
+   "max": 7,
+   "mean": 7,
+   "histogram": {
+    "7": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 128,
+   "max": 128,
+   "mean": 128,
+   "histogram": {
+    "128": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 15,
+   "max": 15,
+   "mean": 15,
+   "histogram": {
+    "15": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 17,
+   "max": 17,
+   "mean": 17,
+   "histogram": {
+    "17": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 1,
+   "min": 157,
+   "max": 157,
+   "mean": 157,
+   "histogram": {
+    "157": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "DEX",
+   "name": "Dexterity",
+   "samples": 1,
+   "min": 12,
+   "max": 12,
+   "mean": 12,
+   "histogram": {
+    "12": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 134,
+   "max": 134,
+   "mean": 134,
+   "histogram": {
+    "134": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 98,
+   "max": 98,
+   "mean": 98,
+   "histogram": {
+    "98": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "MoveSpeed",
+   "name": "Move Speed",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "5.4%": 2
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 46,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 20,
+   "max": 20,
+   "mean": 20,
+   "histogram": {
+    "20": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 46,
+   "grade": "Unique",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 156,
+   "max": 156,
+   "mean": 156,
+   "histogram": {
+    "156": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 46,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 30,
+   "max": 30,
+   "mean": 30,
+   "histogram": {
+    "30": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 16,
+   "max": 16,
+   "mean": 16,
+   "histogram": {
+    "16": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 3,
+   "min": 9,
+   "max": 17,
+   "mean": 12,
+   "histogram": {
+    "9": 1,
+    "10": 1,
+    "17": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 1,
+   "min": 199,
+   "max": 199,
+   "mean": 199,
+   "histogram": {
+    "199": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 31,
+   "max": 31,
+   "mean": 31,
+   "histogram": {
+    "31": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 2,
+   "min": 30,
+   "max": 32,
+   "mean": 31,
+   "histogram": {
+    "30": 1,
+    "32": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 17,
+   "max": 17,
+   "mean": 17,
+   "histogram": {
+    "17": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 34,
+   "max": 34,
+   "mean": 34,
+   "histogram": {
+    "34": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "AbnormalResistance",
+   "name": "Status Effect Resist",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "4.7%": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 24,
+   "max": 24,
+   "mean": 24,
+   "histogram": {
+    "24": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 20,
+   "max": 20,
+   "mean": 20,
+   "histogram": {
+    "20": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 23,
+   "max": 23,
+   "mean": 23,
+   "histogram": {
+    "23": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 2,
+   "min": 32,
+   "max": 36,
+   "mean": 34,
+   "histogram": {
+    "32": 1,
+    "36": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "DefenseRatio",
+   "name": "Defense increase",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "2.2%": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 186,
+   "max": 186,
+   "mean": 186,
+   "histogram": {
+    "186": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 2,
+   "min": 15,
+   "max": 19,
+   "mean": 17,
+   "histogram": {
+    "15": 1,
+    "19": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 1,
+   "min": 14,
+   "max": 14,
+   "mean": 14,
+   "histogram": {
+    "14": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 29,
+   "max": 29,
+   "mean": 29,
+   "histogram": {
+    "29": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 1,
+   "min": 11,
+   "max": 11,
+   "mean": 11,
+   "histogram": {
+    "11": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 2,
+   "min": 29,
+   "max": 36,
+   "mean": 32.5,
+   "histogram": {
+    "29": 1,
+    "36": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 4,
+   "min": 202,
+   "max": 239,
+   "mean": 217.25,
+   "histogram": {
+    "202": 1,
+    "207": 1,
+    "221": 1,
+    "239": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 2,
+   "min": 151,
+   "max": 155,
+   "mean": 153,
+   "histogram": {
+    "151": 1,
+    "155": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 38,
+   "max": 38,
+   "mean": 38,
+   "histogram": {
+    "38": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "IgnoreIronWall",
+   "name": "Endurance Penetration",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.9%": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MoveSpeed",
+   "name": "Move Speed",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "9.1%": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 2,
+   "min": 82,
+   "max": 93,
+   "mean": 87.5,
+   "histogram": {
+    "82": 1,
+    "93": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Perfect",
+   "name": "Perfect Chance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "4%": 1,
+    "4.1%": 1,
+    "3.5%": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 45,
+   "max": 45,
+   "mean": 45,
+   "histogram": {
+    "45": 1
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 3,
+   "min": 20,
+   "max": 25,
+   "mean": 23.33,
+   "histogram": {
+    "20": 1,
+    "25": 2
+   }
+  },
+  {
+   "slot": "Boots",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 2,
+   "min": 23,
+   "max": 23,
+   "mean": 23,
+   "histogram": {
+    "23": 2
+   }
+  },
+  {
+   "slot": "Bracelet1",
+   "itemLevel": 33,
+   "grade": "Legend",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 7,
+   "max": 7,
+   "mean": 7,
+   "histogram": {
+    "7": 1
+   }
+  },
+  {
+   "slot": "Bracelet1",
+   "itemLevel": 33,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 21,
+   "max": 21,
+   "mean": 21,
+   "histogram": {
+    "21": 1
+   }
+  },
+  {
+   "slot": "Bracelet1",
+   "itemLevel": 33,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 7,
+   "max": 7,
+   "mean": 7,
+   "histogram": {
+    "7": 1
+   }
+  },
+  {
+   "slot": "Bracelet1",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 3,
+   "min": 8,
+   "max": 8,
+   "mean": 8,
+   "histogram": {
+    "8": 3
+   }
+  },
+  {
+   "slot": "Bracelet1",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 3,
+   "min": 22,
+   "max": 22,
+   "mean": 22,
+   "histogram": {
+    "22": 3
+   }
+  },
+  {
+   "slot": "Bracelet1",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 3,
+   "min": 8,
+   "max": 8,
+   "mean": 8,
+   "histogram": {
+    "8": 3
+   }
+  },
+  {
+   "slot": "Bracelet1",
+   "itemLevel": 51,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 17,
+   "min": 12,
+   "max": 12,
+   "mean": 12,
+   "histogram": {
+    "12": 17
+   }
+  },
+  {
+   "slot": "Bracelet1",
+   "itemLevel": 51,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 17,
+   "min": 9,
+   "max": 9,
+   "mean": 9,
+   "histogram": {
+    "9": 17
+   }
+  },
+  {
+   "slot": "Bracelet1",
+   "itemLevel": 51,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 17,
+   "min": 26,
+   "max": 26,
+   "mean": 26,
+   "histogram": {
+    "26": 17
+   }
+  },
+  {
+   "slot": "Bracelet1",
+   "itemLevel": 51,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 17,
+   "min": 9,
+   "max": 9,
+   "mean": 9,
+   "histogram": {
+    "9": 17
+   }
+  },
+  {
+   "slot": "Bracelet2",
+   "itemLevel": 33,
+   "grade": "Legend",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 7,
+   "max": 7,
+   "mean": 7,
+   "histogram": {
+    "7": 1
+   }
+  },
+  {
+   "slot": "Bracelet2",
+   "itemLevel": 33,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 21,
+   "max": 21,
+   "mean": 21,
+   "histogram": {
+    "21": 1
+   }
+  },
+  {
+   "slot": "Bracelet2",
+   "itemLevel": 33,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 7,
+   "max": 7,
+   "mean": 7,
+   "histogram": {
+    "7": 1
+   }
+  },
+  {
+   "slot": "Bracelet2",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 17,
+   "min": 8,
+   "max": 8,
+   "mean": 8,
+   "histogram": {
+    "8": 17
+   }
+  },
+  {
+   "slot": "Bracelet2",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 17,
+   "min": 22,
+   "max": 22,
+   "mean": 22,
+   "histogram": {
+    "22": 17
+   }
+  },
+  {
+   "slot": "Bracelet2",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 17,
+   "min": 8,
+   "max": 8,
+   "mean": 8,
+   "histogram": {
+    "8": 17
+   }
+  },
+  {
+   "slot": "Bracelet2",
+   "itemLevel": 51,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 3,
+   "min": 12,
+   "max": 12,
+   "mean": 12,
+   "histogram": {
+    "12": 3
+   }
+  },
+  {
+   "slot": "Bracelet2",
+   "itemLevel": 51,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 3,
+   "min": 9,
+   "max": 9,
+   "mean": 9,
+   "histogram": {
+    "9": 3
+   }
+  },
+  {
+   "slot": "Bracelet2",
+   "itemLevel": 51,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 3,
+   "min": 26,
+   "max": 26,
+   "mean": 26,
+   "histogram": {
+    "26": 3
+   }
+  },
+  {
+   "slot": "Bracelet2",
+   "itemLevel": 51,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 3,
+   "min": 9,
+   "max": 9,
+   "mean": 9,
+   "histogram": {
+    "9": 3
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 3,
+   "min": 22,
+   "max": 22,
+   "mean": 22,
+   "histogram": {
+    "22": 3
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 3,
+   "min": 15,
+   "max": 15,
+   "mean": 15,
+   "histogram": {
+    "15": 3
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 3,
+   "min": 6,
+   "max": 6,
+   "mean": 6,
+   "histogram": {
+    "6": 3
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 1,
+   "min": 11,
+   "max": 11,
+   "mean": 11,
+   "histogram": {
+    "11": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 120,
+   "max": 120,
+   "mean": 120,
+   "histogram": {
+    "120": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 1,
+   "min": 118,
+   "max": 118,
+   "mean": 118,
+   "histogram": {
+    "118": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 27,
+   "max": 27,
+   "mean": 27,
+   "histogram": {
+    "27": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "HardHit",
+   "name": "Double Chance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1%": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 49,
+   "max": 49,
+   "mean": 49,
+   "histogram": {
+    "49": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 17,
+   "max": 17,
+   "mean": 17,
+   "histogram": {
+    "17": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 1,
+   "min": 8,
+   "max": 8,
+   "mean": 8,
+   "histogram": {
+    "8": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 21,
+   "max": 21,
+   "mean": 21,
+   "histogram": {
+    "21": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 2,
+   "min": 56,
+   "max": 60,
+   "mean": 58,
+   "histogram": {
+    "56": 1,
+    "60": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 2,
+   "min": 14,
+   "max": 15,
+   "mean": 14.5,
+   "histogram": {
+    "14": 1,
+    "15": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 24,
+   "max": 24,
+   "mean": 24,
+   "histogram": {
+    "24": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 1,
+   "min": 19,
+   "max": 19,
+   "mean": 19,
+   "histogram": {
+    "19": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "BackAttackDefense",
+   "name": "Back Defense",
+   "samples": 3,
+   "min": 164,
+   "max": 170,
+   "mean": 167.67,
+   "histogram": {
+    "164": 1,
+    "169": 1,
+    "170": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 2,
+   "min": 11,
+   "max": 11,
+   "mean": 11,
+   "histogram": {
+    "11": 2
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 1,
+   "min": 175,
+   "max": 175,
+   "mean": 175,
+   "histogram": {
+    "175": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 2,
+   "min": 29,
+   "max": 30,
+   "mean": 29.5,
+   "histogram": {
+    "29": 1,
+    "30": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 192,
+   "max": 192,
+   "mean": 192,
+   "histogram": {
+    "192": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "IronWall",
+   "name": "Endurance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.9%": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 17,
+   "max": 17,
+   "mean": 17,
+   "histogram": {
+    "17": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 2,
+   "min": 27,
+   "max": 30,
+   "mean": 28.5,
+   "histogram": {
+    "27": 1,
+    "30": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 178,
+   "max": 178,
+   "mean": 178,
+   "histogram": {
+    "178": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 23,
+   "max": 23,
+   "mean": 23,
+   "histogram": {
+    "23": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 1,
+   "min": 17,
+   "max": 17,
+   "mean": 17,
+   "histogram": {
+    "17": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 3,
+   "min": 22,
+   "max": 32,
+   "mean": 25.33,
+   "histogram": {
+    "22": 2,
+    "32": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 1,
+   "min": 182,
+   "max": 182,
+   "mean": 182,
+   "histogram": {
+    "182": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "DamageRatio",
+   "name": "Attack increase",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.4%": 1,
+    "1.5%": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HardHit",
+   "name": "Double Chance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.7%": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 31,
+   "max": 31,
+   "mean": 31,
+   "histogram": {
+    "31": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 68,
+   "max": 68,
+   "mean": 68,
+   "histogram": {
+    "68": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 2,
+   "min": 16,
+   "max": 16,
+   "mean": 16,
+   "histogram": {
+    "16": 2
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 3,
+   "min": 30,
+   "max": 42,
+   "mean": 34,
+   "histogram": {
+    "30": 2,
+    "42": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 2,
+   "min": 17,
+   "max": 23,
+   "mean": 20,
+   "histogram": {
+    "17": 1,
+    "23": 1
+   }
+  },
+  {
+   "slot": "Cape",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 2,
+   "min": 18,
+   "max": 24,
+   "mean": 21,
+   "histogram": {
+    "18": 1,
+    "24": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 31,
+   "max": 31,
+   "mean": 31,
+   "histogram": {
+    "31": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 4,
+   "min": 25,
+   "max": 25,
+   "mean": 25,
+   "histogram": {
+    "25": 4
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 4,
+   "min": 8,
+   "max": 8,
+   "mean": 8,
+   "histogram": {
+    "8": 4
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 4,
+   "min": 13,
+   "max": 13,
+   "mean": 13,
+   "histogram": {
+    "13": 4
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 21,
+   "max": 21,
+   "mean": 21,
+   "histogram": {
+    "21": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 23,
+   "max": 23,
+   "mean": 23,
+   "histogram": {
+    "23": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 31,
+   "max": 31,
+   "mean": 31,
+   "histogram": {
+    "31": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 40,
+   "max": 40,
+   "mean": 40,
+   "histogram": {
+    "40": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 2,
+   "min": 177,
+   "max": 182,
+   "mean": 179.5,
+   "histogram": {
+    "177": 1,
+    "182": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MoveSpeed",
+   "name": "Move Speed",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "4.9%": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 45,
+   "max": 45,
+   "mean": 45,
+   "histogram": {
+    "45": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 26,
+   "max": 26,
+   "mean": 26,
+   "histogram": {
+    "26": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 28,
+   "max": 28,
+   "mean": 28,
+   "histogram": {
+    "28": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 2,
+   "min": 30,
+   "max": 33,
+   "mean": 31.5,
+   "histogram": {
+    "30": 1,
+    "33": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 44,
+   "max": 44,
+   "mean": 44,
+   "histogram": {
+    "44": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "FPMax",
+   "name": "Flight Power",
+   "samples": 1,
+   "min": 234,
+   "max": 234,
+   "mean": 234,
+   "histogram": {
+    "234": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 2,
+   "min": 194,
+   "max": 208,
+   "mean": 201,
+   "histogram": {
+    "194": 1,
+    "208": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 2,
+   "min": 45,
+   "max": 45,
+   "mean": 45,
+   "histogram": {
+    "45": 2
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MoveSpeed",
+   "name": "Move Speed",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "4.8%": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 3,
+   "min": 92,
+   "max": 95,
+   "mean": 93,
+   "histogram": {
+    "92": 2,
+    "95": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 24,
+   "max": 24,
+   "mean": 24,
+   "histogram": {
+    "24": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 1,
+   "min": 23,
+   "max": 23,
+   "mean": 23,
+   "histogram": {
+    "23": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 4,
+   "min": 33,
+   "max": 45,
+   "mean": 40,
+   "histogram": {
+    "33": 1,
+    "39": 1,
+    "43": 1,
+    "45": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 2,
+   "min": 50,
+   "max": 53,
+   "mean": 51.5,
+   "histogram": {
+    "50": 1,
+    "53": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "FPMax",
+   "name": "Flight Power",
+   "samples": 1,
+   "min": 264,
+   "max": 264,
+   "mean": 264,
+   "histogram": {
+    "264": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 239,
+   "max": 239,
+   "mean": 239,
+   "histogram": {
+    "239": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 52,
+   "max": 52,
+   "mean": 52,
+   "histogram": {
+    "52": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "INT",
+   "name": "Intelligence",
+   "samples": 1,
+   "min": 21,
+   "max": 21,
+   "mean": 21,
+   "histogram": {
+    "21": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MoveSpeed",
+   "name": "Move Speed",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "5.3%": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 104,
+   "max": 104,
+   "mean": 104,
+   "histogram": {
+    "104": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "STR",
+   "name": "Might",
+   "samples": 2,
+   "min": 16,
+   "max": 16,
+   "mean": 16,
+   "histogram": {
+    "16": 2
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 3,
+   "min": 45,
+   "max": 59,
+   "mean": 49.67,
+   "histogram": {
+    "45": 2,
+    "59": 1
+   }
+  },
+  {
+   "slot": "Earring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 6,
+   "min": 24,
+   "max": 32,
+   "mean": 28.17,
+   "histogram": {
+    "24": 2,
+    "25": 1,
+    "32": 3
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 33,
+   "grade": "Legend",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 22,
+   "max": 22,
+   "mean": 22,
+   "histogram": {
+    "22": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 33,
+   "grade": "Legend",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 33,
+   "max": 33,
+   "mean": 33,
+   "histogram": {
+    "33": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 33,
+   "grade": "Legend",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 135,
+   "max": 135,
+   "mean": 135,
+   "histogram": {
+    "135": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 21,
+   "max": 21,
+   "mean": 21,
+   "histogram": {
+    "21": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 32,
+   "max": 32,
+   "mean": 32,
+   "histogram": {
+    "32": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "MoveSpeed",
+   "name": "Move Speed",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "3.4%": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 5,
+   "min": 25,
+   "max": 25,
+   "mean": 25,
+   "histogram": {
+    "25": 5
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 5,
+   "min": 8,
+   "max": 8,
+   "mean": 8,
+   "histogram": {
+    "8": 5
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 5,
+   "min": 13,
+   "max": 13,
+   "mean": 13,
+   "histogram": {
+    "13": 5
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 2,
+   "min": 227,
+   "max": 233,
+   "mean": 230,
+   "histogram": {
+    "227": 1,
+    "233": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 24,
+   "max": 24,
+   "mean": 24,
+   "histogram": {
+    "24": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 2,
+   "min": 41,
+   "max": 49,
+   "mean": 45,
+   "histogram": {
+    "41": 1,
+    "49": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "INT",
+   "name": "Intelligence",
+   "samples": 1,
+   "min": 10,
+   "max": 10,
+   "mean": 10,
+   "histogram": {
+    "10": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 89,
+   "max": 89,
+   "mean": 89,
+   "histogram": {
+    "89": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 20,
+   "max": 20,
+   "mean": 20,
+   "histogram": {
+    "20": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 253,
+   "max": 253,
+   "mean": 253,
+   "histogram": {
+    "253": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 2,
+   "min": 24,
+   "max": 27,
+   "mean": 25.5,
+   "histogram": {
+    "24": 1,
+    "27": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 33,
+   "max": 33,
+   "mean": 33,
+   "histogram": {
+    "33": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 3,
+   "min": 43,
+   "max": 49,
+   "mean": 46.33,
+   "histogram": {
+    "43": 1,
+    "47": 1,
+    "49": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "FPMax",
+   "name": "Flight Power",
+   "samples": 2,
+   "min": 234,
+   "max": 236,
+   "mean": 235,
+   "histogram": {
+    "234": 1,
+    "236": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 192,
+   "max": 192,
+   "mean": 192,
+   "histogram": {
+    "192": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 43,
+   "max": 43,
+   "mean": 43,
+   "histogram": {
+    "43": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "INT",
+   "name": "Intelligence",
+   "samples": 1,
+   "min": 11,
+   "max": 11,
+   "mean": 11,
+   "histogram": {
+    "11": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 2,
+   "min": 25,
+   "max": 29,
+   "mean": 27,
+   "histogram": {
+    "25": 1,
+    "29": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 1,
+   "min": 22,
+   "max": 22,
+   "mean": 22,
+   "histogram": {
+    "22": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 28,
+   "max": 28,
+   "mean": 28,
+   "histogram": {
+    "28": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 2,
+   "min": 45,
+   "max": 45,
+   "mean": 45,
+   "histogram": {
+    "45": 2
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "INT",
+   "name": "Intelligence",
+   "samples": 1,
+   "min": 15,
+   "max": 15,
+   "mean": 15,
+   "histogram": {
+    "15": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MoveSpeed",
+   "name": "Move Speed",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "5.8%": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 3,
+   "min": 105,
+   "max": 115,
+   "mean": 108.67,
+   "histogram": {
+    "105": 1,
+    "106": 1,
+    "115": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 30,
+   "max": 30,
+   "mean": 30,
+   "histogram": {
+    "30": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "STR",
+   "name": "Might",
+   "samples": 4,
+   "min": 9,
+   "max": 16,
+   "mean": 12.5,
+   "histogram": {
+    "9": 1,
+    "11": 1,
+    "14": 1,
+    "16": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 2,
+   "min": 51,
+   "max": 54,
+   "mean": 52.5,
+   "histogram": {
+    "51": 1,
+    "54": 1
+   }
+  },
+  {
+   "slot": "Earring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 1,
+   "min": 25,
+   "max": 25,
+   "mean": 25,
+   "histogram": {
+    "25": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 36,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 1,
+   "min": 124,
+   "max": 124,
+   "mean": 124,
+   "histogram": {
+    "124": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 36,
+   "grade": "Unique",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 115,
+   "max": 115,
+   "mean": 115,
+   "histogram": {
+    "115": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 39,
+   "grade": "Legend",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 30,
+   "max": 30,
+   "mean": 30,
+   "histogram": {
+    "30": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 39,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 19,
+   "max": 19,
+   "mean": 19,
+   "histogram": {
+    "19": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 39,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 7,
+   "max": 7,
+   "mean": 7,
+   "histogram": {
+    "7": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "AdditionalHitResistRate",
+   "name": "Multi-hit Resist",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.8%": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 15,
+   "max": 15,
+   "mean": 15,
+   "histogram": {
+    "15": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 41,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 13,
+   "max": 13,
+   "mean": 13,
+   "histogram": {
+    "13": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 41,
+   "grade": "Unique",
+   "stat": "DefenseRatio",
+   "name": "Defense increase",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.5%": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 41,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 90,
+   "max": 90,
+   "mean": 90,
+   "histogram": {
+    "90": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 41,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 21,
+   "max": 21,
+   "mean": 21,
+   "histogram": {
+    "21": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 80,
+   "max": 80,
+   "mean": 80,
+   "histogram": {
+    "80": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 18,
+   "max": 18,
+   "mean": 18,
+   "histogram": {
+    "18": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 17,
+   "max": 17,
+   "mean": 17,
+   "histogram": {
+    "17": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 138,
+   "max": 138,
+   "mean": 138,
+   "histogram": {
+    "138": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 15,
+   "max": 15,
+   "mean": 15,
+   "histogram": {
+    "15": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 20,
+   "max": 20,
+   "mean": 20,
+   "histogram": {
+    "20": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 2,
+   "min": 130,
+   "max": 147,
+   "mean": 138.5,
+   "histogram": {
+    "130": 1,
+    "147": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 25,
+   "max": 25,
+   "mean": 25,
+   "histogram": {
+    "25": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "DEX",
+   "name": "Dexterity",
+   "samples": 2,
+   "min": 11,
+   "max": 12,
+   "mean": 11.5,
+   "histogram": {
+    "11": 1,
+    "12": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 32,
+   "max": 32,
+   "mean": 32,
+   "histogram": {
+    "32": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 2,
+   "min": 50,
+   "max": 52,
+   "mean": 51,
+   "histogram": {
+    "50": 1,
+    "52": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 12,
+   "max": 12,
+   "mean": 12,
+   "histogram": {
+    "12": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Perfect",
+   "name": "Perfect Chance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "2.4%": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 2,
+   "min": 15,
+   "max": 19,
+   "mean": 17,
+   "histogram": {
+    "15": 1,
+    "19": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "AdditionalHitResistRate",
+   "name": "Multi-hit Resist",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "2.7%": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 156,
+   "max": 156,
+   "mean": 156,
+   "histogram": {
+    "156": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 14,
+   "max": 14,
+   "mean": 14,
+   "histogram": {
+    "14": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 2,
+   "min": 14,
+   "max": 17,
+   "mean": 15.5,
+   "histogram": {
+    "14": 1,
+    "17": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 1,
+   "min": 12,
+   "max": 12,
+   "mean": 12,
+   "histogram": {
+    "12": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 1,
+   "min": 162,
+   "max": 162,
+   "mean": 162,
+   "histogram": {
+    "162": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 145,
+   "max": 145,
+   "mean": 145,
+   "histogram": {
+    "145": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 123,
+   "max": 123,
+   "mean": 123,
+   "histogram": {
+    "123": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 26,
+   "max": 26,
+   "mean": 26,
+   "histogram": {
+    "26": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 56,
+   "max": 56,
+   "mean": 56,
+   "histogram": {
+    "56": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 1,
+   "min": 12,
+   "max": 12,
+   "mean": 12,
+   "histogram": {
+    "12": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 153,
+   "max": 153,
+   "mean": 153,
+   "histogram": {
+    "153": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 2,
+   "min": 15,
+   "max": 18,
+   "mean": 16.5,
+   "histogram": {
+    "15": 1,
+    "18": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 15,
+   "max": 15,
+   "mean": 15,
+   "histogram": {
+    "15": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CombatSpeed",
+   "name": "Combat Speed",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "6.9%": 1,
+    "5.9%": 3,
+    "6.1%": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 20,
+   "max": 20,
+   "mean": 20,
+   "histogram": {
+    "20": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "DEX",
+   "name": "Dexterity",
+   "samples": 2,
+   "min": 13,
+   "max": 15,
+   "mean": 14,
+   "histogram": {
+    "13": 1,
+    "15": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 123,
+   "max": 123,
+   "mean": 123,
+   "histogram": {
+    "123": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 34,
+   "max": 34,
+   "mean": 34,
+   "histogram": {
+    "34": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "IgnoreIronWall",
+   "name": "Endurance Penetration",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.6%": 2
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 16,
+   "max": 16,
+   "mean": 16,
+   "histogram": {
+    "16": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Perfect",
+   "name": "Perfect Chance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "3.2%": 2
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 3,
+   "min": 26,
+   "max": 32,
+   "mean": 29,
+   "histogram": {
+    "26": 1,
+    "29": 1,
+    "32": 1
+   }
+  },
+  {
+   "slot": "Gloves",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 4,
+   "min": 16,
+   "max": 21,
+   "mean": 18.5,
+   "histogram": {
+    "16": 2,
+    "21": 2
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 41,
+   "grade": "Unique",
+   "stat": "AbnormalResistance",
+   "name": "Status Effect Resist",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "4.3%": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 41,
+   "grade": "Legend",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 3,
+   "min": 34,
+   "max": 34,
+   "mean": 34,
+   "histogram": {
+    "34": 3
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 41,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 18,
+   "max": 18,
+   "mean": 18,
+   "histogram": {
+    "18": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 41,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 29,
+   "max": 29,
+   "mean": 29,
+   "histogram": {
+    "29": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 41,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 3,
+   "min": 22,
+   "max": 22,
+   "mean": 22,
+   "histogram": {
+    "22": 3
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 41,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 3,
+   "min": 8,
+   "max": 8,
+   "mean": 8,
+   "histogram": {
+    "8": 3
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 173,
+   "max": 173,
+   "mean": 173,
+   "histogram": {
+    "173": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 1,
+   "min": 7,
+   "max": 7,
+   "mean": 7,
+   "histogram": {
+    "7": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "AmplifyHpHealGet",
+   "name": "Incoming Heal",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "13.2%": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 204,
+   "max": 204,
+   "mean": 204,
+   "histogram": {
+    "204": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "BackAttackDefense",
+   "name": "Back Defense",
+   "samples": 1,
+   "min": 202,
+   "max": 202,
+   "mean": 202,
+   "histogram": {
+    "202": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 24,
+   "max": 24,
+   "mean": 24,
+   "histogram": {
+    "24": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 1,
+   "min": 202,
+   "max": 202,
+   "mean": 202,
+   "histogram": {
+    "202": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 41,
+   "max": 41,
+   "mean": 41,
+   "histogram": {
+    "41": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "DamageRatio",
+   "name": "Attack increase",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.6%": 1,
+    "1.5%": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "DecreaseWeaponDamage",
+   "name": "Weapon Damage Tolerance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "5.4%": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 2,
+   "min": 191,
+   "max": 198,
+   "mean": 194.5,
+   "histogram": {
+    "191": 1,
+    "198": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 147,
+   "max": 147,
+   "mean": 147,
+   "histogram": {
+    "147": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 2,
+   "min": 71,
+   "max": 81,
+   "mean": 76,
+   "histogram": {
+    "71": 1,
+    "81": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 23,
+   "max": 23,
+   "mean": 23,
+   "histogram": {
+    "23": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 1,
+   "min": 15,
+   "max": 15,
+   "mean": 15,
+   "histogram": {
+    "15": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 1,
+   "min": 8,
+   "max": 8,
+   "mean": 8,
+   "histogram": {
+    "8": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 2,
+   "min": 20,
+   "max": 24,
+   "mean": 22,
+   "histogram": {
+    "20": 1,
+    "24": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 1,
+   "min": 16,
+   "max": 16,
+   "mean": 16,
+   "histogram": {
+    "16": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "DEX",
+   "name": "Dexterity",
+   "samples": 1,
+   "min": 9,
+   "max": 9,
+   "mean": 9,
+   "histogram": {
+    "9": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 221,
+   "max": 221,
+   "mean": 221,
+   "histogram": {
+    "221": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 46,
+   "max": 46,
+   "mean": 46,
+   "histogram": {
+    "46": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 39,
+   "max": 39,
+   "mean": 39,
+   "histogram": {
+    "39": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 3,
+   "min": 21,
+   "max": 22,
+   "mean": 21.33,
+   "histogram": {
+    "21": 2,
+    "22": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "BackAttackDefense",
+   "name": "Back Defense",
+   "samples": 2,
+   "min": 224,
+   "max": 224,
+   "mean": 224,
+   "histogram": {
+    "224": 2
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 2,
+   "min": 22,
+   "max": 32,
+   "mean": 27,
+   "histogram": {
+    "22": 1,
+    "32": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 2,
+   "min": 18,
+   "max": 24,
+   "mean": 21,
+   "histogram": {
+    "18": 1,
+    "24": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 29,
+   "max": 29,
+   "mean": 29,
+   "histogram": {
+    "29": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "DamageRatio",
+   "name": "Attack increase",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.8%": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "DecreaseWeaponDamage",
+   "name": "Weapon Damage Tolerance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "6.5%": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "DEX",
+   "name": "Dexterity",
+   "samples": 2,
+   "min": 19,
+   "max": 19,
+   "mean": 19,
+   "histogram": {
+    "19": 2
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 265,
+   "max": 265,
+   "mean": 265,
+   "histogram": {
+    "265": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 2,
+   "min": 39,
+   "max": 44,
+   "mean": 41.5,
+   "histogram": {
+    "39": 1,
+    "44": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 4,
+   "min": 37,
+   "max": 46,
+   "mean": 40,
+   "histogram": {
+    "37": 2,
+    "40": 1,
+    "46": 1
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 3,
+   "min": 28,
+   "max": 28,
+   "mean": 28,
+   "histogram": {
+    "28": 3
+   }
+  },
+  {
+   "slot": "Helmet",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 2,
+   "min": 11,
+   "max": 19,
+   "mean": 15,
+   "histogram": {
+    "11": 1,
+    "19": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 5,
+   "min": 47,
+   "max": 47,
+   "mean": 47,
+   "histogram": {
+    "47": 5
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 5,
+   "min": 30,
+   "max": 30,
+   "mean": 30,
+   "histogram": {
+    "30": 5
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 5,
+   "min": 10,
+   "max": 10,
+   "mean": 10,
+   "histogram": {
+    "10": 5
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 37,
+   "max": 37,
+   "mean": 37,
+   "histogram": {
+    "37": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "FPMax",
+   "name": "Flight Power",
+   "samples": 1,
+   "min": 246,
+   "max": 246,
+   "mean": 246,
+   "histogram": {
+    "246": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 98,
+   "max": 98,
+   "mean": 98,
+   "histogram": {
+    "98": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "AGI",
+   "name": "Precision",
+   "samples": 1,
+   "min": 14,
+   "max": 14,
+   "mean": 14,
+   "histogram": {
+    "14": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 63,
+   "max": 63,
+   "mean": 63,
+   "histogram": {
+    "63": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "FPMax",
+   "name": "Flight Power",
+   "samples": 1,
+   "min": 286,
+   "max": 286,
+   "mean": 286,
+   "histogram": {
+    "286": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 234,
+   "max": 234,
+   "mean": 234,
+   "histogram": {
+    "234": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 56,
+   "max": 56,
+   "mean": 56,
+   "histogram": {
+    "56": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "INT",
+   "name": "Intelligence",
+   "samples": 1,
+   "min": 14,
+   "max": 14,
+   "mean": 14,
+   "histogram": {
+    "14": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 5,
+   "min": 107,
+   "max": 116,
+   "mean": 109.4,
+   "histogram": {
+    "107": 1,
+    "108": 3,
+    "116": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 2,
+   "min": 30,
+   "max": 31,
+   "mean": 30.5,
+   "histogram": {
+    "30": 1,
+    "31": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "STR",
+   "name": "Might",
+   "samples": 1,
+   "min": 9,
+   "max": 9,
+   "mean": 9,
+   "histogram": {
+    "9": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 2,
+   "min": 55,
+   "max": 55,
+   "mean": 55,
+   "histogram": {
+    "55": 2
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 336,
+   "max": 336,
+   "mean": 336,
+   "histogram": {
+    "336": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CombatSpeed",
+   "name": "Combat Speed",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "3.6%": 1,
+    "4.1%": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 4,
+   "min": 40,
+   "max": 52,
+   "mean": 49,
+   "histogram": {
+    "40": 1,
+    "52": 3
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 58,
+   "max": 58,
+   "mean": 58,
+   "histogram": {
+    "58": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "FPMax",
+   "name": "Flight Power",
+   "samples": 1,
+   "min": 329,
+   "max": 329,
+   "mean": 329,
+   "histogram": {
+    "329": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 2,
+   "min": 242,
+   "max": 251,
+   "mean": 246.5,
+   "histogram": {
+    "242": 1,
+    "251": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "INT",
+   "name": "Intelligence",
+   "samples": 1,
+   "min": 18,
+   "max": 18,
+   "mean": 18,
+   "histogram": {
+    "18": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 119,
+   "max": 119,
+   "mean": 119,
+   "histogram": {
+    "119": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 28,
+   "max": 28,
+   "mean": 28,
+   "histogram": {
+    "28": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "STR",
+   "name": "Might",
+   "samples": 1,
+   "min": 19,
+   "max": 19,
+   "mean": 19,
+   "histogram": {
+    "19": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 2,
+   "min": 58,
+   "max": 62,
+   "mean": 60,
+   "histogram": {
+    "58": 1,
+    "62": 1
+   }
+  },
+  {
+   "slot": "Necklace",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 5,
+   "min": 32,
+   "max": 36,
+   "mean": 34.6,
+   "histogram": {
+    "32": 1,
+    "33": 1,
+    "36": 3
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 38,
+   "grade": "Legend",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 42,
+   "max": 42,
+   "mean": 42,
+   "histogram": {
+    "42": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 38,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 26,
+   "max": 26,
+   "mean": 26,
+   "histogram": {
+    "26": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 38,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 9,
+   "max": 9,
+   "mean": 9,
+   "histogram": {
+    "9": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "BackAttackDefense",
+   "name": "Back Defense",
+   "samples": 1,
+   "min": 162,
+   "max": 162,
+   "mean": 162,
+   "histogram": {
+    "162": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "DEX",
+   "name": "Dexterity",
+   "samples": 1,
+   "min": 6,
+   "max": 6,
+   "mean": 6,
+   "histogram": {
+    "6": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 172,
+   "max": 172,
+   "mean": 172,
+   "histogram": {
+    "172": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 46,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 1,
+   "min": 17,
+   "max": 17,
+   "mean": 17,
+   "histogram": {
+    "17": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 46,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 34,
+   "max": 34,
+   "mean": 34,
+   "histogram": {
+    "34": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 46,
+   "grade": "Unique",
+   "stat": "DamageRatio",
+   "name": "Attack increase",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.5%": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 46,
+   "grade": "Unique",
+   "stat": "Perfect",
+   "name": "Perfect Chance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "3.4%": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "AbnormalResistance",
+   "name": "Status Effect Resist",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "5.8%": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "AdditionalHitResistRate",
+   "name": "Multi-hit Resist",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "3.9%": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "BackAttackDefense",
+   "name": "Back Defense",
+   "samples": 1,
+   "min": 222,
+   "max": 222,
+   "mean": 222,
+   "histogram": {
+    "222": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 20,
+   "max": 20,
+   "mean": 20,
+   "histogram": {
+    "20": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 4,
+   "min": 25,
+   "max": 30,
+   "mean": 27.75,
+   "histogram": {
+    "25": 1,
+    "27": 1,
+    "29": 1,
+    "30": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 3,
+   "min": 206,
+   "max": 210,
+   "mean": 208,
+   "histogram": {
+    "206": 1,
+    "208": 1,
+    "210": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "DamageRatio",
+   "name": "Attack increase",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.9%": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 156,
+   "max": 156,
+   "mean": 156,
+   "histogram": {
+    "156": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 2,
+   "min": 35,
+   "max": 39,
+   "mean": 37,
+   "histogram": {
+    "35": 1,
+    "39": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "IronWall",
+   "name": "Endurance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "2.5%": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 82,
+   "max": 82,
+   "mean": 82,
+   "histogram": {
+    "82": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 21,
+   "max": 21,
+   "mean": 21,
+   "histogram": {
+    "21": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 2,
+   "min": 35,
+   "max": 39,
+   "mean": 37,
+   "histogram": {
+    "35": 1,
+    "39": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 2,
+   "min": 9,
+   "max": 13,
+   "mean": 11,
+   "histogram": {
+    "9": 1,
+    "13": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "AbnormalResistance",
+   "name": "Status Effect Resist",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "6.4%": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "AdditionalHitResistRate",
+   "name": "Multi-hit Resist",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "4.1%": 2
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 2,
+   "min": 224,
+   "max": 234,
+   "mean": 229,
+   "histogram": {
+    "224": 1,
+    "234": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 3,
+   "min": 23,
+   "max": 30,
+   "mean": 25.67,
+   "histogram": {
+    "23": 1,
+    "24": 1,
+    "30": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 1,
+   "min": 22,
+   "max": 22,
+   "mean": 22,
+   "histogram": {
+    "22": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 2,
+   "min": 226,
+   "max": 226,
+   "mean": 226,
+   "histogram": {
+    "226": 2
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 228,
+   "max": 228,
+   "mean": 228,
+   "histogram": {
+    "228": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 40,
+   "max": 40,
+   "mean": 40,
+   "histogram": {
+    "40": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 38,
+   "max": 38,
+   "mean": 38,
+   "histogram": {
+    "38": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 24,
+   "max": 24,
+   "mean": 24,
+   "histogram": {
+    "24": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 3,
+   "min": 32,
+   "max": 42,
+   "mean": 36.33,
+   "histogram": {
+    "32": 1,
+    "35": 1,
+    "42": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 2,
+   "min": 291,
+   "max": 291,
+   "mean": 291,
+   "histogram": {
+    "291": 2
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "DamageRatio",
+   "name": "Attack increase",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "2.3%": 2
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "DecreaseDamage",
+   "name": "Damage Tolerance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "9.5%": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HardHitResist",
+   "name": "Double Resist",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "3%": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 46,
+   "max": 46,
+   "mean": 46,
+   "histogram": {
+    "46": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 92,
+   "max": 92,
+   "mean": 92,
+   "histogram": {
+    "92": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 2,
+   "min": 25,
+   "max": 30,
+   "mean": 27.5,
+   "histogram": {
+    "25": 1,
+    "30": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 2,
+   "min": 41,
+   "max": 54,
+   "mean": 47.5,
+   "histogram": {
+    "41": 1,
+    "54": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 1,
+   "min": 24,
+   "max": 24,
+   "mean": 24,
+   "histogram": {
+    "24": 1
+   }
+  },
+  {
+   "slot": "Pants",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 1,
+   "min": 19,
+   "max": 19,
+   "mean": 19,
+   "histogram": {
+    "19": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "AGI",
+   "name": "Precision",
+   "samples": 1,
+   "min": 5,
+   "max": 5,
+   "mean": 5,
+   "histogram": {
+    "5": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "STR",
+   "name": "Might",
+   "samples": 1,
+   "min": 6,
+   "max": 6,
+   "mean": 6,
+   "histogram": {
+    "6": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 1,
+   "min": 16,
+   "max": 16,
+   "mean": 16,
+   "histogram": {
+    "16": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 4,
+   "min": 31,
+   "max": 31,
+   "mean": 31,
+   "histogram": {
+    "31": 4
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 4,
+   "min": 20,
+   "max": 20,
+   "mean": 20,
+   "histogram": {
+    "20": 4
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 4,
+   "min": 7,
+   "max": 7,
+   "mean": 7,
+   "histogram": {
+    "7": 4
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 198,
+   "max": 198,
+   "mean": 198,
+   "histogram": {
+    "198": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 213,
+   "max": 213,
+   "mean": 213,
+   "histogram": {
+    "213": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 28,
+   "max": 28,
+   "mean": 28,
+   "histogram": {
+    "28": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 2,
+   "min": 20,
+   "max": 26,
+   "mean": 23,
+   "histogram": {
+    "20": 1,
+    "26": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 4,
+   "min": 25,
+   "max": 35,
+   "mean": 28.75,
+   "histogram": {
+    "25": 1,
+    "26": 1,
+    "29": 1,
+    "35": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 2,
+   "min": 36,
+   "max": 42,
+   "mean": 39,
+   "histogram": {
+    "36": 1,
+    "42": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "FPMax",
+   "name": "Flight Power",
+   "samples": 1,
+   "min": 206,
+   "max": 206,
+   "mean": 206,
+   "histogram": {
+    "206": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 3,
+   "min": 154,
+   "max": 160,
+   "mean": 156.33,
+   "histogram": {
+    "154": 1,
+    "155": 1,
+    "160": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 1,
+   "min": 38,
+   "max": 38,
+   "mean": 38,
+   "histogram": {
+    "38": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 76,
+   "max": 76,
+   "mean": 76,
+   "histogram": {
+    "76": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 18,
+   "max": 18,
+   "mean": 18,
+   "histogram": {
+    "18": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 3,
+   "min": 16,
+   "max": 18,
+   "mean": 16.67,
+   "histogram": {
+    "16": 2,
+    "18": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "AGI",
+   "name": "Precision",
+   "samples": 1,
+   "min": 14,
+   "max": 14,
+   "mean": 14,
+   "histogram": {
+    "14": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 2,
+   "min": 228,
+   "max": 230,
+   "mean": 229,
+   "histogram": {
+    "228": 1,
+    "230": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 28,
+   "max": 28,
+   "mean": 28,
+   "histogram": {
+    "28": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 2,
+   "min": 29,
+   "max": 39,
+   "mean": 34,
+   "histogram": {
+    "29": 1,
+    "39": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 44,
+   "max": 44,
+   "mean": 44,
+   "histogram": {
+    "44": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 173,
+   "max": 173,
+   "mean": 173,
+   "histogram": {
+    "173": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "INT",
+   "name": "Intelligence",
+   "samples": 1,
+   "min": 13,
+   "max": 13,
+   "mean": 13,
+   "histogram": {
+    "13": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "STR",
+   "name": "Might",
+   "samples": 1,
+   "min": 14,
+   "max": 14,
+   "mean": 14,
+   "histogram": {
+    "14": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 5,
+   "min": 37,
+   "max": 50,
+   "mean": 44.2,
+   "histogram": {
+    "37": 1,
+    "38": 1,
+    "47": 1,
+    "49": 1,
+    "50": 1
+   }
+  },
+  {
+   "slot": "Ring1",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 2,
+   "min": 19,
+   "max": 23,
+   "mean": 21,
+   "histogram": {
+    "19": 1,
+    "23": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 56,
+   "max": 56,
+   "mean": 56,
+   "histogram": {
+    "56": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 3,
+   "min": 31,
+   "max": 31,
+   "mean": 31,
+   "histogram": {
+    "31": 3
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 3,
+   "min": 20,
+   "max": 20,
+   "mean": 20,
+   "histogram": {
+    "20": 3
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 43,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 3,
+   "min": 7,
+   "max": 7,
+   "mean": 7,
+   "histogram": {
+    "7": 3
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 181,
+   "max": 181,
+   "mean": 181,
+   "histogram": {
+    "181": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 19,
+   "max": 19,
+   "mean": 19,
+   "histogram": {
+    "19": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 3,
+   "min": 21,
+   "max": 25,
+   "mean": 22.67,
+   "histogram": {
+    "21": 1,
+    "22": 1,
+    "25": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 23,
+   "max": 23,
+   "mean": 23,
+   "histogram": {
+    "23": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "FPMax",
+   "name": "Flight Power",
+   "samples": 1,
+   "min": 177,
+   "max": 177,
+   "mean": 177,
+   "histogram": {
+    "177": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 3,
+   "min": 34,
+   "max": 41,
+   "mean": 36.67,
+   "histogram": {
+    "34": 1,
+    "35": 1,
+    "41": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "INT",
+   "name": "Intelligence",
+   "samples": 2,
+   "min": 8,
+   "max": 14,
+   "mean": 11,
+   "histogram": {
+    "8": 1,
+    "14": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 75,
+   "max": 75,
+   "mean": 75,
+   "histogram": {
+    "75": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 24,
+   "max": 24,
+   "mean": 24,
+   "histogram": {
+    "24": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 32,
+   "max": 32,
+   "mean": 32,
+   "histogram": {
+    "32": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 2,
+   "min": 15,
+   "max": 17,
+   "mean": 16,
+   "histogram": {
+    "15": 1,
+    "17": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 211,
+   "max": 211,
+   "mean": 211,
+   "histogram": {
+    "211": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 2,
+   "min": 20,
+   "max": 20,
+   "mean": 20,
+   "histogram": {
+    "20": 2
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 20,
+   "max": 20,
+   "mean": 20,
+   "histogram": {
+    "20": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 2,
+   "min": 27,
+   "max": 28,
+   "mean": 27.5,
+   "histogram": {
+    "27": 1,
+    "28": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 38,
+   "max": 38,
+   "mean": 38,
+   "histogram": {
+    "38": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 4,
+   "min": 155,
+   "max": 174,
+   "mean": 163.75,
+   "histogram": {
+    "155": 1,
+    "160": 1,
+    "166": 1,
+    "174": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 2,
+   "min": 36,
+   "max": 37,
+   "mean": 36.5,
+   "histogram": {
+    "36": 1,
+    "37": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 77,
+   "max": 77,
+   "mean": 77,
+   "histogram": {
+    "77": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 18,
+   "max": 18,
+   "mean": 18,
+   "histogram": {
+    "18": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 1,
+   "min": 16,
+   "max": 16,
+   "mean": 16,
+   "histogram": {
+    "16": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "AGI",
+   "name": "Precision",
+   "samples": 1,
+   "min": 14,
+   "max": 14,
+   "mean": 14,
+   "histogram": {
+    "14": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 26,
+   "max": 26,
+   "mean": 26,
+   "histogram": {
+    "26": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 22,
+   "max": 22,
+   "mean": 22,
+   "histogram": {
+    "22": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 39,
+   "max": 39,
+   "mean": 39,
+   "histogram": {
+    "39": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 40,
+   "max": 40,
+   "mean": 40,
+   "histogram": {
+    "40": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 2,
+   "min": 43,
+   "max": 50,
+   "mean": 46.5,
+   "histogram": {
+    "43": 1,
+    "50": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 86,
+   "max": 86,
+   "mean": 86,
+   "histogram": {
+    "86": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "STR",
+   "name": "Might",
+   "samples": 3,
+   "min": 11,
+   "max": 14,
+   "mean": 13,
+   "histogram": {
+    "11": 1,
+    "14": 2
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 2,
+   "min": 37,
+   "max": 38,
+   "mean": 37.5,
+   "histogram": {
+    "37": 1,
+    "38": 1
+   }
+  },
+  {
+   "slot": "Ring2",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 5,
+   "min": 20,
+   "max": 28,
+   "mean": 26.4,
+   "histogram": {
+    "20": 1,
+    "28": 4
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 38,
+   "grade": "Legend",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 17,
+   "max": 17,
+   "mean": 17,
+   "histogram": {
+    "17": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 38,
+   "grade": "Legend",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 92,
+   "max": 92,
+   "mean": 92,
+   "histogram": {
+    "92": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 41,
+   "grade": "Legend",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 4,
+   "min": 34,
+   "max": 34,
+   "mean": 34,
+   "histogram": {
+    "34": 4
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 41,
+   "grade": "Legend",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 4,
+   "min": 22,
+   "max": 22,
+   "mean": 22,
+   "histogram": {
+    "22": 4
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 41,
+   "grade": "Legend",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 4,
+   "min": 8,
+   "max": 8,
+   "mean": 8,
+   "histogram": {
+    "8": 4
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "AmplifyCriticalDamage",
+   "name": "Critical Damage Boost",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "6.9%": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 117,
+   "max": 117,
+   "mean": 117,
+   "histogram": {
+    "117": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 2,
+   "min": 14,
+   "max": 15,
+   "mean": 14.5,
+   "histogram": {
+    "14": 1,
+    "15": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 1,
+   "min": 22,
+   "max": 22,
+   "mean": 22,
+   "histogram": {
+    "22": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "HardHit",
+   "name": "Double Chance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1%": 1,
+    "0.9%": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 42,
+   "grade": "Legend",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 1,
+   "min": 17,
+   "max": 17,
+   "mean": 17,
+   "histogram": {
+    "17": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "AmplifyCriticalDamage",
+   "name": "Critical Damage Boost",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "8.8%": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 155,
+   "max": 155,
+   "mean": 155,
+   "histogram": {
+    "155": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 123,
+   "max": 123,
+   "mean": 123,
+   "histogram": {
+    "123": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "IgnoreIronWall",
+   "name": "Endurance Penetration",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.3%": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 61,
+   "max": 61,
+   "mean": 61,
+   "histogram": {
+    "61": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 13,
+   "max": 13,
+   "mean": 13,
+   "histogram": {
+    "13": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 27,
+   "max": 27,
+   "mean": 27,
+   "histogram": {
+    "27": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 2,
+   "min": 160,
+   "max": 176,
+   "mean": 168,
+   "histogram": {
+    "160": 1,
+    "176": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 2,
+   "min": 164,
+   "max": 185,
+   "mean": 174.5,
+   "histogram": {
+    "164": 1,
+    "185": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "DEX",
+   "name": "Dexterity",
+   "samples": 1,
+   "min": 15,
+   "max": 15,
+   "mean": 15,
+   "histogram": {
+    "15": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 177,
+   "max": 177,
+   "mean": 177,
+   "histogram": {
+    "177": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 2,
+   "min": 29,
+   "max": 32,
+   "mean": 30.5,
+   "histogram": {
+    "29": 1,
+    "32": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 1,
+   "min": 71,
+   "max": 71,
+   "mean": 71,
+   "histogram": {
+    "71": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 23,
+   "max": 23,
+   "mean": 23,
+   "histogram": {
+    "23": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Restoration",
+   "name": "Regeneration",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "1.4%": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 28,
+   "max": 28,
+   "mean": 28,
+   "histogram": {
+    "28": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 1,
+   "min": 20,
+   "max": 20,
+   "mean": 20,
+   "histogram": {
+    "20": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "AmplifyCriticalDamage",
+   "name": "Critical Damage Boost",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "12.2%": 2
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 183,
+   "max": 183,
+   "mean": 183,
+   "histogram": {
+    "183": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "ArmorEvasion",
+   "name": "Evasion",
+   "samples": 1,
+   "min": 27,
+   "max": 27,
+   "mean": 27,
+   "histogram": {
+    "27": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 1,
+   "min": 28,
+   "max": 28,
+   "mean": 28,
+   "histogram": {
+    "28": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 1,
+   "min": 17,
+   "max": 17,
+   "mean": 17,
+   "histogram": {
+    "17": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 3,
+   "min": 22,
+   "max": 32,
+   "mean": 28.67,
+   "histogram": {
+    "22": 1,
+    "32": 2
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "DEX",
+   "name": "Dexterity",
+   "samples": 2,
+   "min": 21,
+   "max": 22,
+   "mean": 21.5,
+   "histogram": {
+    "21": 1,
+    "22": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 162,
+   "max": 162,
+   "mean": 162,
+   "histogram": {
+    "162": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 2,
+   "min": 31,
+   "max": 33,
+   "mean": 32,
+   "histogram": {
+    "31": 1,
+    "33": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 2,
+   "min": 71,
+   "max": 73,
+   "mean": 72,
+   "histogram": {
+    "71": 1,
+    "73": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 3,
+   "min": 30,
+   "max": 42,
+   "mean": 38,
+   "histogram": {
+    "30": 1,
+    "42": 2
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 1,
+   "min": 23,
+   "max": 23,
+   "mean": 23,
+   "histogram": {
+    "23": 1
+   }
+  },
+  {
+   "slot": "Shoulder",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 2,
+   "min": 18,
+   "max": 18,
+   "mean": 18,
+   "histogram": {
+    "18": 2
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 38,
+   "grade": "Legend",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 1,
+   "min": 171,
+   "max": 171,
+   "mean": 171,
+   "histogram": {
+    "171": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 38,
+   "grade": "Legend",
+   "stat": "DEX",
+   "name": "Dexterity",
+   "samples": 1,
+   "min": 8,
+   "max": 8,
+   "mean": 8,
+   "histogram": {
+    "8": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "AmplifyAllDamage",
+   "name": "Damage Boost",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "3.6%": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 40,
+   "grade": "Legend",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 1,
+   "min": 32,
+   "max": 32,
+   "mean": 32,
+   "histogram": {
+    "32": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "AmplifyAllDamage",
+   "name": "Damage Boost",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "4.4%": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 1,
+   "min": 227,
+   "max": 227,
+   "mean": 227,
+   "histogram": {
+    "227": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 3,
+   "min": 23,
+   "max": 27,
+   "mean": 25,
+   "histogram": {
+    "23": 1,
+    "25": 1,
+    "27": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 1,
+   "min": 15,
+   "max": 15,
+   "mean": 15,
+   "histogram": {
+    "15": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 2,
+   "min": 27,
+   "max": 38,
+   "mean": 32.5,
+   "histogram": {
+    "27": 1,
+    "38": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "CriticalResist",
+   "name": "Critical Hit Resist",
+   "samples": 2,
+   "min": 40,
+   "max": 52,
+   "mean": 46,
+   "histogram": {
+    "40": 1,
+    "52": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "DEX",
+   "name": "Dexterity",
+   "samples": 2,
+   "min": 9,
+   "max": 11,
+   "mean": 10,
+   "histogram": {
+    "9": 1,
+    "11": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 2,
+   "min": 167,
+   "max": 185,
+   "mean": 176,
+   "histogram": {
+    "167": 1,
+    "185": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "HPRegen",
+   "name": "Natural HP Regen",
+   "samples": 2,
+   "min": 39,
+   "max": 46,
+   "mean": 42.5,
+   "histogram": {
+    "39": 1,
+    "46": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPMax",
+   "name": "MP",
+   "samples": 3,
+   "min": 83,
+   "max": 100,
+   "mean": 89.67,
+   "histogram": {
+    "83": 1,
+    "86": 1,
+    "100": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 21,
+   "max": 21,
+   "mean": 21,
+   "histogram": {
+    "21": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 54,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 3,
+   "min": 19,
+   "max": 26,
+   "mean": 23.33,
+   "histogram": {
+    "19": 1,
+    "25": 1,
+    "26": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "AbnormalResistance",
+   "name": "Status Effect Resist",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "6.7%": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "AmplifyAllDamage",
+   "name": "Damage Boost",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "5.2%": 1,
+    "5.4%": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "ArmorDefense",
+   "name": "Defense",
+   "samples": 2,
+   "min": 242,
+   "max": 244,
+   "mean": 243,
+   "histogram": {
+    "242": 1,
+    "244": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Block",
+   "name": "Block",
+   "samples": 3,
+   "min": 25,
+   "max": 27,
+   "mean": 26,
+   "histogram": {
+    "25": 1,
+    "26": 1,
+    "27": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 1,
+   "min": 18,
+   "max": 18,
+   "mean": 18,
+   "histogram": {
+    "18": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 1,
+   "min": 39,
+   "max": 39,
+   "mean": 39,
+   "histogram": {
+    "39": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "DEX",
+   "name": "Dexterity",
+   "samples": 1,
+   "min": 14,
+   "max": 14,
+   "mean": 14,
+   "histogram": {
+    "14": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 2,
+   "min": 22,
+   "max": 23,
+   "mean": 22.5,
+   "histogram": {
+    "22": 1,
+    "23": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 70,
+   "grade": "Unique",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 1,
+   "min": 8,
+   "max": 8,
+   "mean": 8,
+   "histogram": {
+    "8": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "AbnormalResistance",
+   "name": "Status Effect Resist",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "6.9%": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CON",
+   "name": "Constitution",
+   "samples": 1,
+   "min": 28,
+   "max": 28,
+   "mean": 28,
+   "histogram": {
+    "28": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Critical",
+   "name": "Critical Hit",
+   "samples": 3,
+   "min": 33,
+   "max": 45,
+   "mean": 37,
+   "histogram": {
+    "33": 2,
+    "45": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "CriticalDamageDefense",
+   "name": "Critical Damage Defense",
+   "samples": 1,
+   "min": 316,
+   "max": 316,
+   "mean": 316,
+   "histogram": {
+    "316": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "DefenseRatio",
+   "name": "Defense increase",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "3.3%": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "DEX",
+   "name": "Dexterity",
+   "samples": 3,
+   "min": 17,
+   "max": 20,
+   "mean": 19,
+   "histogram": {
+    "17": 1,
+    "20": 2
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "FrontAttackDefense",
+   "name": "Front Defense",
+   "samples": 1,
+   "min": 269,
+   "max": 269,
+   "mean": 269,
+   "histogram": {
+    "269": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "HPMax",
+   "name": "HP",
+   "samples": 1,
+   "min": 239,
+   "max": 239,
+   "mean": 239,
+   "histogram": {
+    "239": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "MPRegen",
+   "name": "Natural MP Regen",
+   "samples": 1,
+   "min": 26,
+   "max": 26,
+   "mean": 26,
+   "histogram": {
+    "26": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "Perfect",
+   "name": "Perfect Chance",
+   "samples": 0,
+   "min": null,
+   "max": null,
+   "mean": null,
+   "histogram": {
+    "5.5%": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponAccuracy",
+   "name": "Accuracy",
+   "samples": 2,
+   "min": 59,
+   "max": 59,
+   "mean": 59,
+   "histogram": {
+    "59": 2
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WeaponFixingDamage",
+   "name": "Attack",
+   "samples": 2,
+   "min": 22,
+   "max": 32,
+   "mean": 27,
+   "histogram": {
+    "22": 1,
+    "32": 1
+   }
+  },
+  {
+   "slot": "Torso",
+   "itemLevel": 86,
+   "grade": "Unique",
+   "stat": "WIS",
+   "name": "Willpower",
+   "samples": 1,
+   "min": 17,
+   "max": 17,
+   "mean": 17,
+   "histogram": {
+    "17": 1
+   }
+  }
+ ]
+}

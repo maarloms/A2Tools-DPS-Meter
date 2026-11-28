@@ -125,7 +125,7 @@ test("Fehler von NCSOFT: 404 → not_found, sonst 502, nichts gecacht", async ()
   assert.equal(cache.size(), 0);
 });
 
-test("Drosselung: 40 pro Minute je Raum", async () => {
+test("Drosselung: 60 pro Minute je Raum", async () => {
   const t = new Throttle(3, 1000);
   assert.ok(t.take("a", 0) && t.take("a", 1) && t.take("a", 2));
   assert.equal(t.take("a", 3), false);
