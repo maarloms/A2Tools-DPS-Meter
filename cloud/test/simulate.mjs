@@ -547,6 +547,12 @@ async function main() {
   check("mit Cookie: Patchnotes-Seite + Markdown-Modul", (await fetch(`${BASE}/js/patchnotes.js`, { headers: ck })).status === 200 && mdJs.status === 200 && (await mdJs.text()).includes("export function renderNotes"));
   check("CSP erlaubt GitHub-API für Patchnotes", /connect-src[^;]*https:\/\/api\.github\.com/.test(mdJs.headers.get("content-security-policy") || ""));
   check("mit Cookie: API ohne Secret", (await fetch(`${BASE}/api/rooms/${ROOM}/stats/overview`, { headers: ck })).status === 200);
+  // Charakter-Abfrage (NCSOFT-Proxy): nur mit Session; Eingaben werden geprüft, bevor etwas nach außen geht
+  check("Charakter-API ohne Cookie → 401", (await fetch(`${BASE}/api/character/servers?region=eu`)).status === 401);
+  check("Charakter-Suche: ungültiger Name → 400 (kein Aufruf nach außen)", (await fetch(`${BASE}/api/character/search?q=a%20b&region=eu`, { headers: ck })).status === 400);
+  check("Charakter-API: ungültige Region/ID → 400, unbekannter Pfad → 404", (await fetch(`${BASE}/api/character/servers?region=xx`, { headers: ck })).status === 400 &&
+    (await fetch(`${BASE}/api/character/1317/zu-kurz?region=eu`, { headers: ck })).status === 400 && (await fetch(`${BASE}/api/character/foo`, { headers: ck })).status === 404);
+  check("Charakter-Seite nur mit Cookie", (await fetch(`${BASE}/js/character.js`)).status === 401 && (await fetch(`${BASE}/js/character.js`, { headers: ck })).status === 200);
   check("Cookie gilt nicht für fremden Raum", (await fetch(`${BASE}/api/rooms/anderer-raum/fights`, { headers: ck })).status === 401);
   // Ein Zeichen mitten in der Signatur: das letzte Base64-Zeichen trägt Füllbits, A↔B dort ändert nichts.
   const at = cookie.length - 8;

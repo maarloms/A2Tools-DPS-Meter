@@ -545,3 +545,19 @@ details.more[open] > summary::before { content: "▾ "; }
 .badge.warn { color: var(--warn); border-color: rgba(255, 207, 110, 0.45); }
 .card p.good { color: var(--good); }
 .card p.bad { color: var(--bad); }
+
+/* Charakter-Seite */
+.ch-head { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
+.ch-head h2 { margin: 0; }
+.ch-avatar { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 1px solid var(--hair); }
+.ch-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.ch-slot { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; text-align: left; padding: 6px 8px; border-radius: var(--radius); border: 1px solid var(--hair); background: rgba(0, 0, 0, 0.2); color: var(--text); cursor: pointer; font: inherit; font-size: 12px; }
+.ch-slot:hover, .ch-slot.on { border-color: var(--border); background: rgba(255, 255, 255, 0.06); }
+div.ch-slot { cursor: default; }
+.ch-slot .ch-icon { grid-row: 1 / 3; }
+.ch-slot-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-slot-lvl { color: var(--muted); }
+.ch-icon { width: 36px; height: 36px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); object-fit: contain; display: inline-block; vertical-align: middle; }
+.ch-icon.sm { width: 22px; height: 22px; border-radius: 4px; }
+.g-rare { border-left: 3px solid #3987e5; } .g-legend { border-left: 3px solid #c98500; } .g-unique { border-left: 3px solid #9085e9; } .g-epic { border-left: 3px solid #d95926; } .g-ultimate { border-left: 3px solid #d55181; }
+.ch-item { margin-top: 16px; }

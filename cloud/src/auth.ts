@@ -22,6 +22,8 @@ export interface Env {
   TEST_HOOKS?: string;
   /** Wochenbild: Bearer-Key des lokalen Render-Agenten für /api/weekly/*. Ohne: Routen 404, Cron sendet sofort Text. */
   WEEKLY_RENDER_KEY?: string;
+  /** Charakter-Abfrage über NCSOFT (Dashboard-Reiter "Charakter"): "on" = an, sonst aus (404). */
+  CHARACTER_LOOKUP?: string;
 }
 
 const MIN_SECRET_LEN = 16;

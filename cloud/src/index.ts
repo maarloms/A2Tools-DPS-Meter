@@ -6,6 +6,7 @@
 // Der Worker macht nur billige Arbeit (Routing, Auth, Header) – 10-ms-CPU-Limit im Free Plan.
 
 import { Env, allowedOrigin, bearer, checkAdmin, checkRoomSecret, corsHeaders, isAdminRoute } from "./auth";
+import { handleCharacter, isCharacterPath } from "./character";
 import { handleDiagnostics, isDiagnosticPath } from "./diagnostics";
 import { LIMITS, PROTOCOL_VERSION, ROOM_CODE_RE } from "./protocol";
 import { SESSION_DAYS, createSession, sessionCookie, sessionRoom } from "./session";
@@ -23,7 +24,7 @@ const NO_STORE = { "cache-control": "no-store" };
 const PAGE_HEADERS: Record<string, string> = {
   ...SECURITY_HEADERS,
   "content-security-policy":
-    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; " +
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://assets.playnccdn.com https://profileimg.plaync.com; " +
     "connect-src 'self' https://api.github.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   "permissions-policy": "camera=(), microphone=(), geolocation=()",
 };
@@ -126,6 +127,8 @@ export default {
     const url = new URL(req.url);
     if (!url.pathname.startsWith("/api/")) return serveAsset(req, env, url);
     if (url.pathname === "/api/session") return handleSession(req, env, url);
+    // Charakter-Abfrage (NCSOFT-Proxy): nur Dashboard mit Session, eigener Schalter CHARACTER_LOOKUP
+    if (isCharacterPath(url.pathname)) return withHeaders(await handleCharacter(req, env, url, await sessionRoom(env, req)), SECURITY_HEADERS);
     // Wochenbild: nur der lokale Render-Agent (eigener Bearer-Key, keine Browser/CORS)
     if (url.pathname.startsWith("/api/weekly/")) return withHeaders(await handleWeeklyApi(req, env, url), { ...SECURITY_HEADERS, ...NO_STORE });
 

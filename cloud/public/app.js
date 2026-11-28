@@ -12,6 +12,7 @@ import { loadVersus, redrawVersus } from "./js/versus.js";
 import { invalidateLiveSide, recordLive, renderLive } from "./js/live.js";
 import { loadTimer } from "./js/timer.js";
 import { loadChecklist } from "./js/checklist.js";
+import { loadCharacter } from "./js/character.js";
 import { loadMembersPage } from "./js/members.js";
 import { loadBossesPage } from "./js/bosses.js";
 import { loadPatchnotes } from "./js/patchnotes.js";
@@ -28,6 +29,7 @@ const ICONS = {
   live: '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
   timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/>',
   checklist: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 9l1.5 1.5L12 8M8 15l1.5 1.5L12 14M14.5 9.5H17M14.5 15.5H17"/>',
+  character: '<circle cx="12" cy="7" r="3"/><path d="M6 21v-5l-2-3M18 21v-5l2-3M8 13h8v8H8z"/>',
   members: '<circle cx="9" cy="9" r="3.5"/><path d="M2.5 20c0-3.5 3-5.5 6.5-5.5s6.5 2 6.5 5.5"/><path d="M16 5.5a3.5 3.5 0 0 1 0 7M18 14.8c2 .6 3.5 2.3 3.5 5.2"/>',
   bosses: '<path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/>',
   patchnotes: '<path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5M9 12h6M9 16h6"/>',
@@ -46,6 +48,7 @@ const NAV = [
   ["live", "Live", "#/live"],
   ["timer", "Event-Timer", "#/timer"],
   ["checklist", "Checkliste", "#/checklist"],
+  ["character", "Charakter", "#/character"],
   ["members", "Mitglieder", "#/members"],
   ["bosses", "Bosse", "#/bosses"],
   ["patchnotes", "Patchnotes", "#/patchnotes"],
@@ -188,6 +191,7 @@ async function route({ quiet = false } = {}) {
   else if (r.name === "live") renderLive();
   else if (r.name === "timer") done = loadTimer();
   else if (r.name === "checklist") done = loadChecklist();
+  else if (r.name === "character") done = loadCharacter();
   else if (r.name === "members") done = loadMembersPage();
   else if (r.name === "bosses") done = loadBossesPage();
   else if (r.name === "patchnotes") done = loadPatchnotes();
